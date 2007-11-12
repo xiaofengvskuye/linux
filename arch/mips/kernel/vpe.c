@@ -955,8 +955,8 @@ int vpe_elfload(struct vpe * v)
 			if (phdr->p_type != PT_LOAD)
 				continue;
 
-			memcpy((void *)phdr->p_vaddr, (char *)hdr + phdr->p_offset, phdr->p_filesz);
-			memset((void *)phdr->p_vaddr + phdr->p_filesz, 0, phdr->p_memsz - phdr->p_filesz);
+			memcpy((void *)phdr->p_paddr, (char *)hdr + phdr->p_offset, phdr->p_filesz);
+			memset((void *)phdr->p_paddr + phdr->p_filesz, 0, phdr->p_memsz - phdr->p_filesz);
 			phdr++;
 		}
 
