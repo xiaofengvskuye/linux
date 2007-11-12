@@ -57,6 +57,12 @@ static __init int __attribute__((unused)) r10000_llsc_war(void)
 	return R10000_LLSC_WAR;
 }
 
+static __init int __attribute__((unused)) m4kc_tlbp_war(void)
+{
+	return (current_cpu_data.processor_id & 0xffff00) ==
+	       (PRID_COMP_MIPS | PRID_IMP_4KC);
+}
+
 /*
  * A little micro-assembler, intended for TLB refill handler
  * synthesizing. It is intentionally kept simple, does only support
@@ -880,6 +886,8 @@ static __init void build_tlb_write_entry(u32 **p, struct label **l,
 	case CPU_4KSC:
 	case CPU_20KC:
 	case CPU_25KF:
+		if (m4kc_tlbp_war())
+			i_nop(p);
 		tlbw(p);
 		break;
 
@@ -1648,7 +1656,8 @@ build_r4000_tlbchange_handler_head(u32 **p, struct label **l,
 	l_smp_pgtable_change(l, *p);
 # endif
 	iPTE_LW(p, l, pte, ptr); /* get even pte */
-	build_tlb_probe_entry(p);
+	if (!m4kc_tlbp_war())
+		build_tlb_probe_entry(p);
 }
 
 static void __init
@@ -1690,6 +1699,8 @@ static void __init build_r4000_tlb_load_handler(void)
 
 	build_r4000_tlbchange_handler_head(&p, &l, &r, K0, K1);
 	build_pte_present(&p, &l, &r, K0, K1, label_nopage_tlbl);
+	if (m4kc_tlbp_war())
+		build_tlb_probe_entry(&p);
 	build_make_valid(&p, &r, K0, K1);
 	build_r4000_tlbchange_handler_tail(&p, &l, &r, K0, K1);
 
@@ -1724,6 +1735,8 @@ static void __init build_r4000_tlb_store_handler(void)
 
 	build_r4000_tlbchange_handler_head(&p, &l, &r, K0, K1);
 	build_pte_writable(&p, &l, &r, K0, K1, label_nopage_tlbs);
+	if (m4kc_tlbp_war())
+		build_tlb_probe_entry(&p);
 	build_make_write(&p, &r, K0, K1);
 	build_r4000_tlbchange_handler_tail(&p, &l, &r, K0, K1);
 
@@ -1758,6 +1771,8 @@ static void __init build_r4000_tlb_modify_handler(void)
 
 	build_r4000_tlbchange_handler_head(&p, &l, &r, K0, K1);
 	build_pte_modifiable(&p, &l, &r, K0, K1, label_nopage_tlbm);
+	if (m4kc_tlbp_war())
+		build_tlb_probe_entry(&p);
 	/* Present and writable bits set, set accessed and dirty bits. */
 	build_make_write(&p, &r, K0, K1);
 	build_r4000_tlbchange_handler_tail(&p, &l, &r, K0, K1);
