@@ -388,4 +388,10 @@ void __init prom_init(void)
 #ifdef CONFIG_SERIAL_8250_CONSOLE
 	console_config();
 #endif
+
+	/*
+	 * Clear any pending timer interrupt in case interrupts
+	 * get inadvertantly enabled
+	 */
+	write_c0_compare (read_c0_count()-1);
 }
