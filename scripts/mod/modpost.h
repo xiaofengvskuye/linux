@@ -16,6 +16,7 @@
 #undef ELF_ST_TYPE
 #undef ELF_R_SYM
 #undef ELF_R_TYPE
+#define Elf32_Section Elf32_Half
 #endif
 
 #if KERNEL_ELFCLASS == ELFCLASS32
