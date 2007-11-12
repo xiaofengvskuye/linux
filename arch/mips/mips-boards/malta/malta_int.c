@@ -121,6 +121,11 @@ static void malta_hw0_irqdispatch(void)
 	do_IRQ(MALTA_INT_BASE + irq);
 }
 
+void eic0_irqdispatch(void)
+{
+	spurious_interrupt();
+}
+
 static void corehi_irqdispatch(void)
 {
 	unsigned int intedge, intsteer, pcicmd, pcibadaddr;
@@ -318,6 +323,7 @@ void __init arch_init_irq(void)
 	}
 
 	if (cpu_has_veic) {
+		set_vi_handler (0, eic0_irqdispatch);
 		set_vi_handler (MSC01E_INT_I8259A, malta_hw0_irqdispatch);
 		set_vi_handler (MSC01E_INT_COREHI, corehi_irqdispatch);
 		setup_irq (MSC01E_INT_BASE+MSC01E_INT_I8259A, &i8259irq);
