@@ -178,6 +178,8 @@ do {									\
 	(last) = resume(prev, next, next->thread_info);			\
 	if (cpu_has_dsp)						\
 		__restore_dsp(current);					\
+	if (cpu_has_userlocal)						\
+		write_c0_userlocal(task_thread_info(current)->tp_value);\
 } while(0)
 
 #else
@@ -188,6 +190,8 @@ do {									\
 	(last) = resume(prev, next, task_thread_info(next));		\
 	if (cpu_has_dsp)						\
 		__restore_dsp(current);					\
+	if (cpu_has_userlocal)						\
+		write_c0_userlocal(task_thread_info(current)->tp_value);\
 } while(0)
 #endif
 
