@@ -260,7 +260,7 @@ static void *alloc_progmem(unsigned long len)
 {
 #ifdef CONFIG_MIPS_VPE_LOADER_TOM
 	/* this means you must tell linux to use less memory than you physically have */
-	return pfn_to_kaddr(max_pfn);
+	return pfn_to_kaddr(max_low_pfn);
 #else
 	// simple grab some mem for now
 	return kmalloc(len, GFP_KERNEL);
