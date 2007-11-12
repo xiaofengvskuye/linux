@@ -159,11 +159,11 @@ struct irq_chip msc_edgeirq_type = {
 };
 
 
-void __init init_msc_irqs(unsigned int base, msc_irqmap_t *imp, int nirq)
+void __init init_msc_irqs(unsigned long icubase, unsigned int irqbase, msc_irqmap_t *imp, int nirq)
 {
 	extern void (*board_bind_eic_interrupt)(unsigned int irq, unsigned int regset);
 
-	_icctrl_msc = (unsigned long) ioremap (MIPS_MSC01_IC_REG_BASE, 0x40000);
+	_icctrl_msc = (unsigned long) ioremap (icubase, 0x40000);
 
 	/* Reset interrupt controller - initialises all registers to 0 */
 	MSCIC_WRITE(MSC01_IC_RST, MSC01_IC_RST_RST_BIT);
@@ -175,14 +175,14 @@ void __init init_msc_irqs(unsigned int base, msc_irqmap_t *imp, int nirq)
 
 		switch (imp->im_type) {
 		case MSC01_IRQ_EDGE:
-			irq_desc[base+n].chip = &msc_edgeirq_type;
+			irq_desc[irqbase+n].chip = &msc_edgeirq_type;
 			if (cpu_has_veic)
 				MSCIC_WRITE(MSC01_IC_SUP+n*8, MSC01_IC_SUP_EDGE_BIT);
 			else
 				MSCIC_WRITE(MSC01_IC_SUP+n*8, MSC01_IC_SUP_EDGE_BIT | imp->im_lvl);
 			break;
 		case MSC01_IRQ_LEVEL:
-			irq_desc[base+n].chip = &msc_levelirq_type;
+			irq_desc[irqbase+n].chip = &msc_levelirq_type;
 			if (cpu_has_veic)
 				MSCIC_WRITE(MSC01_IC_SUP+n*8, 0);
 			else
@@ -190,7 +190,7 @@ void __init init_msc_irqs(unsigned int base, msc_irqmap_t *imp, int nirq)
 		}
 	}
 
-	irq_base = base;
+	irq_base = irqbase;
 
 	MSCIC_WRITE(MSC01_IC_GENA, MSC01_IC_GENA_GENA_BIT);	/* Enable interrupt generation */
 
