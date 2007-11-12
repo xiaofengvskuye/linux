@@ -151,8 +151,7 @@ __setup("nostlb", stlb_disable);
 __setup("asidmask=", asidmask_set);
 
 /* Enable additional debug checks before going into CPU idle loop */
-#define SMTC_IDLE_HOOK_DEBUG
-
+#undef SMTC_IDLE_HOOK_DEBUG
 #ifdef SMTC_IDLE_HOOK_DEBUG
 
 static int hang_trig = 0;
