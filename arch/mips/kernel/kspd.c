@@ -22,7 +22,6 @@
 #include <linux/fs.h>
 #include <linux/syscalls.h>
 #include <linux/workqueue.h>
-#include <linux/errno.h>
 #include <linux/list.h>
 
 #include <asm/vpe.h>
@@ -200,6 +199,7 @@ void sp_work_handle_request(void)
 	int size;
 
 	ret.retval = -1;
+	ret.errno = 0;
 
 	if (!rtlx_read(RTLX_CHANNEL_SYSIO, &sc, sizeof(struct mtsp_syscall), 0)) {
 		printk(KERN_ERR "Expected request but nothing to read\n");
@@ -226,7 +226,6 @@ void sp_work_handle_request(void)
 	   linux */
  	case MTSP_SYSCALL_PIPEFREQ:
  		ret.retval = cpu_khz * 1000;
- 		ret.errno = 0;
  		break;
 
  	case MTSP_SYSCALL_GETTOD:
@@ -234,8 +233,6 @@ void sp_work_handle_request(void)
  		if ((ret.retval = sp_syscall(__NR_gettimeofday, (int)&tv,
  		                             (int)&tz, 0,0)) == 0)
 		ret.retval = tv.tv_sec;
-
-		ret.errno = errno;
 		break;
 
  	case MTSP_SYSCALL_EXIT:
@@ -272,7 +269,6 @@ void sp_work_handle_request(void)
 		if (cmd >= 0) {
 			ret.retval = sp_syscall(cmd, generic.arg0, generic.arg1,
 			                        generic.arg2, generic.arg3);
-			ret.errno = errno;
 		} else
  			printk(KERN_WARNING
 			       "KSPD: Unknown SP syscall number %d\n", sc.cmd);
