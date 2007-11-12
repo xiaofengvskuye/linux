@@ -153,6 +153,11 @@ endif
 # generated files seem to need this to find local include files
 HOSTCFLAGS_lex.zconf.o	:= -I$(src)
 HOSTCFLAGS_zconf.tab.o	:= -I$(src)
+BUILD_HOST := $(shell uname | tr '[A-Z]' '[a-z]')
+ifeq "$(findstring cygwin, $(BUILD_HOST))" "cygwin"
+HOSTLOADLIBES_mconf     := -lintl
+HOSTLOADLIBES_conf     := -lintl
+endif
 
 HOSTLOADLIBES_qconf	= $(KC_QT_LIBS) -ldl
 HOSTCXXFLAGS_qconf.o	= $(KC_QT_CFLAGS) -D LKC_DIRECT_LINK

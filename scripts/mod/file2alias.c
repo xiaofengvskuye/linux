@@ -29,9 +29,7 @@ typedef Elf64_Addr	kernel_ulong_t;
 
 #include <ctype.h>
 
-typedef uint32_t	__u32;
-typedef uint16_t	__u16;
-typedef unsigned char	__u8;
+#include <asm/types.h>
 
 /* Big exception to the "don't include kernel headers into userspace, which
  * even potentially has different endianness and word sizes, since

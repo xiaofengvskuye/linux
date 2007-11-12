@@ -127,14 +127,18 @@ TOUT	:= .tmp_gas_check
 
 checkbin:
 	@if test "$(call cc-version)" = "0304" ; then \
-		if ! /bin/echo mftb 5 | $(AS) -v -mppc -many -o $(TOUT) >/dev/null 2>&1 ; then \
+		if /bin/echo mftb 5 | $(AS) -v -mppc -many -o $(TOUT) >/dev/null 2>&1 ; then \
+			echo "" >/dev/null 2>&1 ; \
+		else \
 			echo -n '*** ${VERSION}.${PATCHLEVEL} kernels no longer build '; \
 			echo 'correctly with gcc-3.4 and your version of binutils.'; \
 			echo '*** Please upgrade your binutils or downgrade your gcc'; \
 			false; \
 		fi ; \
 	fi
-	@if ! /bin/echo dssall | $(AS) -many -o $(TOUT) >/dev/null 2>&1 ; then \
+	@if /bin/echo dssall | $(AS) -many -o $(TOUT) >/dev/null 2>&1 ; then \
+		echo "" >/dev/null 2>&1 ; \
+	else \
 		echo -n '*** ${VERSION}.${PATCHLEVEL} kernels no longer build ' ; \
 		echo 'correctly with old versions of binutils.' ; \
 		echo '*** Please upgrade your binutils to 2.12.1 or newer' ; \
