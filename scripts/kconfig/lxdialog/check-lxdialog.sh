@@ -14,6 +14,11 @@ ldflags()
 		echo '-lncurses'
 		exit
 	fi
+	$cc -print-file-name=libncurses.dll.a | grep -q /
+	if [ $? -eq 0 ]; then
+		echo '-lncurses'
+		exit
+	fi
 	$cc -print-file-name=libcurses.so | grep -q /
 	if [ $? -eq 0 ]; then
 		echo '-lcurses'

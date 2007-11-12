@@ -1,9 +1,12 @@
-#include <netinet/in.h>
-#ifdef __sun__
+#if defined(__CYGWIN__)
+#include <limits.h>
+#include <sys/types.h>
+#elif defined(__sun__)
 #include <inttypes.h>
 #else
 #include <stdint.h>
 #endif
+#include <netinet/in.h>
 #include <ctype.h>
 #include <errno.h>
 #include <string.h>

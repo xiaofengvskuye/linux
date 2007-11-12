@@ -53,6 +53,20 @@ modules   := $(patsubst %.o,%.ko, $(wildcard $(__modules:.ko=.o)))
 # Stop after building .o files if NOFINAL is set. Makes compile tests quicker
 _modpost: $(if $(KBUILD_MODPOST_NOFINAL), $(modules:.ko:.o),$(modules))
 
+#
+# XXX cygwin hosts have issues with the length of command line
+# parameters.  The if_changed macro expansion and the actual command
+# ends up exceeding the POSIX (?) limit of 32 K characters
+# so let's try running the command unconditionally
+#
+
+BUILD_HOST := $(shell uname | tr '[A-Z]' '[a-z]')
+
+ifeq "$(findstring cygwin, $(BUILD_HOST))" "cygwin"
+MODPOST_COMMAND = $(cmd_modpost)
+else
+MODPOST_COMMAND = $(call if_changed,modpost)
+endif
 
 # Step 2), invoke modpost
 #  Includes step 3,4

@@ -11,6 +11,13 @@
 
 #include "elfconfig.h"
 
+#if defined(__CYGWIN__)
+#undef ELF_ST_BIND
+#undef ELF_ST_TYPE
+#undef ELF_R_SYM
+#undef ELF_R_TYPE
+#endif
+
 #if KERNEL_ELFCLASS == ELFCLASS32
 
 #define Elf_Ehdr    Elf32_Ehdr
