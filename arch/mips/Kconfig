@@ -286,6 +286,8 @@ config MIPS_MALTA
 	select SYS_SUPPORTS_BIG_ENDIAN
 	select SYS_SUPPORTS_LITTLE_ENDIAN
 	select SYS_SUPPORTS_MULTITHREADING
+	select SYS_SUPPORTS_48HZ
+	select SYS_SUPPORTS_ARBIT_HZ
 	help
 	  This enables support for the MIPS Technologies Malta evaluation
 	  board.
