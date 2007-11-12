@@ -206,8 +206,14 @@ int null_perf_irq(void)
 
 int (*perf_irq)(void) = null_perf_irq;
 
+/*
+ * Performance counter IRQ or -1 if shared with timer
+ */
+int mipsxx_perfcount_irq;
+
 EXPORT_SYMBOL(null_perf_irq);
 EXPORT_SYMBOL(perf_irq);
+EXPORT_SYMBOL(mipsxx_perfcount_irq);
 
 asmlinkage void ll_timer_interrupt(int irq)
 {
@@ -217,18 +223,22 @@ asmlinkage void ll_timer_interrupt(int irq)
 	kstat_this_cpu.irqs[irq]++;
 
 	/*
-	 * Suckage alert:
-	 * Before R2 of the architecture there was no way to see if a
-	 * performance counter interrupt was pending, so we have to run the
-	 * performance counter interrupt handler anyway.
+	 * Handle performance counter overflow interrupt if needed
+	 *
+	 * Before R2 of the architecture there is no way
+	 * to distinguish between performance counter and timer interrupts.
+	 * This assumes that there is no clock interrupt if a performance
+	 * counter overflow is seen.
+	 *
+	 * On R2 processors we can check for pending timer interrupts
 	 */
-	if (!r2 || (read_c0_cause() & (1 << 26)))
-		if (perf_irq())
-			goto out;
+	if ((mipsxx_perfcount_irq < 0) && perf_irq() && !r2)
+		goto out;
 
-	/* we keep interrupt disabled all the time */
-	if (!r2 || (read_c0_cause() & (1 << 30)))
-		timer_interrupt(irq, NULL);
+	if (r2 && ((read_c0_cause() & (1 << 30)) == 0))
+		goto out;
+
+	timer_interrupt(irq, NULL);
 
 out:
 	irq_exit();
@@ -268,7 +278,7 @@ unsigned int mips_hpt_frequency;
 
 static struct irqaction timer_irqaction = {
 	.handler = timer_interrupt,
-	.flags = IRQF_DISABLED,
+	.flags = IRQF_DISABLED | IRQF_PERCPU,
 	.name = "timer",
 };
 
@@ -403,6 +413,13 @@ void __init time_init(void)
 
 	/* This sets up the high precision timer for the first interrupt.  */
 	mips_hpt_init();
+
+	/*
+	 * Assume the performance counter interrupt
+	 * is shared with timer interrupt
+	 * Platform specific code can override this if required
+	 */
+	mipsxx_perfcount_irq = -1;
 
 	/*
 	 * Call board specific timer interrupt setup.

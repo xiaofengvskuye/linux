@@ -73,6 +73,7 @@ static unsigned int display_count;
 
 static unsigned int timer_tick_count;
 static int mips_cpu_timer_irq;
+extern int mipsxx_perfcount_irq;
 extern void smtc_timer_broadcast(int);
 
 static inline void scroll_display_message(void)
@@ -87,6 +88,11 @@ static inline void scroll_display_message(void)
 static void mips_timer_dispatch(void)
 {
 	do_IRQ(mips_cpu_timer_irq);
+}
+
+static void mips_perf_dispatch(void)
+{
+	do_IRQ(mipsxx_perfcount_irq);
 }
 
 /*
@@ -120,7 +126,7 @@ irqreturn_t mips_timer_interrupt(int irq, void *dev_id)
 	 * We could be here due to timer interrupt,
 	 * perf counter overflow, or both.
 	 */
-	if (read_c0_cause() & (1 << 26))
+	if ((mipsxx_perfcount_irq < 0) && (read_c0_cause() & (1 << 26)))
 		perf_irq();
 
 	if (read_c0_cause() & (1 << 30)) {
@@ -154,20 +160,30 @@ irqreturn_t mips_timer_interrupt(int irq, void *dev_id)
 #else /* CONFIG_MIPS_MT_SMTC */
 	int r2 = cpu_has_mips_r2;
 
+	/*
+	 * Handle performance counter overflow interrupt if needed
+	 *
+	 * Before R2 of the architecture there is no way
+	 * to distinguish between performance counter and timer interrupts.
+	 * This assumes that there is no clock interrupt if a performance
+	 * counter overflow is seen.
+	 *
+	 * On R2 processors we can check for pending timer interrupts
+	 */
+	if ((mipsxx_perfcount_irq < 0) && perf_irq() && !r2)
+		goto out;
+
+	if (r2 && ((read_c0_cause() & (1 << 30)) == 0))
+		goto out;
+
 	if (cpu == 0) {
 		/*
 		 * CPU 0 handles the global timer interrupt job and process
 		 * accounting resets count/compare registers to trigger next
 		 * timer int.
 		 */
-		if (!r2 || (read_c0_cause() & (1 << 26)))
-			if (perf_irq())
-				goto out;
 
-		/* we keep interrupt disabled all the time */
-		if (!r2 || (read_c0_cause() & (1 << 30)))
-			timer_interrupt(irq, NULL);
-
+		timer_interrupt(irq, NULL);
 		scroll_display_message();
 	} else {
 		/* Everyone else needs to reset the timer int here as
@@ -264,6 +280,43 @@ void __init mips_time_init(void)
         cpu_khz = est_freq / 1000;
 }
 
+irqreturn_t mips_perf_interrupt(int irq, void *dev_id)
+{
+	return perf_irq();
+}
+
+static struct irqaction perf_irqaction = {
+	.handler = mips_perf_interrupt,
+	.flags = IRQF_DISABLED|IRQF_PERCPU,
+	.name = "performance",
+};
+
+void __init plat_perf_setup(struct irqaction *irq)
+{
+	int hwint = 0;
+	mipsxx_perfcount_irq = -1;
+	if (cpu_has_veic) {
+		set_vi_handler (MSC01E_INT_PERFCTR, mips_perf_dispatch);
+		mipsxx_perfcount_irq = MSC01E_INT_BASE + MSC01E_INT_PERFCTR;
+	}
+	else if (cpu_has_mips_r2) {
+		/* IntCtl.IPPCI says which interrupt the performance counters use */
+		hwint = (read_c0_intctl () >> 26) & 7;
+		if (hwint != MIPSCPU_INT_CPUCTR) {
+			if (cpu_has_vint)
+				set_vi_handler (hwint, mips_perf_dispatch);
+			mipsxx_perfcount_irq = MIPSCPU_INT_BASE + hwint;
+		}
+	}
+	if (mipsxx_perfcount_irq >= 0) {
+#ifdef CONFIG_MIPS_MT_SMTC
+		setup_irq_smtc(mipsxx_perfcount_irq, irq, (0x100 << hwint));
+#else
+		setup_irq(mipsxx_perfcount_irq, irq);
+#endif /* CONFIG_MIPS_MT_SMTC */
+	}
+}
+
 void __init plat_timer_setup(struct irqaction *irq)
 {
 #ifdef MSC01E_INT_BASE
@@ -287,14 +340,9 @@ void __init plat_timer_setup(struct irqaction *irq)
 	setup_irq(mips_cpu_timer_irq, irq);
 #endif /* CONFIG_MIPS_MT_SMTC */
 
-#ifdef CONFIG_SMP
-	/* irq_desc(riptor) is a global resource, when the interrupt overlaps
-	   on seperate cpu's the first one tries to handle the second interrupt.
-	   The effect is that the int remains disabled on the second cpu.
-	   Mark the interrupt with IRQ_PER_CPU to avoid any confusion */
-	irq_desc[mips_cpu_timer_irq].status |= IRQ_PER_CPU;
-#endif
+	plat_perf_setup (&perf_irqaction);
 
         /* to generate the first timer interrupt */
 	write_c0_compare (read_c0_count() + mips_hpt_frequency/HZ);
+
 }
