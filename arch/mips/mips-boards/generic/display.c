@@ -32,8 +32,8 @@ void mips_display_message(const char *str)
 
 	for (i = 0; i <= 14; i=i+2) {
 	         if (*str)
-		         display[i] = *str++;
+		         __raw_writel(*str++, display + i);
 		 else
-		         display[i] = ' ';
+		         __raw_writel(' ', display + i);
 	}
 }
