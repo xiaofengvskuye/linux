@@ -278,35 +278,38 @@ void __init prom_init(void)
 			mips_revision_corid = MIPS_REVISION_CORID_CORE_EMUL_MSC;
 	}
 
- 	mips_revision_sconid = MIPS_REVISION_SCONID;
- 	if (mips_revision_sconid == MIPS_REVISION_SCON_OTHER) {
- 		switch(mips_revision_corid) {
- 		case MIPS_REVISION_CORID_QED_RM5261:
- 		case MIPS_REVISION_CORID_CORE_LV:
- 		case MIPS_REVISION_CORID_CORE_FPGA:
- 		case MIPS_REVISION_CORID_CORE_FPGAR2:
- 			mips_revision_sconid = MIPS_REVISION_SCON_GT64120;
- 			break;
- 		case MIPS_REVISION_CORID_CORE_EMUL_BON:
- 		case MIPS_REVISION_CORID_BONITO64:
- 		case MIPS_REVISION_CORID_CORE_20K:
- 			mips_revision_sconid = MIPS_REVISION_SCON_BONITO;
- 			break;
- 		case MIPS_REVISION_CORID_CORE_MSC:
- 		case MIPS_REVISION_CORID_CORE_FPGA2:
- 		case MIPS_REVISION_CORID_CORE_FPGA3:
- 		case MIPS_REVISION_CORID_CORE_24K:
- 		case MIPS_REVISION_CORID_CORE_EMUL_MSC:
- 			mips_revision_sconid = MIPS_REVISION_SCON_SOCIT;
- 			break;
- 		default:
- 			mips_display_message("CC Error");
- 			while(1);   /* We die here... */
- 		}
- 	}
+	mips_revision_sconid = MIPS_REVISION_SCONID;
+	if (mips_revision_sconid == MIPS_REVISION_SCON_OTHER) {
+		switch (mips_revision_corid) {
+		case MIPS_REVISION_CORID_QED_RM5261:
+		case MIPS_REVISION_CORID_CORE_LV:
+		case MIPS_REVISION_CORID_CORE_FPGA:
+		case MIPS_REVISION_CORID_CORE_FPGAR2:
+			mips_revision_sconid = MIPS_REVISION_SCON_GT64120;
+			break;
+		case MIPS_REVISION_CORID_CORE_EMUL_BON:
+		case MIPS_REVISION_CORID_BONITO64:
+		case MIPS_REVISION_CORID_CORE_20K:
+			mips_revision_sconid = MIPS_REVISION_SCON_BONITO;
+			break;
+		case MIPS_REVISION_CORID_CORE_MSC:
+		case MIPS_REVISION_CORID_CORE_FPGA2:
+		case MIPS_REVISION_CORID_CORE_FPGA3:
+		case MIPS_REVISION_CORID_CORE_FPGA4:
+		case MIPS_REVISION_CORID_CORE_24K:
+		case MIPS_REVISION_CORID_CORE_EMUL_MSC:
+			mips_revision_sconid = MIPS_REVISION_SCON_SOCIT;
+			break;
+		default:
+			mips_display_message("CC Error");
+			while (1);   /* We die here... */
+		}
+	}
 
-	switch(mips_revision_sconid) {
- 	case MIPS_REVISION_SCON_GT64120:
+	switch (mips_revision_sconid) {
+		u32 start, map, mask, data;
+
+	case MIPS_REVISION_SCON_GT64120:
 		/*
 		 * Setup the North bridge to do Master byte-lane swapping
 		 * when running in bigendian.
