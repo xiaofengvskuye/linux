@@ -22,8 +22,11 @@
 #include <asm/smtc_proc.h>
 
 /*
- * This file should be built into the kernel only if CONFIG_MIPS_MT_SMTC is set.
+ * SMTC Kernel needs to manipulate low-level CPU interrupt mask
+ * in do_IRQ. These are passed in setup_irq_smtc() and stored
+ * in this table.
  */
+unsigned long irq_hwmask[NR_IRQS];
 
 /*
  * MIPSCPU_INT_BASE is identically defined in both

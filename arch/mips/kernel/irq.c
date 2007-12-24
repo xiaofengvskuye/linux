@@ -74,19 +74,11 @@ EXPORT_SYMBOL_GPL(free_irqno);
  */
 void ack_bad_irq(unsigned int irq)
 {
+	smtc_im_ack_irq(irq);
 	printk("unexpected IRQ # %d\n", irq);
 }
 
 atomic_t irq_err_count;
-
-#ifdef CONFIG_MIPS_MT_SMTC
-/*
- * SMTC Kernel needs to manipulate low-level CPU interrupt mask
- * in do_IRQ. These are passed in setup_irq_smtc() and stored
- * in this table.
- */
-unsigned long irq_hwmask[NR_IRQS];
-#endif /* CONFIG_MIPS_MT_SMTC */
 
 #undef do_IRQ
 
@@ -110,7 +102,6 @@ asmlinkage unsigned int do_IRQ(unsigned int irq)
 /*
  * Generic, controller-independent functions:
  */
-
 int show_interrupts(struct seq_file *p, void *v)
 {
 	int i = *(loff_t *) v, j;
