@@ -16,6 +16,7 @@
 
 extern struct op_mips_model op_model_mipsxx_ops __attribute__((weak));
 extern struct op_mips_model op_model_rm9000_ops __attribute__((weak));
+extern struct op_mips_model op_model_34K_mr7_ops __attribute__((weak));
 
 static struct op_mips_model *model;
 
@@ -53,6 +54,18 @@ static int op_mips_create_files(struct super_block * sb, struct dentry * root)
 		oprofilefs_create_ulong(sb, dir, "unit_mask", &ctr[i].unit_mask);
 	}
 
+#ifdef CONFIG_MIPS_MT_SMTC
+	{
+		struct dentry *dir = oprofilefs_mkdir(sb, root, "smtc_discarded_samples");
+		char buf[5];
+		extern unsigned long smtc_discarded_samples[NR_CPUS];
+
+		for (i = 0; i < num_online_cpus(); i++) {
+			snprintf(buf, sizeof(buf), "cpu%d", i);
+			oprofilefs_create_ulong(sb, dir, buf, &smtc_discarded_samples[i]);
+		}			
+	}
+#endif
 	return 0;
 }
 
@@ -79,7 +92,6 @@ int __init oprofile_arch_init(struct oprofile_operations *ops)
 	case CPU_20KC:
 	case CPU_24K:
 	case CPU_25KF:
-	case CPU_34K:
 	case CPU_74K:
 	case CPU_SB1:
 	case CPU_SB1A:
@@ -88,6 +100,13 @@ int __init oprofile_arch_init(struct oprofile_operations *ops)
 
 	case CPU_RM9000:
 		lmodel = &op_model_rm9000_ops;
+		break;
+
+	case CPU_34K:
+		if (cpu_is_mr7)
+			lmodel = &op_model_34K_mr7_ops;
+		else
+			lmodel = &op_model_mipsxx_ops;
 		break;
 	};
 
