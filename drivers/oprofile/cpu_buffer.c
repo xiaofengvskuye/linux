@@ -21,7 +21,9 @@
 #include <linux/oprofile.h>
 #include <linux/vmalloc.h>
 #include <linux/errno.h>
- 
+
+#include <asm/mipsmtregs.h>
+
 #include "event_buffer.h"
 #include "cpu_buffer.h"
 #include "buffer_sync.h"
@@ -206,6 +208,41 @@ static int log_sample(struct oprofile_cpu_buffer * cpu_buf, unsigned long pc,
 	add_sample(cpu_buf, pc, event);
 	return 1;
 }
+
+#ifdef CONFIG_MIPS_MT_SMTC
+int smtc_log_sample(unsigned long pc, int is_kernel, unsigned long event, unsigned int tc)
+{
+       struct task_struct * task;
+       struct oprofile_cpu_buffer *cpu_buf = &cpu_buffer[tc];
+
+       cpu_buf->sample_received++;
+
+       if (nr_available_slots(cpu_buf) < 3) {
+               cpu_buf->sample_lost_overflow++;
+               return 0;
+       }
+
+       is_kernel = !!is_kernel;
+
+       if ((task = smtc_get_current(tc)) == NULL)
+	       return 0;
+
+       /* notice a switch from user->kernel or vice versa */
+       if (cpu_buf->last_is_kernel != is_kernel) {
+               cpu_buf->last_is_kernel = is_kernel;
+               add_code(cpu_buf, is_kernel);
+       }
+
+       /* notice a task switch */
+       if (cpu_buf->last_task != task) {
+               cpu_buf->last_task = task;
+               add_code(cpu_buf, (unsigned long)task);
+       }
+ 
+       add_sample(cpu_buf, pc, event);
+       return 1;
+}
+#endif
 
 static int oprofile_begin_trace(struct oprofile_cpu_buffer * cpu_buf)
 {

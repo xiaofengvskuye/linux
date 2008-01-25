@@ -33,11 +33,59 @@
 #ifdef CONFIG_MIPS_MT_SMP
 #define WHAT		(M_TC_EN_VPE | M_PERFCTL_VPEID(smp_processor_id()))
 #define vpe_id()	smp_processor_id()
+#elif defined(CONFIG_MIPS_MT_SMTC)
+#define WHAT		(M_TC_EN_TC | M_PERFCTL_TCID(smp_processor_id()))
+#define vpe_id()	smp_processor_id()
 #else
 #define WHAT		0
 #define vpe_id()	0
 #endif
 
+#ifdef CONFIG_MIPS_MT_SMTC
+#define __define_perf_accessors(r, n, np)				\
+									\
+static inline unsigned int r_c0_ ## r ## n(void)			\
+{									\
+	unsigned int cpu = vpe_id();					\
+									\
+	switch (cpu) {							\
+	case 0:								\
+		return read_c0_ ## r ## 0();				\
+	case 1:								\
+		return read_c0_ ## r ## 1();				\
+	case 2:								\
+		return read_c0_ ## r ## 2();				\
+	case 3:								\
+		return read_c0_ ## r ## 3();				\
+	default:							\
+		BUG();							\
+	}								\
+	return 0;							\
+}									\
+									\
+static inline void w_c0_ ## r ## n(unsigned int value)			\
+{									\
+	unsigned int cpu = vpe_id();					\
+									\
+	switch (cpu) {							\
+	case 0:								\
+		write_c0_ ## r ## 0(value);				\
+		return;							\
+	case 1:								\
+		write_c0_ ## r ## 1(value);				\
+		return;							\
+	case 2:								\
+		write_c0_ ## r ## 2(value);				\
+		return;							\
+	case 3:								\
+		write_c0_ ## r ## 3(value);				\
+		return;							\
+	default:							\
+		BUG();							\
+	}								\
+	return;								\
+}									
+#else
 #define __define_perf_accessors(r, n, np)				\
 									\
 static inline unsigned int r_c0_ ## r ## n(void)			\
@@ -70,7 +118,8 @@ static inline void w_c0_ ## r ## n(unsigned int value)			\
 		BUG();							\
 	}								\
 	return;								\
-}									\
+}
+#endif
 
 __define_perf_accessors(perfcntr, 0, 2)
 __define_perf_accessors(perfcntr, 1, 3)
@@ -172,6 +221,53 @@ static void mipsxx_cpu_stop(void *args)
 	}
 }
 
+#ifdef CONFIG_MIPS_MT_SMTC
+static int find_culprit_tc(void)
+{
+	int i, cntrl[4], count[4];
+
+	count[0] = read_c0_perfcntr0();
+	cntrl[0] = read_c0_perfctrl0();
+
+	count[1] = read_c0_perfcntr1();
+	cntrl[1] = read_c0_perfctrl1();
+
+	count[2] = read_c0_perfcntr2();
+	cntrl[2] = read_c0_perfctrl2();
+
+	count[3] = read_c0_perfcntr3();
+	cntrl[3] = read_c0_perfctrl3();
+
+	for (i = 0; i < 4; i++)
+		if ((cntrl[i] & M_PERFCTL_INTERRUPT_ENABLE) &&
+			(count[i] & M_COUNTER_OVERFLOW))
+			break;
+	return i;
+}
+
+extern int smtc_log_sample(unsigned long pc, int is_kernel, unsigned long event, unsigned int tc);
+
+static void smtc_reset_counter(unsigned int tc)
+{
+	switch (tc) {
+	case 0:
+		write_c0_perfcntr0 (reg.counter[0]);
+		break;
+	case 1:
+		write_c0_perfcntr1 (reg.counter[0]);
+		break;
+	case 2:
+		write_c0_perfcntr2 (reg.counter[0]);
+		break;
+	case 3:
+		write_c0_perfcntr3 (reg.counter[0]);
+		break;
+	default:
+		BUG();
+	}
+}
+#endif
+
 static int mipsxx_perfcount_handler(void)
 {
 	unsigned int counters = op_model_mipsxx_ops.num_counters;
@@ -181,6 +277,28 @@ static int mipsxx_perfcount_handler(void)
 
 	if (cpu_has_mips_r2 && !(read_c0_cause() & (1 << 26)))
 		return handled;
+
+#ifdef CONFIG_MIPS_MT_SMTC
+	{
+		unsigned int tc, cp0_status, pc, is_kernel;
+		if ((tc = find_culprit_tc()) != smp_processor_id()) {
+			settc(tc);
+        		write_tc_c0_tchalt(TCHALT_H);
+        		instruction_hazard();
+			settc(tc);
+        		cp0_status = read_tc_c0_tcstatus();
+			settc(tc);
+        		pc = read_tc_c0_tcrestart();
+        		is_kernel = !((cp0_status & KU_MASK) == KU_USER);
+        		smtc_log_sample (pc, is_kernel, 0, tc);
+			smtc_reset_counter(tc);
+			settc(tc);
+			write_tc_c0_tchalt(0);
+			instruction_hazard();
+			return IRQ_HANDLED;
+		}
+	}
+#endif
 
 	switch (counters) {
 #define HANDLE_COUNTER(n)						\
@@ -236,6 +354,13 @@ static inline int n_counters(void)
 		counters = __n_counters();
 	}
 
+	if (current_cpu_data.cputype == CPU_34K) {
+#ifdef CONFIG_MIPS_MT_SMP
+		counters >>= 1;
+#elif defined(CONFIG_MIPS_MT_SMTC)
+		counters = 1;
+#endif
+	}
 	return counters;
 }
 
@@ -259,7 +384,7 @@ static inline void reset_counters(int counters)
 
 static int __init mipsxx_init(void)
 {
-	int counters;
+	int i, counters;
 
 	counters = n_counters();
 	if (counters == 0) {
@@ -267,11 +392,8 @@ static int __init mipsxx_init(void)
 		return -ENODEV;
 	}
 
-	reset_counters(counters);
-
-#ifdef CONFIG_MIPS_MT_SMP
-	counters >>= 1;
-#endif
+ 	for_each_online_cpu(i)
+ 		reset_counters(counters);
 
 	op_model_mipsxx_ops.num_counters = counters;
 	switch (current_cpu_data.cputype) {
@@ -329,11 +451,10 @@ static int __init mipsxx_init(void)
 
 static void mipsxx_exit(void)
 {
-	int counters = op_model_mipsxx_ops.num_counters;
-#ifdef CONFIG_MIPS_MT_SMP
-	counters <<= 1;
-#endif
-	reset_counters(counters);
+	int i, counters = op_model_mipsxx_ops.num_counters;
+ 
+ 	for_each_online_cpu(i)
+ 		reset_counters(counters);
 
 	perf_irq = null_perf_irq;
 }

@@ -10,6 +10,9 @@
 #ifndef OP_IMPL_H
 #define OP_IMPL_H 1
 
+#define M_CONFIG7_PCT	(1 << 19)
+#define cpu_is_mr7 (read_c0_config7() & M_CONFIG7_PCT)
+
 extern int null_perf_irq(void);
 extern int (*perf_irq)(void);
 
