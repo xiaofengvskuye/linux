@@ -27,8 +27,6 @@
 
 #include <irq.h>
 
-#define USE_GIC		/* FIXME */
-
 /*
  * Interrupts 0..15 are used for Malta ISA compatible interrupts
  */
@@ -80,11 +78,41 @@
 #define MSC01E_INT_PERFCTR	10
 #define MSC01E_INT_CPUCTR	11
 
+/* GIC's Nomenclature for Core Interrupt Pins on the Malta */
+#define GIC_CPU_INT0		0 /* Core Interrupt 2 	*/
+#define GIC_CPU_INT1		1 /* .			*/
+#define GIC_CPU_INT2		2 /* .			*/
+#define GIC_CPU_INT3		3 /* .			*/
+#define GIC_CPU_INT4		4 /* .			*/
+#define GIC_CPU_INT5		5 /* Core Interrupt 5   */
+
+#define GIC_EXT_INTR(x)		x
+
+/* Dummy data */
+#define X			0xdead
+
+/* External Interrupts used for IPI */
+#define GIC_IPI_EXT_INTR_RESCHED_VPE0	16
+#define GIC_IPI_EXT_INTR_CALLFNC_VPE0	17
+#define GIC_IPI_EXT_INTR_RESCHED_VPE1	18
+#define GIC_IPI_EXT_INTR_CALLFNC_VPE1	19
+#define GIC_IPI_EXT_INTR_RESCHED_VPE2	20
+#define GIC_IPI_EXT_INTR_CALLFNC_VPE2	21
+#define GIC_IPI_EXT_INTR_RESCHED_VPE3	22
+#define GIC_IPI_EXT_INTR_CALLFNC_VPE3	23
+#define GIC_IPI_EXT_INTR_RESCHED_VPE4	24
+#define GIC_IPI_EXT_INTR_CALLFNC_VPE4	25
+#define GIC_IPI_EXT_INTR_RESCHED_VPE5	26
+#define GIC_IPI_EXT_INTR_CALLFNC_VPE5	27
+#define GIC_IPI_EXT_INTR_RESCHED_VPE6	28
+#define GIC_IPI_EXT_INTR_CALLFNC_VPE6	29
+#define GIC_IPI_EXT_INTR_RESCHED_VPE7	30
+#define GIC_IPI_EXT_INTR_CALLFNC_VPE7	31
+
+#define MIPS_GIC_IRQ_BASE	(MIPS_CPU_IRQ_BASE + 8)
+
 #ifndef __ASSEMBLY__
 extern void maltaint_init(void);
-extern void malta_ipi_irqdispatch(void);
-extern void ipi_call_function(unsigned int cpu);
-extern void ipi_resched(unsigned int cpu);
 #endif
 
 #endif /* !(_MIPS_MALTAINT_H) */
