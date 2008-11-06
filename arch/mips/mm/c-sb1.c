@@ -512,7 +512,7 @@ void __init sb1_cache_init(void)
 	/* Full flush */
 	__flush_cache_all = sb1___flush_cache_all;
 
-	change_c0_config(CONF_CM_CMASK, CONF_CM_DEFAULT);
+	change_c0_config(CONF_CM_CMASK, _page_cachable_default >> _CACHE_SHIFT);
 
 	/*
 	 * This is the only way to force the update of K0 to complete
