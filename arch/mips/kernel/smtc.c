@@ -353,6 +353,7 @@ void mipsmt_prepare_cpus(void)
 		spin_lock_init(&IPIQ[i].lock);
 		IPIQ[i].depth = 0;
 		ipi_timer_latch[i] = 0;
+		IPIQ[i].resched_flag = 0; /* No reschedules queued initially */
 	}
 
 	/* cpu_data index starts at zero */
@@ -625,11 +626,24 @@ int setup_irq_smtc(unsigned int irq, struct irqaction * new,
 static void smtc_ipi_qdump(void)
 {
 	int i;
+	struct smtc_ipi *temp;
 
 	for (i = 0; i < NR_CPUS ;i++) {
 		printk("IPIQ[%d]: head = 0x%x, tail = 0x%x, depth = %d\n",
 			i, (unsigned)IPIQ[i].head, (unsigned)IPIQ[i].tail,
 			IPIQ[i].depth);
+		temp = IPIQ[i].head;
+
+		while (temp != IPIQ[i].tail) {
+			printk(KERN_DEBUG "%d %d %d: ", temp->type, temp->dest,
+			       (int)temp->arg);
+#ifdef	SMTC_IPI_DEBUG
+		    printk(KERN_DEBUG "%u %Lu\n", temp->sender, temp->stamp);
+#else
+		    printk(KERN_DEBUG "\n");
+#endif
+		    temp = temp->flink;
+		}
 	}
 }
 
@@ -666,11 +680,16 @@ void smtc_send_ipi(int cpu, int type, unsigned int action)
 	struct smtc_ipi *pipi;
 	long flags;
 	int mtflags;
+	int set_resched_flag = (type == LINUX_SMP_IPI &&
+				action == SMP_RESCHEDULE_YOURSELF);
 
 	if (cpu == smp_processor_id()) {
 		printk("Cannot Send IPI to self!\n");
 		return;
 	}
+	if (set_resched_flag && IPIQ[cpu].resched_flag != 0)
+		return; /* There is a reschedule queued already */
+
 	/* Set up a descriptor, to be delivered either promptly or queued */
 	pipi = smtc_ipi_dq(&freeIPIq);
 	if (pipi == NULL) {
@@ -683,6 +702,7 @@ void smtc_send_ipi(int cpu, int type, unsigned int action)
 	pipi->dest = cpu;
 	if (cpu_data[cpu].vpe_id != cpu_data[smp_processor_id()].vpe_id) {
 		/* If not on same VPE, enqueue and send cross-VPE interupt */
+		IPIQ[cpu].resched_flag |= set_resched_flag;
 		smtc_ipi_nq(&IPIQ[cpu], pipi);
 		LOCK_CORE_PRA();
 		settc(cpu_data[cpu].tc_id);
@@ -721,6 +741,7 @@ void smtc_send_ipi(int cpu, int type, unsigned int action)
 				return;
 			    }
 			}
+			IPIQ[cpu].resched_flag |= set_resched_flag;
 			smtc_ipi_nq(&IPIQ[cpu], pipi);
 		} else {
 			post_direct_ipi(cpu, pipi);
@@ -844,6 +865,9 @@ void deferred_smtc_ipi(void)
 		while((pipi = smtc_ipi_dq(&IPIQ[q])) != NULL) {
 			/* ipi_decode() should be called with interrupts off */
 			local_irq_save(flags);
+			if (pipi->type == LINUX_SMP_IPI &&
+			    (int)pipi->arg == SMP_RESCHEDULE_YOURSELF)
+				IPIQ[q].resched_flag = 0;
 			ipi_decode(pipi);
 			local_irq_restore(flags);
 		}
@@ -939,6 +963,9 @@ static irqreturn_t ipi_interrupt(int irq, void *dev_idm)
 				 * with interrupts off
 				 */
 				local_irq_save(flags);
+				if (pipi->type == LINUX_SMP_IPI &&
+				    (int)pipi->arg == SMP_RESCHEDULE_YOURSELF)
+					IPIQ[cpu].resched_flag = 0;
 				ipi_decode(pipi);
 				local_irq_restore(flags);
 			}
