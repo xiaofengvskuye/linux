@@ -146,7 +146,6 @@ static void gic_set_affinity(unsigned int irq, cpumask_t cpumask)
 		for (i = 0; i < NR_CPUS; i++)
 			clear_bit(irq, pcpu_masks[i].pcpu_mask);
 		set_bit(irq, pcpu_masks[first_cpu(tmp)].pcpu_mask);
-
 	}
 	irq_desc[irq].affinity = cpumask;
 	spin_unlock_irqrestore(&gic_lock, flags);
@@ -167,9 +166,8 @@ static struct irq_chip gic_irq_controller = {
 };
 
 void __init gic_setup_intr(unsigned int intr, unsigned int cpu,
-			   unsigned int pin,
-			   unsigned int polarity, unsigned int trigtype,
-			   unsigned int flags)
+			   unsigned int pin, unsigned int polarity,
+			   unsigned int trigtype, unsigned int flags)
 {
 	/* Setup Intr to Pin mapping */
 	if (pin & GIC_MAP_TO_NMI_MSK) {
@@ -238,15 +236,13 @@ static void __init gic_basic_init(int numintrs, int numvpes,
 		set_irq_chip(i, &gic_irq_controller);
 }
 
-int __init gic_init(unsigned long gic_base_addr,
-		    unsigned long gic_addrspace_size,
-		    gic_intr_map_t *intr_map, unsigned int intr_map_size,
-		    unsigned int irqbase)
+int __init gic_init(unsigned long gic_base, unsigned long gic_size,
+			gic_intr_map_t *intr_map, unsigned int intr_map_size,
+			unsigned int irqbase)
 {
 	unsigned int gicconfig;
 	int numvpes, numintrs;
-	_gic_base = (unsigned long) ioremap_nocache(gic_base_addr,
-						    gic_addrspace_size);
+	_gic_base = (unsigned long) ioremap_nocache(gic_base, gic_size);
 	_irqbase = irqbase;
 
 	GICREAD(GIC_REG(SHARED, GIC_SH_CONFIG), gicconfig);
