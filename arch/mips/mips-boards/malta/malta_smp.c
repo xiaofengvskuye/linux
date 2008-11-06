@@ -7,6 +7,8 @@
 #include <asm/mips-boards/maltaint.h>
 #include <asm/mips-boards/maltasmp.h>
 
+extern int gic_present;
+
 /*
  * Cause the specified action to be performed on a targeted "CPU"
  */
@@ -15,7 +17,7 @@ void core_send_ipi(int cpu, unsigned int action)
 {
 	if (malta_smtc)
 		smtc_send_ipi(cpu, LINUX_SMP_IPI, action);
-	else if (malta_cmp)
+	else if (gic_present)
 		cmp_send_ipi(cpu, action);
 	else if (malta_smvp)
 		smvp_send_ipi(cpu, action);
@@ -41,7 +43,6 @@ void __cpuinit prom_boot_secondary(int cpu, struct task_struct *idle)
  */
 void __cpuinit prom_init_secondary(void)
 {
-	extern int gic_present;
 	pr_debug("%s\n", __FUNCTION__);
 	if (malta_smtc) {
 		void smtc_init_secondary(void);
@@ -50,28 +51,29 @@ void __cpuinit prom_init_secondary(void)
 		/* Don't enable Malta I/O interrupts (IP2) for secondary VPEs */
 		myvpe = read_c0_tcbind() & TCBIND_CURVPE;
 		if (myvpe != 0) {
-			/* Ideally, this should be done only once per VPE... */
-			clear_c0_status(STATUSF_IP2);
-			set_c0_status(STATUSF_IP0 | STATUSF_IP1 | STATUSF_IP3 |
-				      STATUSF_IP4 | STATUSF_IP5 | STATUSF_IP6 |
-				      STATUSF_IP7);
+			/* Ideally, this should be done only once per VPE */
+			change_c0_status(STATUSF_IP2,
+					 STATUSF_IP0 | STATUSF_IP1 |
+					 STATUSF_IP3 | STATUSF_IP4 |
+					 STATUSF_IP5 | STATUSF_IP6 |
+					 STATUSF_IP7);
 		}
 		smtc_init_secondary();
 	} else if (malta_cmp) {
 		/* Assume GIC is present */
-		write_c0_status((read_c0_status() & ~ST0_IM) |
-				(STATUSF_IP3 | STATUSF_IP4 |
-				 STATUSF_IP6 | STATUSF_IP7));
+		change_c0_status(ST0_IM,
+				 STATUSF_IP3 | STATUSF_IP4 |
+				 STATUSF_IP6 | STATUSF_IP7);
 		cmp_init_secondary();
 	} else if (malta_smvp) {
 		if (gic_present)
-			write_c0_status((read_c0_status() & ~ST0_IM) |
-					(STATUSF_IP3 | STATUSF_IP4 |
-					 STATUSF_IP6 | STATUSF_IP7));
+			change_c0_status(ST0_IM,
+					 STATUSF_IP3 | STATUSF_IP4 |
+					 STATUSF_IP6 | STATUSF_IP7);
 		else
-			write_c0_status((read_c0_status() & ~ST0_IM) |
-					(STATUSF_IP0 | STATUSF_IP1 |
-					 STATUSF_IP6 | STATUSF_IP7));
+			change_c0_status(ST0_IM,
+					 STATUSF_IP0 | STATUSF_IP1 |
+					 STATUSF_IP6 | STATUSF_IP7);
 		smvp_init_secondary();
 	}
 	pr_debug("CPU%d: status register %08x\n",
