@@ -36,24 +36,7 @@
 #include <asm/mipsmtregs.h>
 #include <asm/mips_mt.h>
 
-#if 0
-static void dump_mtregisters(int vpe, int tc)
-{
-	printk("vpe %d tc %d\n", vpe, tc);
-
-	settc(tc);
-
-	printk("  c0 status  0x%lx\n", read_vpe_c0_status());
-	printk("  vpecontrol 0x%lx\n", read_vpe_c0_vpecontrol());
-	printk("  vpeconf0    0x%lx\n", read_vpe_c0_vpeconf0());
-	printk("  tcstatus 0x%lx\n", read_tc_c0_tcstatus());
-	printk("  tcrestart 0x%lx\n", read_tc_c0_tcrestart());
-	printk("  tcbind 0x%lx\n", read_tc_c0_tcbind());
-	printk("  tchalt 0x%lx\n", read_tc_c0_tchalt());
-}
-#endif
-
-static void __init smp_copy_vpe_config(void)
+static void __init smvp_copy_vpe_config(void)
 {
 	write_vpe_c0_status(
 		(read_c0_status() & ~(ST0_IM | ST0_IE | ST0_KSU)) | ST0_CU0);
@@ -70,7 +53,7 @@ static void __init smp_copy_vpe_config(void)
 	write_vpe_c0_count(read_c0_count());
 }
 
-static unsigned int __init smp_vpe_init(unsigned int tc, unsigned int mvpconf0,
+static unsigned int __init smvp_vpe_init(unsigned int tc, unsigned int mvpconf0,
 	unsigned int ncpu)
 {
 	if (tc > ((mvpconf0 & MVPCONF0_PVPE) >> MVPCONF0_PVPE_SHIFT))
@@ -96,12 +79,12 @@ static unsigned int __init smp_vpe_init(unsigned int tc, unsigned int mvpconf0,
 	write_vpe_c0_vpecontrol(read_vpe_c0_vpecontrol() & ~VPECONTROL_TE);
 
 	if (tc != 0)
-		smp_copy_vpe_config();
+		smvp_copy_vpe_config();
 
 	return ncpu;
 }
 
-static void __init smp_tc_init(unsigned int tc, unsigned int mvpconf0)
+static void __init smvp_tc_init(unsigned int tc, unsigned int mvpconf0)
 {
 	unsigned long tmp;
 
@@ -132,14 +115,14 @@ static void __init smp_tc_init(unsigned int tc, unsigned int mvpconf0)
 /*
  * Common setup before any secondaries are started
  * Make sure all CPU's are in a sensible state before we boot any of the
- * secondarys
+ * secondaries
  */
-void __init plat_smp_setup(void)
+void __init smvp_smp_setup(void)
 {
 	unsigned int mvpconf0, ntc, tc, ncpu = 0;
 	unsigned int nvpe;
 
-	pr_debug("SMPMT: CPU%d: plat_smp_setup\n", smp_processor_id());
+	pr_debug("SMPMT: CPU%d: smvp_smp_setup\n", smp_processor_id());
 
 #ifdef CONFIG_MIPS_MT_FPAFF
 	/* If we have an FPU, enroll ourselves in the FPU-full mask */
@@ -168,8 +151,8 @@ void __init plat_smp_setup(void)
 	for (tc = 0; tc <= ntc; tc++) {
 		settc(tc);
 
-		smp_tc_init(tc, mvpconf0);
-		ncpu = smp_vpe_init(tc, mvpconf0, ncpu);
+		smvp_tc_init(tc, mvpconf0);
+		ncpu = smvp_vpe_init(tc, mvpconf0, ncpu);
 	}
 
 	/* Release config state */
@@ -180,9 +163,9 @@ void __init plat_smp_setup(void)
 	printk(KERN_INFO "Detected %i available secondary CPU(s)\n", ncpu);
 }
 
-void __init plat_prepare_cpus(unsigned int max_cpus)
+void __init smvp_prepare_cpus(unsigned int max_cpus)
 {
-	pr_debug("SMPMT: CPU%d: plat_prepare_cpus %d\n",
+	pr_debug("SMPMT: CPU%d: smvp_prepare_cpus %d\n",
 		 smp_processor_id(), max_cpus);
 
 	mips_mt_set_cpuoptions();
@@ -196,11 +179,11 @@ void __init plat_prepare_cpus(unsigned int max_cpus)
  * (unsigned long)idle->thread_info the gp
  * assumes a 1:1 mapping of TC => VPE
  */
-void __cpuinit prom_boot_secondary(int cpu, struct task_struct *idle)
+void __cpuinit smvp_boot_secondary(int cpu, struct task_struct *idle)
 {
 	struct thread_info *gp = task_thread_info(idle);
 
-	pr_debug("SMPMT: CPU%d: prom_boot_secondary cpu %d\n",
+	pr_debug("SMPMT: CPU%d: smvp_boot_secondary cpu %d\n",
 		 smp_processor_id(), cpu);
 
 	dvpe();
@@ -234,27 +217,15 @@ void __cpuinit prom_boot_secondary(int cpu, struct task_struct *idle)
 	evpe(EVPE_ENABLE);
 }
 
-void __cpuinit prom_init_secondary(void)
+void __cpuinit smvp_init_secondary(void)
 {
-	pr_debug("SMPMT: CPU%d: prom_init_secondary\n", smp_processor_id());
-
-	/* FIXME: This is platform specific */
-
-	/* Enable per-cpu interrupts */
-
-	/* This is Malta specific: IPI,performance and timer inetrrupts */
-#if defined(USE_GIC)
-	write_c0_status((read_c0_status() & ~ST0_IM) |
-			(STATUSF_IP3|STATUSF_IP4|STATUSF_IP6|STATUSF_IP7));
-#else
-	write_c0_status((read_c0_status() & ~ST0_IM) |
-			(STATUSF_IP0|STATUSF_IP1|STATUSF_IP6|STATUSF_IP7));
-#endif
+	pr_debug("SMPMT: CPU%d: smvp_init_secondary\n", smp_processor_id());
+	/* Enable per-cpu interrupts: platform specific */
 }
 
-void __cpuinit prom_smp_finish(void)
+void __cpuinit smvp_smp_finish(void)
 {
-	pr_debug("SMPMT: CPU%d: prom_smp_finish\n", smp_processor_id());
+	pr_debug("SMPMT: CPU%d: smvp_smp_finish\n", smp_processor_id());
 
 	/* CDFIXME: remove this? */
 	write_c0_compare(read_c0_count() + (8* mips_hpt_frequency/HZ));
@@ -268,8 +239,8 @@ void __cpuinit prom_smp_finish(void)
 	local_irq_enable();
 }
 
-void prom_cpus_done(void)
+void smvp_cpus_done(void)
 {
-	pr_debug("SMPMT: CPU%d: prom_cpus_done\n", smp_processor_id());
+	pr_debug("SMPMT: CPU%d: smvp_cpus_done\n", smp_processor_id());
 }
 

@@ -1625,6 +1625,15 @@ config NR_CPUS
 	  performance should round up your number of processors to the next
 	  power of two.
 
+config MIPS_CMP
+	bool "MIPS CMP framework support"
+	depends on SMP
+	select WEAK_ORDERING
+	default n
+	help
+	  This is a placeholder option for the GCMP work. It will need to
+	  be handled differently...
+
 #
 # Timer Interrupt Frequency Configuration
 #

@@ -851,7 +851,7 @@ void deferred_smtc_ipi(void)
 }
 
 /*
- * Send clock tick to all TCs except the one executing the funtion
+ * Send clock tick to all TCs except the one executing the function
  */
 
 void smtc_timer_broadcast(void)
