@@ -29,9 +29,36 @@ struct vpe_notifications {
 
 extern int vpe_notify(int index, struct vpe_notifications *notify);
 
+/*
+ * libc style I/O support hooks
+ */
+
 extern void *vpe_get_shared(int index);
 extern int vpe_getuid(int index);
 extern int vpe_getgid(int index);
 extern char *vpe_getcwd(int index);
 
+/*
+ * Kernel/Kernel message passing support hooks
+ */
+
+extern void *vpe_get_shared_area(int index, int type);
+
+/* "Well-Known" Area Types */
+
+#define VPE_SHARED_NULL 0
+#define VPE_SHARED_RESERVED -1
+
+struct vpe_shared_area {
+	int type;
+	void *addr;
+};
+
+/*
+ * IRQ assignment and initialization hook for RP services.
+ */
+
+int arch_get_xcpu_irq(void);
+
+int vpe_send_interrupt(int v, int i);
 #endif /* _ASM_VPE_H */
