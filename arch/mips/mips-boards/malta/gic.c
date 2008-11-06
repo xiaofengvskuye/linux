@@ -20,7 +20,8 @@
 static unsigned long _gic_base;
 static unsigned long _gcmp_base;
 static unsigned long _msc01_biu_base;
-static unsigned int gcmp_present, gic_present;
+unsigned int gcmp_present;
+static unsigned int gic_present;
 
 /* FIXME : Cleanup needed */
 static unsigned int gic_pcpu_imasks[4];
