@@ -451,8 +451,9 @@ static inline int n_counters(void)
 	return counters;
 }
 
-static inline void reset_counters(int counters)
+static void reset_counters(void *arg)
 {
+	int counters = (int)arg;
 	unsigned int self = smp_processor_id();
 	int i;
 
@@ -466,7 +467,7 @@ static inline void reset_counters(int counters)
 
 static int __init mips_mr7_init(void)
 {
-	int counters, i;
+	int counters;
 
 	PRINT_FUNC_NAME();
 
@@ -480,9 +481,7 @@ static int __init mips_mr7_init(void)
 	op_model_mr7_ops.num_counters = counters;
 	pr_debug("oprofile : System has %d oprofile counters\n", counters);
 
-	for_each_online_cpu(i)
-		reset_counters(counters);
-
+	on_each_cpu(reset_counters, (void *)counters, 0, 1);
 
 	switch (current_cpu_data.cputype) {
 	case CPU_34K:
@@ -497,12 +496,10 @@ static int __init mips_mr7_init(void)
 static void mips_mr7_exit(void)
 {
 	int counters = op_model_mr7_ops.num_counters;
-	int i;
 
 	PRINT_FUNC_NAME();
 
-	for_each_online_cpu(i)
-		reset_counters(counters);
+	on_each_cpu(reset_counters, (void *)counters, 0, 1);
 
 	perf_irq = null_perf_irq;
 }
