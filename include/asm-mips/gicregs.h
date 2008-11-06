@@ -387,14 +387,11 @@
 #define GIC_VPE_SMASK_SWINT1_MSK	(MSK(1) << GIC_VPE_SMASK_SWINT1_SHF)
 
 /*
- * Set/Reset the Mapping of Interrupt X to a VPE.
+ * Set the Mapping of Interrupt X to a VPE.
  */
 #define GIC_SH_MAP_TO_VPE_SMASK(intr, vpe) \
-  GIC_REG_ADDR(SHARED, (GIC_SH_MAP_TO_VPE_REG_OFF(intr, vpe))) |= \
-  GIC_SH_MAP_TO_VPE_REG_BIT(vpe)
-#define GIC_SH_MAP_TO_VPE_RMASK(intr, vpe) \
-  GIC_REG_ADDR(SHARED, (GIC_SH_MAP_TO_VPE_REG_OFF(intr, vpe))) &= \
-  ~GIC_SH_MAP_TO_VPE_REG_BIT(vpe)
+	GIC_REG_ADDR(SHARED, GIC_SH_MAP_TO_VPE_REG_OFF(intr, vpe)) = \
+	GIC_SH_MAP_TO_VPE_REG_BIT(vpe)
 
 extern int gic_init(void);
 
