@@ -30,6 +30,7 @@
 #include <asm/mipsregs.h>
 #include <asm/mipsmtregs.h>
 #include <asm/mips_mt.h>
+#include <asm/time.h>
 #include <asm/amon.h>
 
 /*
@@ -99,6 +100,9 @@ void __cpuinit cmp_init_secondary(void)
 void __cpuinit cmp_smp_finish(void)
 {
 	pr_debug("SMPCMP: CPU%d: %s\n", smp_processor_id(), __FUNCTION__);
+
+	/* CDFIXME: remove this? */
+	write_c0_compare(read_c0_count() + (8 * mips_hpt_frequency/HZ));
 
 #ifdef CONFIG_MIPS_MT_FPAFF
 	/* If we have an FPU, enroll ourselves in the FPU-full mask */
