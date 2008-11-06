@@ -414,7 +414,19 @@ void mipsmt_prepare_cpus(void)
 			 * code.  Leave it alone!
 			 */
 			if (tc != 0) {
-				smtc_tc_setup(vpe,tc, cpu);
+				smtc_tc_setup(vpe, tc, cpu);
+				if (vpe != 0) {
+					/*
+					 * Set MVP bit (possibly again).  Do it
+					 * here to catch CPUs that have no TCs
+					 * bound to the VPE at reset.  In that
+					 * case, a TC must be bound to the VPE
+					 * before we can set VPEControl[MVP]
+					 */
+					write_vpe_c0_vpeconf0(
+						read_vpe_c0_vpeconf0() |
+						VPECONF0_MVP);
+				}
 				cpu++;
 			}
 			printk(" %d", tc);
