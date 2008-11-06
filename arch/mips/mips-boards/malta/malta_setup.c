@@ -31,6 +31,7 @@
 #include <asm/dma.h>
 #include <asm/time.h>
 #include <asm/traps.h>
+#include <asm/gcmpregs.h>
 #ifdef CONFIG_VT
 #include <linux/console.h>
 #endif
@@ -84,6 +85,97 @@ void __init fd_activate(void)
 }
 #endif
 
+int coherentio = -1;
+static int __init setcoherentio(char *str)
+{
+	if (coherentio < 0)
+		printk(KERN_INFO "Command line checking done before plat_setup_iocoherency!!\n");
+	if (coherentio == 0)
+		printk(KERN_INFO "Command line enabling coherentio (this will break...)!!\n");
+
+	coherentio = 1;
+	printk(KERN_INFO "Hardware DMA cache coherency (command line)\n");
+	return 1;
+}
+__setup("coherentio", setcoherentio);
+
+static int __init setnocoherentio(char *str)
+{
+	if (coherentio < 0)
+		printk(KERN_INFO "Command line checking done before plat_setup_iocoherency!!\n");
+	if (coherentio == 1)
+		printk(KERN_INFO "Command line disabling coherentio\n");
+
+	coherentio = 0;
+	printk(KERN_INFO "Software DMA cache coherency (command line)\n");
+	return 1;
+}
+__setup("nocoherentio", setnocoherentio);
+
+static int __init
+plat_enable_iocoherency(void)
+{
+	int supported = 0;
+	if (mips_revision_sconid == MIPS_REVISION_SCON_BONITO) {
+		if (BONITO_PCICACHECTRL & BONITO_PCICACHECTRL_CPUCOH_PRES) {
+			BONITO_PCICACHECTRL |= BONITO_PCICACHECTRL_CPUCOH_EN;
+			printk(KERN_INFO "Enabled Bonito CPU coherency\n");
+			supported = 1;
+		}
+		if (strstr(prom_getcmdline(), "iobcuncached")) {
+			BONITO_PCICACHECTRL &= ~BONITO_PCICACHECTRL_IOBCCOH_EN;
+			BONITO_PCIMEMBASECFG = BONITO_PCIMEMBASECFG &
+				~(BONITO_PCIMEMBASECFG_MEMBASE0_CACHED |
+				  BONITO_PCIMEMBASECFG_MEMBASE1_CACHED);
+			printk(KERN_INFO "Disabled Bonito IOBC coherency\n");
+		} else {
+			BONITO_PCICACHECTRL |= BONITO_PCICACHECTRL_IOBCCOH_EN;
+			BONITO_PCIMEMBASECFG |=
+				(BONITO_PCIMEMBASECFG_MEMBASE0_CACHED |
+				 BONITO_PCIMEMBASECFG_MEMBASE1_CACHED);
+			printk(KERN_INFO "Enabled Bonito IOBC coherency\n");
+		}
+	} else if (gcmp_niocu () != 0) {
+		/* Nothing special needs to be done to enable coherency */
+		printk(KERN_INFO "CMP IOCU detected\n");
+		if ((*(unsigned int *)0xbf403000 & 0x81) != 0x81) {
+		  printk(KERN_CRIT "IOCU OPERATION DISABLED BY SWITCH - DEFAULTING TO SW IO COHERENCY\n");
+		  return 0;
+		}
+		supported = 1;
+	}
+	return supported;
+}
+
+static void __init
+plat_setup_iocoherency(void)
+{
+#ifdef CONFIG_DMA_NONCOHERENT
+	/*
+	 * Kernel has been configured with software coherency
+	 * but we might choose to turn it off
+	 */
+	if (plat_enable_iocoherency()) {
+		if (coherentio == 0)
+			printk(KERN_INFO "Hardware DMA cache coherency supported but disabled from command line\n");
+		else {
+			coherentio = 1;
+			printk(KERN_INFO "Hardware DMA cache coherency\n");
+		}
+	} else {
+		if (coherentio == 1)
+			printk(KERN_INFO "Hardware DMA cache coherency not supported but enabled from command line\n");
+		else {
+			coherentio = 0;
+			printk(KERN_INFO "Software DMA cache coherency\n");
+		}
+	}
+#else
+	if (!plat_enable_iocoherency())
+		panic("Hardware DMA cache coherency not supported");
+#endif
+}
+
 void __init plat_mem_setup(void)
 {
 	unsigned int i;
@@ -104,47 +196,15 @@ void __init plat_mem_setup(void)
 #endif
 
 	if (mips_revision_sconid == MIPS_REVISION_SCON_BONITO) {
-		char *argptr;
-
-		argptr = prom_getcmdline();
-		if (strstr(argptr, "debug")) {
+		if (strstr(prom_getcmdline(), "debug")) {
 			BONITO_BONGENCFG |= BONITO_BONGENCFG_DEBUGMODE;
 			printk ("Enabled Bonito debug mode\n");
 		}
 		else
 			BONITO_BONGENCFG &= ~BONITO_BONGENCFG_DEBUGMODE;
-
-#ifdef CONFIG_DMA_COHERENT
-		if (BONITO_PCICACHECTRL & BONITO_PCICACHECTRL_CPUCOH_PRES) {
-			BONITO_PCICACHECTRL |= BONITO_PCICACHECTRL_CPUCOH_EN;
-			printk("Enabled Bonito CPU coherency\n");
-
-			argptr = prom_getcmdline();
-			if (strstr(argptr, "iobcuncached")) {
-				BONITO_PCICACHECTRL &= ~BONITO_PCICACHECTRL_IOBCCOH_EN;
-				BONITO_PCIMEMBASECFG = BONITO_PCIMEMBASECFG &
-					~(BONITO_PCIMEMBASECFG_MEMBASE0_CACHED |
-					  BONITO_PCIMEMBASECFG_MEMBASE1_CACHED);
-				printk("Disabled Bonito IOBC coherency\n");
-			}
-			else {
-				BONITO_PCICACHECTRL |= BONITO_PCICACHECTRL_IOBCCOH_EN;
-				BONITO_PCIMEMBASECFG |=
-					(BONITO_PCIMEMBASECFG_MEMBASE0_CACHED |
-					 BONITO_PCIMEMBASECFG_MEMBASE1_CACHED);
-				printk("Enabled Bonito IOBC coherency\n");
-			}
-		}
-		else
-			panic("Hardware DMA cache coherency not supported");
-
-#endif
 	}
-#ifdef CONFIG_DMA_COHERENT
-	else {
-		panic("Hardware DMA cache coherency not supported");
-	}
-#endif
+
+	plat_setup_iocoherency();
 
 #ifdef CONFIG_BLK_DEV_IDE
 	/* Check PCI clock */

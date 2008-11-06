@@ -516,6 +516,22 @@ int __init gcmp_probe(unsigned long addr, unsigned long size)
 	return gcmp_present;
 }
 
+/* Return the number of IOCU's present */
+int __init gcmp_niocu(void)
+{
+  return gcmp_present ?
+    (GCMPGCB(GC) & GCMP_GCB_GC_NUMIOCU_MSK) >> GCMP_GCB_GC_NUMIOCU_SHF :
+    0;
+}
+
+/* Set GCMP region attributes */
+void __init gcmp_setregion(int region, unsigned long base,
+			   unsigned long mask, int type)
+{
+	GCMPGCBn(CMxBASE, region) = base;
+	GCMPGCBn(CMxMASK, region) = mask | type;
+}
+
 void __init fill_ipi_map(void)
 {
 	int i;
