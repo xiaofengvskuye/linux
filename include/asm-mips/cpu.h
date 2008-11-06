@@ -91,6 +91,7 @@
 #define PRID_IMP_74K		0x9700
 #define PRID_IMP_LOONGSON1      0x4200
 #define PRID_IMP_LOONGSON2      0x6300
+#define PRID_IMP_1004K		0x9900
 
 /*
  * These are the PRID's for when 23:16 == PRID_COMP_SIBYTE
@@ -217,8 +218,9 @@
 #define CPU_R14000		64
 #define CPU_LOONGSON1           65
 #define CPU_LOONGSON2           66
+#define CPU_1004K		67
 
-#define CPU_LAST		66
+#define CPU_LAST		67
 
 /*
  * ISA Level encodings

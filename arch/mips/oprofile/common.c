@@ -108,6 +108,7 @@ int __init oprofile_arch_init(struct oprofile_operations *ops)
 		break;
 
 	case CPU_34K:
+	case CPU_1004K:
 		if (cpu_is_mr7)
 			lmodel = &op_model_mr7_ops;
 		else

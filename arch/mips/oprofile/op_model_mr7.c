@@ -484,6 +484,7 @@ static int __init mips_mr7_init(void)
 	on_each_cpu(reset_counters, (void *)counters, 0, 1);
 
 	switch (current_cpu_data.cputype) {
+	case CPU_1004K:
 	case CPU_34K:
 		op_model_mr7_ops.cpu_type = "mips/34K";
 		break;

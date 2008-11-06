@@ -412,6 +412,7 @@ static int __init mipsxx_init(void)
 		break;
 
 	case CPU_34K:
+	case CPU_1004K:
 		op_model_mipsxx_ops.cpu_type = "mips/34K";
 		break;
 
