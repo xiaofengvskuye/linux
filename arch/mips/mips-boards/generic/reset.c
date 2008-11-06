@@ -41,14 +41,14 @@ static void mips_machine_restart(char *command)
 {
 	unsigned int __iomem *softres_reg = ioremap(SOFTRES_REG, sizeof(unsigned int));
 
-	writew(GORESET, softres_reg);
+	__raw_writel(GORESET, softres_reg);
 }
 
 static void mips_machine_halt(void)
 {
         unsigned int __iomem *softres_reg = ioremap(SOFTRES_REG, sizeof(unsigned int));
 
-	writew(GORESET, softres_reg);
+	__raw_writel(GORESET, softres_reg);
 }
 
 #if defined(CONFIG_MIPS_ATLAS)
@@ -56,7 +56,7 @@ static void atlas_machine_power_off(void)
 {
 	unsigned int __iomem *psustby_reg = ioremap(ATLAS_PSUSTBY_REG, sizeof(unsigned int));
 
-	writew(ATLAS_GOSTBY, psustby_reg);
+	__raw_writel(ATLAS_GOSTBY, psustby_reg);
 }
 #endif
 
