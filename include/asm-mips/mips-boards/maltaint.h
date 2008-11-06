@@ -113,6 +113,9 @@
 
 #ifndef __ASSEMBLY__
 extern void maltaint_init(void);
+
+extern void malta_be_init(void);
+extern int malta_be_handler(struct pt_regs *, int);
 #endif
 
 #endif /* !(_MIPS_MALTAINT_H) */
