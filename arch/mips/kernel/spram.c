@@ -13,7 +13,6 @@
 #include <linux/ptrace.h>
 #include <linux/stddef.h>
 
-#include <asm/cpu.h>
 #include <asm/fpu.h>
 #include <asm/mipsregs.h>
 #include <asm/system.h>
@@ -199,7 +198,7 @@ static __cpuinit void probe_spram(char *type,
 	}
 }
 
-__cpuinit void spram_config(void)
+void __cpuinit spram_config(void)
 {
 	struct cpuinfo_mips *c = &current_cpu_data;
 	unsigned int config0;
@@ -210,10 +209,9 @@ __cpuinit void spram_config(void)
 	case CPU_74K:
 		config0 = read_c0_config();
 		/* FIXME: addresses are Malta specific */
-		if (config0 & (1<<24)) {
+		if (config0 & (1<<24))
 			probe_spram("ISPRAM", 0x1c000000,
 				    &ispram_load_tag, &ispram_store_tag);
-		}
 		if (config0 & (1<<23))
 			probe_spram("DSPRAM", 0x1c100000,
 				    &dspram_load_tag, &dspram_store_tag);
