@@ -30,15 +30,17 @@
 #include <asm/mipsregs.h>
 #include <asm/mipsmtregs.h>
 #include <asm/mips_mt.h>
+#include <asm/amon.h>
 
 /*
  * Common setup before any secondaries are started
  */
 void __init cmp_smp_setup(void)
 {
+	int i;
 	int ncpu = 0;
 
-	pr_debug("SMPCMP: CPU%d: cmp_smp_setup\n", smp_processor_id());
+	pr_debug("SMPCMP: CPU%d: %s\n", smp_processor_id(), __FUNCTION__);
 
 #ifdef CONFIG_MIPS_MT_FPAFF
 	/* If we have an FPU, enroll ourselves in the FPU-full mask */
@@ -46,13 +48,21 @@ void __init cmp_smp_setup(void)
 		cpu_set(0, mt_fpu_cpumask);
 #endif /* CONFIG_MIPS_MT_FPAFF */
 
+	for (i = 1; i < NR_CPUS; i++) {
+		if (amon_cpu_avail (i)) {
+			cpu_set(i, phys_cpu_present_map);
+			__cpu_number_map[i]	= ++ncpu;
+			__cpu_logical_map[ncpu]	= i;
+		}
+	}
+
 	printk(KERN_INFO "Detected %i available secondary CPU(s)\n", ncpu);
 }
 
 void __init cmp_prepare_cpus(unsigned int max_cpus)
 {
-	pr_debug("SMPCMP: CPU%d: cmp_prepare_cpus %d\n",
-		 smp_processor_id(), max_cpus);
+	pr_debug("SMPCMP: CPU%d: %s max_cpus=%d\n",
+		 smp_processor_id(), __FUNCTION__, max_cpus);
 
 	/*
 	 * FIXME: some of these options are per-system,
@@ -74,24 +84,21 @@ void __cpuinit cmp_boot_secondary(int cpu, struct task_struct *idle)
 	unsigned long pc = (unsigned long)&smp_bootstrap;
 	unsigned long a0 = 0;
 
-	pr_debug("SMPCMP: CPU%d: cmp_boot_secondary cpu %d\n",
-		 smp_processor_id(), cpu);
+	pr_debug("SMPCMP: CPU%d: %s cpu %d\n",
+		 smp_processor_id(), __FUNCTION__, cpu);
 
-	gp = gp;
-	sp = sp;
-	pc = pc;
-	a0 = a0;
+	amon_cpu_start(cpu, pc, sp, (unsigned long)gp, a0);
 }
 
 void __cpuinit cmp_init_secondary(void)
 {
-	pr_debug("SMPCMP: CPU%d: cmp_init_secondary\n", smp_processor_id());
+	pr_debug("SMPCMP: CPU%d: %s\n", smp_processor_id(), __FUNCTION__);
 	/* Enable per-cpu interrupts: platform specific */
 }
 
 void __cpuinit cmp_smp_finish(void)
 {
-	pr_debug("SMPCMP: CPU%d: cmp_smp_finish\n", smp_processor_id());
+	pr_debug("SMPCMP: CPU%d: %s\n", smp_processor_id(), __FUNCTION__);
 
 #ifdef CONFIG_MIPS_MT_FPAFF
 	/* If we have an FPU, enroll ourselves in the FPU-full mask */
@@ -104,6 +111,6 @@ void __cpuinit cmp_smp_finish(void)
 
 void cmp_cpus_done(void)
 {
-	pr_debug("SMPCMP: CPU%d: cmp_cpus_done\n", smp_processor_id());
+	pr_debug("SMPCMP: CPU%d: %s\n", smp_processor_id(), __FUNCTION__);
 }
 
