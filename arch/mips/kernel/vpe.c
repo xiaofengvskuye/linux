@@ -1400,19 +1400,23 @@ static int __init vpe_module_init(void)
 	}
 
 	if (vpelimit == 0) {
-		printk(KERN_WARNING "No VPEs reserved for AP/SP, not "
-		       "initializing VPE loader.\nPass maxvpes=<n> argument as "
-		       "kernel argument\n");
-
+#if defined(CONFIG_MIPS_MT_SMTC) || defined(MIPS_MT_SMP)
+		printk(KERN_WARNING "No VPEs reserved for VPE loader.\n"
+		       "Pass maxvpes=<n> argument as kernel argument\n");
 		return -ENODEV;
+#else
+		vpelimit = 1;
+#endif
 	}
 
 	if (tclimit == 0) {
-		printk(KERN_WARNING "No TCs reserved for AP/SP, not "
-		       "initializing VPE loader.\nPass maxtcs=<n> argument as "
-		       "kernel argument\n");
-
+#if defined(CONFIG_MIPS_MT_SMTC) || defined(MIPS_MT_SMP)
+		printk(KERN_WARNING "No TCs reserved for VPE loader\n"
+		       "Pass maxtcs=<n> argument as kernel argument\n");
 		return -ENODEV;
+#else
+		tclimit = 1;
+#endif
 	}
 
 	major = register_chrdev(0, module_name, &vpe_fops);
