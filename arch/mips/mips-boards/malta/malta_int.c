@@ -358,10 +358,6 @@ static void ipi_resched(unsigned int cpu)
  */
 void cmp_send_ipi(int cpu, unsigned int action)
 {
-	unsigned long flags;
-
-	local_irq_save(flags);
-
 	switch (action) {
 	case SMP_CALL_FUNCTION:
 		ipi_call_function(cpu);
@@ -371,8 +367,6 @@ void cmp_send_ipi(int cpu, unsigned int action)
 		ipi_resched(cpu);
 		break;
 	}
-
-	local_irq_restore(flags);
 }
 
 void smvp_send_ipi(int cpu, unsigned int action)
