@@ -10,7 +10,7 @@ DRIVER_OBJS = $(addprefix ../../../drivers/oprofile/, \
 
 oprofile-y				:= $(DRIVER_OBJS) common.o
 
-oprofile-$(CONFIG_CPU_MIPS32)		+= op_model_mipsxx.o
+oprofile-$(CONFIG_CPU_MIPS32)		+= op_model_mipsxx.o op_model_mr7.o
 oprofile-$(CONFIG_CPU_MIPS64)		+= op_model_mipsxx.o
 oprofile-$(CONFIG_CPU_R10000)		+= op_model_mipsxx.o
 oprofile-$(CONFIG_CPU_SB1)		+= op_model_mipsxx.o

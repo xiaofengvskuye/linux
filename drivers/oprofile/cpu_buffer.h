@@ -23,6 +23,8 @@ void free_cpu_buffers(void);
 void start_cpu_work(void);
 void end_cpu_work(void);
 
+struct task_struct *smtc_get_current(unsigned int tc);
+
 /* CPU buffer is composed of such entries (which are
  * also used for context switch notes)
  */
