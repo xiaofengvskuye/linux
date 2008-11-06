@@ -50,3 +50,5 @@ cscope.*
 
 *.orig
 *.rej
+*~
+\#*#
