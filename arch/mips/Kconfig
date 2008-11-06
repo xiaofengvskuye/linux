@@ -828,6 +828,7 @@ config MIPS_L1_CACHE_SHIFT
 	int
 	default "4" if MACH_DECSTATION
 	default "7" if SGI_IP27 || SNI_RM
+	default "6" if MIPS_CPU_SCACHE
 	default "4" if PMC_MSP4200_EVAL
 	default "5"
 
