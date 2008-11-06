@@ -774,10 +774,15 @@ static int vpe_run(struct vpe * v)
 	/* take system out of configuration state */
 	clear_c0_mvpcontrol(MVPCONTROL_VPC);
 
+	/*
+	 * SMTC/SMVP kernels manage VPE enable independently,
+	 * but uniprocessor kernels need to turn it on, even
+	 * if that wasn't the pre-dvpe() state.
+	 */
 #ifdef CONFIG_SMP
-	evpe(EVPE_ENABLE);
-#else
 	evpe(vpeflags);
+#else
+	evpe(EVPE_ENABLE);
 #endif
 	emt(dmt_flag);
 	local_irq_restore(flags);
