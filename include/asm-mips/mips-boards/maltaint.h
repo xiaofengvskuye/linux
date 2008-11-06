@@ -27,6 +27,8 @@
 
 #include <irq.h>
 
+#define USE_GIC		/* FIXME */
+
 /*
  * Interrupts 0..15 are used for Malta ISA compatible interrupts
  */
@@ -39,7 +41,9 @@
 #define MIPSCPU_INT_I8259A	MIPSCPU_INT_MB0
 #define MIPSCPU_INT_MB1		3
 #define MIPSCPU_INT_SMI		MIPSCPU_INT_MB1
+#define MIPSCPU_INT_IPI0	MIPSCPU_INT_MB1	/* GIC IPI */
 #define MIPSCPU_INT_MB2		4
+#define MIPSCPU_INT_IPI1	MIPSCPU_INT_MB2	/* GIC IPI */
 #define MIPSCPU_INT_MB3		5
 #define MIPSCPU_INT_COREHI	MIPSCPU_INT_MB3
 #define MIPSCPU_INT_MB4		6
@@ -78,6 +82,9 @@
 
 #ifndef __ASSEMBLY__
 extern void maltaint_init(void);
+extern void malta_ipi_irqdispatch(void);
+extern void ipi_call_function(unsigned int cpu);
+extern void ipi_resched(unsigned int cpu);
 #endif
 
 #endif /* !(_MIPS_MALTAINT_H) */
