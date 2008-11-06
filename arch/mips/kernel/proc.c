@@ -16,6 +16,7 @@
 #include <asm/processor.h>
 
 unsigned int vced_count, vcei_count;
+unsigned int rollback_count;
 
 static const char *cpu_name[] = {
 	[CPU_UNKNOWN]	= "unknown",
@@ -139,8 +140,8 @@ static int show_cpuinfo(struct seq_file *m, void *v)
 	        cpu_has_vce ? "%u" : "not available");
 	seq_printf(m, fmt, 'D', vced_count);
 	seq_printf(m, fmt, 'I', vcei_count);
+	seq_printf(m, "Wait rollbacks\t: %d\n", rollback_count);
 	seq_printf(m, "\n");
-
 	return 0;
 }
 
