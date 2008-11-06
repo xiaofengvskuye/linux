@@ -1628,6 +1628,7 @@ config NR_CPUS
 config MIPS_CMP
 	bool "MIPS CMP framework support"
 	depends on SMP
+	select SYS_SUPPORTS_SCHED_SMT
 	select WEAK_ORDERING
 	default n
 	help
