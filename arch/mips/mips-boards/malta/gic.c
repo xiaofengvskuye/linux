@@ -28,10 +28,8 @@ static unsigned int gic_pcpu_imasks[4];
 
 void ipi_call_function(unsigned int cpu)
 {
-#ifdef GIC_DEBUG
-	printk(KERN_CRIT "%s called cpu %d to %d\n",
-	       __FUNCTION__, smp_processor_id(), cpu);
-#endif
+	pr_debug("CPU%d: %s cpu %d status %08x\n",
+		 smp_processor_id(), __FUNCTION__, cpu, read_c0_status());
 	switch (cpu) {
 	case 0:
 		GIC_REG(SHARED, GIC_SH_WEDGE) =
@@ -54,10 +52,8 @@ void ipi_call_function(unsigned int cpu)
 
 void ipi_resched(unsigned int cpu)
 {
-#ifdef GIC_DEBUG
-	printk(KERN_CRIT "%s called cpu %d to %d \n",
-	       __FUNCTION__, smp_processor_id(), cpu);
-#endif
+	pr_debug("CPU%d: %s cpu %d status %08x\n",
+		 smp_processor_id(), __FUNCTION__, cpu, read_c0_status());
 
 	switch (cpu) {
 	case 0:
@@ -179,17 +175,13 @@ static void setup_vpe_maps(unsigned int numintrs)
 {
 	unsigned int intr;
 
-#ifdef GIC_DEBUG
-	printk(KERN_CRIT "GIC: %s\n", __FUNCTION__);
-#endif
+	pr_debug("GIC: %s\n", __FUNCTION__);
 
 	/* Map All interrupts to VPE 0 */
 	for (intr = 0; intr < numintrs; intr++)
 		GIC_SH_MAP_TO_VPE_SMASK(intr, 0);
 
-#ifdef GIC_DEBUG
-	printk(KERN_CRIT "GIC: %s mapping VPE IPI's\n", __FUNCTION__);
-#endif
+	pr_debug("GIC: %s mapping VPE IPI's\n", __FUNCTION__);
 
 	/* ...but map IPIs to specific VPEs.. */
 	GIC_SH_MAP_TO_VPE_SMASK(GIC_IPI_EXT_INTR_RESCHED_VPE0, 0);
@@ -243,9 +235,7 @@ static void set_interrupt_masks(void)
 
 static void setup_mappings(unsigned int numintrs, unsigned int numvpes)
 {
-#ifdef GIC_DEBUG
-	printk(KERN_CRIT "GIC: %s\n", __FUNCTION__);
-#endif
+	pr_debug("GIC: %s\n", __FUNCTION__);
 
 	setup_pin_maps();
 	vpe_local_setup(numvpes);
@@ -274,9 +264,7 @@ static int do_probe(void)
 
 static void basic_init(unsigned long numintrs, unsigned long numvpes)
 {
-#ifdef GIC_DEBUG
-	printk(KERN_CRIT "GIC: %s\n", __FUNCTION__);
-#endif
+	pr_debug("GIC: %s\n", __FUNCTION__);
 
 	setup_polarities();
 	setup_triggers();
@@ -305,6 +293,8 @@ static unsigned int get_int(void)
 	mask = GIC_REG(SHARED, GIC_SH_MASK_31_0);
 	pending = (pending & mask & gic_pcpu_imasks[smp_processor_id()]);
 	pending = (31 - clz(pending));
+	pr_debug("CPU%d: %s pend=%d\n",
+		  smp_processor_id(), __FUNCTION__, pending);
 	return pending;
 }
 
@@ -321,10 +311,7 @@ asmlinkage void malta_ipi_irqdispatch(void)
 
 static unsigned int gic_irq_startup(unsigned int irq)
 {
-#ifdef GIC_DEBUG
-	printk(KERN_CRIT "CPU%d: %s: irq%d\n",
-	       smp_processor_id(), __FUNCTION__, irq);
-#endif
+	pr_debug("CPU%d: %s: irq%d\n", smp_processor_id(), __FUNCTION__, irq);
 	irq -= MIPS_GIC_IRQ_BASE;
 	GIC_REG(SHARED, GIC_SH_SMASK_31_0) = (1 << irq);
 	return (0);
@@ -332,10 +319,7 @@ static unsigned int gic_irq_startup(unsigned int irq)
 
 static void gic_irq_ack(unsigned int irq)
 {
-#ifdef GIC_DEBUG
-	printk(KERN_CRIT "CPU%d: %s: irq%d\n",
-	       smp_processor_id(), __FUNCTION__, irq);
-#endif
+	pr_debug("CPU%d: %s: irq%d\n", smp_processor_id(), __FUNCTION__, irq);
 	irq -= MIPS_GIC_IRQ_BASE;
 	GIC_REG(SHARED, GIC_SH_RMASK_31_0) = (1 << irq);
 	GIC_REG(SHARED, GIC_SH_WEDGE) = irq;
@@ -343,29 +327,21 @@ static void gic_irq_ack(unsigned int irq)
 
 static void gic_mask_irq(unsigned int irq)
 {
-#ifdef GIC_DEBUG
-	printk(KERN_CRIT "CPU%d: %s: irq%d\n",
-	       smp_processor_id(), __FUNCTION__, irq);
-#endif
+	pr_debug("CPU%d: %s: irq%d\n", smp_processor_id(), __FUNCTION__, irq);
 	irq -= MIPS_GIC_IRQ_BASE;
 	GIC_REG(SHARED, GIC_SH_RMASK_31_0) = (1 << irq);
 }
 
 static void gic_unmask_irq(unsigned int irq)
 {
-#ifdef GIC_DEBUG
-	printk(KERN_CRIT "CPU%d: %s: irq%d\n",
-	       smp_processor_id(), __FUNCTION__, irq);
-#endif
+	pr_debug("CPU%d: %s: irq%d\n", smp_processor_id(), __FUNCTION__, irq);
 	irq -= MIPS_GIC_IRQ_BASE;
 	GIC_REG(SHARED, GIC_SH_SMASK_31_0) = (1 << irq);
 }
 
 static void gic_set_affinity(unsigned int irq, cpumask_t dest)
 {
-#ifdef GIC_DEBUG
-	printk(KERN_CRIT "%s called\n", __FUNCTION__);
-#endif
+	pr_debug(KERN_DEBUG "%s called\n", __FUNCTION__);
 }
 
 static struct irq_chip gic_irq_controller = {
@@ -437,9 +413,7 @@ int __init gic_init(void)
 		pr_debug("GIC Enabled\n");
 	}
 
-#ifdef GIC_DEBUG
-	printk(KERN_CRIT "%s called\n", __FUNCTION__);
-#endif
+	pr_debug("%s called\n", __FUNCTION__);
 
 	return 1;
 }
