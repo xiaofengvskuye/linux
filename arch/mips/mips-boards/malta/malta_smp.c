@@ -3,6 +3,7 @@
  */
 #include <linux/init.h>
 #include <linux/smp.h>
+#include <asm/gcmpregs.h>
 #include <asm/mips-boards/maltaint.h>
 #include <asm/mips-boards/maltasmp.h>
 
@@ -92,6 +93,7 @@ void __cpuinit prom_init_secondary(void)
 void __init plat_smp_setup(void)
 {
 	pr_debug("%s\n", __FUNCTION__);
+	gcmp_probe();		/* FIXME: Just to be sure */
 	if (malta_smtc) {
 		if (read_c0_config3() & (1<<2))
 			mipsmt_build_cpu_map(0);
