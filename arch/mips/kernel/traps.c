@@ -1343,7 +1343,6 @@ void __init per_cpu_trap_init(void)
 	change_c0_status(ST0_CU|ST0_MX|ST0_RE|ST0_FR|ST0_BEV|ST0_TS|ST0_KX|ST0_SX|ST0_UX,
 			 status_set);
 
-#ifdef CONFIG_CPU_MIPSR2
 	if (cpu_has_mips_r2) {
 		unsigned int enable = 0x0000000f;
 
@@ -1352,7 +1351,6 @@ void __init per_cpu_trap_init(void)
 
 		write_c0_hwrena(enable);
 	}
-#endif
 
 #ifdef CONFIG_MIPS_MT_SMTC
 	if (!secondaryTC) {
