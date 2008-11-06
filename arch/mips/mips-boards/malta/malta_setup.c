@@ -180,6 +180,9 @@ void __init plat_mem_setup(void)
 {
 	unsigned int i;
 
+	/* Early detection of CMP support */
+	(void) gcmp_probe(GCMP_BASE_ADDR, GCMP_ADDRSPACE_SZ);
+
 	mips_pcibios_init();
 
 	/* Request I/O space for devices used on the Malta board. */
