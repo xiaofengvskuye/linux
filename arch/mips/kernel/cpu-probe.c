@@ -159,14 +159,18 @@ void __init check_wait(void)
 	case CPU_24K:
 	case CPU_34K:
 		cpu_wait = r4k_wait;
+#ifndef CONFIG_MIPS_MT_SMTC
 		if (read_c0_config7() & MIPS_CONF7_WII)
 			cpu_wait = r4k_wait_irqoff;
+#endif /* CONFIG_MIPS_MT_SMTC */
 		break;
 
 	case CPU_74K:
 		cpu_wait = r4k_wait;
+#ifndef CONFIG_MIPS_MT_SMTC
 		if ((c->processor_id & 0xff) >= PRID_REV_ENCODE_332(2, 1, 0))
 			cpu_wait = r4k_wait_irqoff;
+#endif /* CONFIG_MIPS_MT_SMTC */
 		break;
 
 	case CPU_TX49XX:
