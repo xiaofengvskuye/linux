@@ -277,7 +277,8 @@ static void __cpuinit build_tlb_write_entry(u32 **p, struct uasm_label **l,
 	}
 
 	if (cpu_has_mips_r2) {
-		if (cpu_has_mips_r2_exec_hazard)
+		if ((current_cpu_type() != CPU_74K) &&
+			cpu_has_mips_r2_exec_hazard)
 			uasm_i_ehb(p);
 		tlbw(p);
 		return;
