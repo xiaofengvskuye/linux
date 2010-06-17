@@ -90,7 +90,11 @@
 #ifdef CONFIG_MIPS_MT_SMTC
 		mfc0	k0, CP0_TCBIND
 #else
+#ifdef CONFIG_MIPS_TLB_SMPID_ERROREPC
+		MFC0	k0, CP0_ERROREPC
+#else
 		MFC0	k0, CP0_CONTEXT
+#endif
 #endif
 #if defined(CONFIG_32BIT) || defined(KBUILD_64BIT_SYM32)
 		lui	k1, %hi(kernelsp)
@@ -110,7 +114,11 @@
 #ifdef CONFIG_MIPS_MT_SMTC
 		mfc0	\temp, CP0_TCBIND
 #else
+#ifdef CONFIG_MIPS_TLB_SMPID_ERROREPC
+		MFC0	\temp, CP0_ERROREPC
+#else
 		MFC0	\temp, CP0_CONTEXT
+#endif
 #endif
 		LONG_SRL	\temp, PTEBASE_SHIFT
 		LONG_S	\stackp, kernelsp(\temp)

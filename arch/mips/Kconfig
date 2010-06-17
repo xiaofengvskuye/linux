@@ -1719,6 +1719,30 @@ config SB1_PASS_2_1_WORKAROUNDS
 config 64BIT_PHYS_ADDR
 	bool
 
+choice
+	prompt "ErrorEPC usage"
+	depends on CPU_MIPS32_R2
+	default MIPS_TLB_NO_ERROREPC
+	help
+	  Configures use of ErrorEPC register by TLB refill system
+	  This option is used to configure how the Context and
+	  ErrorEPC registers are used by the TLB refill handler.
+	  When ContextConfig is available, Context should be used
+	  for the page table base, and ErrorEPC for the SMP ID.
+	  When ContextConfig is not available, Context should be
+	  used for the SMP processor ID, and ErrorEPC for the
+	  page table base.
+
+	config MIPS_TLB_NO_ERROREPC
+		bool "Don't use ErrorEPC"
+
+	config MIPS_TLB_PGD_ERROREPC
+		bool "ErrorEPC is Page Table Base" if !MIPS_MT_SMTC
+
+	config MIPS_TLB_SMPID_ERROREPC
+		bool "ErrorEPC is SMP processor ID" if !MIPS_MT_SMTC
+endchoice
+
 config CPU_HAS_SMARTMIPS
 	depends on SYS_SUPPORTS_SMARTMIPS
 	bool "Support for the SmartMIPS ASE"

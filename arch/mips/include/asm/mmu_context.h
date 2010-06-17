@@ -41,6 +41,8 @@ extern unsigned long pgd_current[];
 do {									\
 	if (cpu_has_pgdc_in_context)					\
 		write_c0_context((unsigned long)(pgd));			\
+	if (cpu_has_pgdc_in_errorepc)					\
+		write_c0_errorepc((unsigned long)(pgd));		\
 	pgd_current[smp_processor_id()] = (unsigned long)(pgd);		\
 } while (0)
 
@@ -48,6 +50,7 @@ do {									\
 #ifdef CONFIG_32BIT
 #define TLBMISS_HANDLER_SETUP()						\
 	init_pgdc_scratch();						\
+	TLBMISS_HANDLER_SETUP_CPUID();					\
 	back_to_back_c0_hazard();					\
 	TLBMISS_HANDLER_SETUP_PGD(swapper_pg_dir)
 #endif
@@ -60,8 +63,13 @@ do {									\
 
 /* Initial: Setup Context register with SMP ID */
 #ifdef CONFIG_32BIT
+#ifdef CONFIG_MIPS_TLB_SMPID_ERROREPC
+#define TLBMISS_HANDLER_SETUP_CPUID()					\
+	write_c0_errorepc((unsigned long) smp_processor_id() << 25);
+#else
 #define TLBMISS_HANDLER_SETUP_CPUID()					\
 	write_c0_context((unsigned long) smp_processor_id() << 25);
+#endif
 #endif
 #ifdef CONFIG_64BIT
 #define TLBMISS_HANDLER_SETUP_CPUID()					\
@@ -99,8 +107,7 @@ static inline void init_pgdc_scratch(void)
 	if (cpu_has_pgdc_in_context) {
 		write_c0_contextconfig((unsigned long) CONTEXTCONFIG_MASK);
 		instruction_hazard();
-	} else
-		TLBMISS_HANDLER_SETUP_CPUID();
+	}
 }
 #endif
 

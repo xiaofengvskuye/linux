@@ -113,23 +113,47 @@
 #if defined(CONFIG_SMP) && defined(CONFIG_MIPS_MT_SMTC)
 #define cpu_has_pgdc_in_memory (1)
 #else
-#define cpu_has_pgdc_in_memory (!(cpu_has_pgdc_in_context))
+#define cpu_has_pgdc_in_memory (!(cpu_has_pgdc_in_context || cpu_has_pgdc_in_errorepc))
 #endif
 #endif
 
 /* Page Global Directory ptr comes from Context
  *
- * SMP is not supported since get_saved_sp/set_saved_sp rely on
- * Context.PTEBase containing smp_processor_id().
+ * SMP is supported when ErrorEPC is used to store smp_processor_id().
+ * Uniprocessor is always supported
  *
  * SMTC is not supported as Context is per-VPE.
+ * - SMTC is excluded in Kconfig
  *
  */
 #ifndef cpu_has_pgdc_in_context
-#if defined(CONFIG_SMP)
-#define cpu_has_pgdc_in_context (0)
-#else
+#if !defined(CONFIG_SMP) || (defined(CONFIG_SMP) && defined(CONFIG_MIPS_TLB_SMPID_ERROREPC))
 #define cpu_has_pgdc_in_context (cpu_data[0].options & MIPS_CPU_PGDC_CC)
+#else
+#define cpu_has_pgdc_in_context (0)
+#endif
+#endif
+
+/* Page Global Directory ptr is stored in ErrorEPC
+ * - avoids load from memory to load page table base
+ * - on SMP, also avoids index from SMP ID in Context
+ */
+#ifndef cpu_has_pgdc_in_errorepc
+#if defined(CONFIG_MIPS_TLB_PGD_ERROREPC)
+#define cpu_has_pgdc_in_errorepc (1)
+#else
+#define cpu_has_pgdc_in_errorepc (0)
+#endif
+#endif
+
+/* smp_processor_id() is stored in ErrorEPC
+ * - allows use of ContextConfig with SMP kernel
+ */
+#ifndef cpu_has_smpid_in_errorepc
+#if defined(CONFIG_MIPS_TLB_SMPID_ERROREPC)
+#define cpu_has_smpid_in_errorepc (1)
+#else
+#define cpu_has_smpid_in_errorepc (0)
 #endif
 #endif
 
@@ -201,7 +225,7 @@
 #endif
 
 #ifndef cpu_has_contextconfig
-#define cpu_has_contextconfig	((cpu_data[0].options & MIPS_CPU_CTXTC) | cpu_has_smartmips)
+#define cpu_has_contextconfig	((cpu_data[0].options & MIPS_CPU_CTXTC) || cpu_has_smartmips)
 #endif
 
 #ifdef CONFIG_32BIT
