@@ -30,6 +30,9 @@
 #include <asm/mips-boards/prom.h>
 #include <asm/traps.h>
 
+int coherentio; 	/* init to 0 => no DMA cache coherency (may be set by user) */
+int hw_coherentio;	/* init to 0 => no HW DMA cache coherency (reflects real HW) */
+
 const char *get_system_type(void)
 {
 	return "MIPS SEAD3";

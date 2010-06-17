@@ -106,7 +106,8 @@ static void __init fd_activate(void)
 }
 #endif
 
-int coherentio = -1;
+int coherentio = -1;	/* no DMA cache coherency (may be set by user) */
+int hw_coherentio;	/* init to 0 => no HW DMA cache coherency (reflects real HW) */
 static int __init setcoherentio(char *str)
 {
 	if (coherentio < 0)
@@ -169,6 +170,7 @@ plat_enable_iocoherency(void)
 		}
 		supported = 1;
 	}
+	hw_coherentio = supported;
 	return supported;
 }
 
