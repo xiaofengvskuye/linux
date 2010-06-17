@@ -166,6 +166,9 @@ MODFLAGS	+= -msb1-pass1-workarounds
 endif
 endif
 
+# Workarounds for bareiron compiler
+cflags-y += -D__linux__
+
 #
 # Firmware support
 #
