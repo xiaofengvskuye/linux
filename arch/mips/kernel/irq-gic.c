@@ -44,6 +44,7 @@ unsigned int gic_get_timer_pending(void)
 /* NOTE: the _irqbase have already been removed. */
 void gic_enable_interrupt(int irq_vec)
 {
+#ifdef CONFIG_MIPS_SEAD3
 	unsigned int i;
 	unsigned int irq_source;
 
@@ -57,25 +58,32 @@ void gic_enable_interrupt(int irq_vec)
 		GICWRITE(GIC_REG(VPE_LOCAL, GIC_VPE_OTHER_ADDR), 0);
 		GICWRITE(GIC_REG(VPE_OTHER, GIC_VPE_SMASK), gic_shared_intr_map[irq_vec].local_intr_mask);
 	}
+#else
+	GIC_SET_INTR_MASK(irq_vec);
+#endif
 }
 
 /* Helper function to disable the interrupt */
 /* NOTE: the _irqbase have already been removed. */
 void gic_disable_interrupt(int irq_vec)
 {
+#ifdef CONFIG_MIPS_SEAD3
 	unsigned int i;
 	unsigned int irq_source;
 
-	/* enable all the interrupts associated with this vector */
+	/* disable all the interrupts associated with this vector */
 	for (i = 0; i < gic_shared_intr_map[irq_vec].num_shared_intr; i++) {
 		irq_source = gic_shared_intr_map[irq_vec].intr_list[i];
 		GIC_CLR_INTR_MASK(irq_source);
 	}
-	/* enable all local interrupts associated with this vector */
+	/* disable all local interrupts associated with this vector */
 	if (gic_shared_intr_map[irq_vec].local_intr_mask) {
 		GICWRITE(GIC_REG(VPE_LOCAL, GIC_VPE_OTHER_ADDR), 0);
 		GICWRITE(GIC_REG(VPE_OTHER, GIC_VPE_RMASK), gic_shared_intr_map[irq_vec].local_intr_mask);
 	}
+#else
+	GIC_CLR_INTR_MASK(irq_vec);
+#endif
 }
 
 void gic_bind_eic_interrupt(int irq, int set)
@@ -197,6 +205,11 @@ static void gic_irq_ack(unsigned int irq)
 	pr_debug("CPU%d: %s: irq%d\n", smp_processor_id(), __func__, irq);
 
 	gic_disable_interrupt(irq);
+
+#ifndef CONFIG_MIPS_SEAD3
+	if (gic_irq_flags[irq] & GIC_IRQ_FLAG_EDGE)
+		GICWRITE(GIC_REG(SHARED, GIC_SH_WEDGE), irq);
+#endif
 }
 
 static void gic_mask_irq(unsigned int irq)
@@ -215,6 +228,7 @@ static void gic_unmask_irq(unsigned int irq)
 
 static void gic_finish_irq(unsigned int irq)
 {
+#ifdef CONFIG_MIPS_SEAD3
 	unsigned int i;
 	unsigned int irq_source;
 
@@ -226,7 +240,11 @@ static void gic_finish_irq(unsigned int irq)
 		if (gic_irq_flags[irq_source] & GIC_IRQ_FLAG_EDGE)
 			GICWRITE(GIC_REG(SHARED, GIC_SH_WEDGE), irq_source);
 	}
+#else
+	irq -= _irqbase;
+#endif
 
+	pr_debug("CPU%d: %s: irq%d\n", smp_processor_id(), __func__, irq);
 	/* enable interrupts */
 	gic_enable_interrupt(irq);
 }
@@ -367,12 +385,17 @@ static void __init gic_basic_init(int numintrs, int numvpes,
 
 	vpe_local_setup(numvpes);
 
+#ifdef CONFIG_MIPS_SEAD3
 	/* for non-eic mode, we want to setup the GIC in pass-through mode. */
 	/* That is, as if the GIC don't exist. */
 	if (cpu_has_veic) {
 		for (i = _irqbase; i < (_irqbase + numintrs); i++)
 			set_irq_chip_and_handler(i, &gic_irq_controller, handle_percpu_irq);
 	}
+#else
+	for (i = _irqbase; i < (_irqbase + numintrs); i++)
+		set_irq_chip(i, &gic_irq_controller);
+#endif
 }
 
 void __init gic_init(unsigned long gic_base_addr,
