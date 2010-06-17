@@ -176,6 +176,7 @@ void __init check_wait(void)
 			cpu_wait = r4k_wait_irqoff;
 		break;
 
+	case CPU_1074K:
 	case CPU_74K:
 		cpu_wait = r4k_wait;
 		if ((c->processor_id & 0xff) >= PRID_REV_ENCODE_332(2, 1, 0))
@@ -774,6 +775,10 @@ static inline void cpu_probe_mips(struct cpuinfo_mips *c, unsigned int cpu)
 	case PRID_IMP_1004K:
 		c->cputype = CPU_1004K;
 		__cpu_name[cpu] = "MIPS 1004Kc";
+		break;
+	case PRID_IMP_1074K:
+		c->cputype = CPU_1074K;
+		__cpu_name[cpu] = "MIPS 1074Kc";
 		break;
 	}
 
