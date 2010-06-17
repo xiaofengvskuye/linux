@@ -24,6 +24,11 @@
 #endif /* SMTC */
 #include <asm-generic/mm_hooks.h>
 
+/* ContextConfig value for 32-bit machines */
+#ifdef CONFIG_32BIT
+#define CONTEXTCONFIG_MASK (((1<<(32-PGDIR_SHIFT))-1)<<PGD_T_LOG2)
+#endif
+
 /*
  * For the fast tlb miss handlers, we keep a per cpu array of pointers
  * to the current pgd for each processor. Also, the proc. id is stuffed
@@ -31,20 +36,72 @@
  */
 extern unsigned long pgd_current[];
 
-#define TLBMISS_HANDLER_SETUP_PGD(pgd) \
-	pgd_current[smp_processor_id()] = (unsigned long)(pgd)
+/* On each context switch: write PGD in memory, scratch register  */
+#define TLBMISS_HANDLER_SETUP_PGD(pgd)					\
+do {									\
+	if (cpu_has_pgdc_in_context)					\
+		write_c0_context((unsigned long)(pgd));			\
+	pgd_current[smp_processor_id()] = (unsigned long)(pgd);		\
+} while (0)
 
+/* Inital setup */
 #ifdef CONFIG_32BIT
 #define TLBMISS_HANDLER_SETUP()						\
-	write_c0_context((unsigned long) smp_processor_id() << 25);	\
+	init_pgdc_scratch();						\
 	back_to_back_c0_hazard();					\
 	TLBMISS_HANDLER_SETUP_PGD(swapper_pg_dir)
 #endif
 #ifdef CONFIG_64BIT
 #define TLBMISS_HANDLER_SETUP()						\
-	write_c0_context((unsigned long) smp_processor_id() << 26);	\
+	TLBMISS_HANDLER_SETUP_CPUID();					\
 	back_to_back_c0_hazard();					\
 	TLBMISS_HANDLER_SETUP_PGD(swapper_pg_dir)
+#endif
+
+/* Initial: Setup Context register with SMP ID */
+#ifdef CONFIG_32BIT
+#define TLBMISS_HANDLER_SETUP_CPUID()					\
+	write_c0_context((unsigned long) smp_processor_id() << 25);
+#endif
+#ifdef CONFIG_64BIT
+#define TLBMISS_HANDLER_SETUP_CPUID()					\
+	write_c0_context((unsigned long) smp_processor_id() << 26);
+#endif
+
+#ifdef CONFIG_32BIT
+/* Discover if a scratch register can be used for
+ * a local copy of pgd_current[smp_processor_id]
+ */
+static inline void init_pgdc_scratch(void)
+{
+	unsigned long ctxtc;
+	unsigned long saved_ctxtc;
+
+	/* Context can be used to hold the page table base,
+	 * - if present, and enough bits are implemented
+	 * - and SMTC is not using Config for CPU ID
+	*/
+	if (cpu_has_contextconfig) {
+		saved_ctxtc = read_c0_contextconfig();
+
+		write_c0_contextconfig((unsigned long) CONTEXTCONFIG_MASK);
+		instruction_hazard();
+		ctxtc = read_c0_contextconfig();
+
+		if (ctxtc == CONTEXTCONFIG_MASK)
+			cpu_data[0].options |= MIPS_CPU_PGDC_CC;
+
+		write_c0_contextconfig((unsigned long) saved_ctxtc);
+		instruction_hazard();
+	}
+
+	/* Set up ContextConfig or CPU ID - if required */
+	if (cpu_has_pgdc_in_context) {
+		write_c0_contextconfig((unsigned long) CONTEXTCONFIG_MASK);
+		instruction_hazard();
+	} else
+		TLBMISS_HANDLER_SETUP_CPUID();
+}
 #endif
 
 #if defined(CONFIG_CPU_R3000) || defined(CONFIG_CPU_TX39XX)

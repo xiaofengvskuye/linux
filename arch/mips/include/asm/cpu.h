@@ -275,6 +275,7 @@ enum cpu_type_enum {
 #define MIPS_CPU_VEIC		0x00100000 /* CPU supports MIPSR2 external interrupt controller mode */
 #define MIPS_CPU_ULRI		0x00200000 /* CPU has ULRI feature */
 #define MIPS_CPU_CTXTC		0x00400000 /* CPU has ContextConfig feature */
+#define MIPS_CPU_PGDC_CC	0x00800000 /* CPU has usable ContextConfig */
 
 /*
  * CPU ASE encodings

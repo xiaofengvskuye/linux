@@ -108,6 +108,31 @@
 #define cpu_has_pindexed_dcache	(cpu_data[0].dcache.flags & MIPS_CACHE_PINDEX)
 #endif
 
+/* Page Global Directory ptr comes from memory */
+#ifndef cpu_has_pgdc_in_memory
+#if defined(CONFIG_SMP) && defined(CONFIG_MIPS_MT_SMTC)
+#define cpu_has_pgdc_in_memory (1)
+#else
+#define cpu_has_pgdc_in_memory (!(cpu_has_pgdc_in_context))
+#endif
+#endif
+
+/* Page Global Directory ptr comes from Context
+ *
+ * SMP is not supported since get_saved_sp/set_saved_sp rely on
+ * Context.PTEBase containing smp_processor_id().
+ *
+ * SMTC is not supported as Context is per-VPE.
+ *
+ */
+#ifndef cpu_has_pgdc_in_context
+#if defined(CONFIG_SMP)
+#define cpu_has_pgdc_in_context (0)
+#else
+#define cpu_has_pgdc_in_context (cpu_data[0].options & MIPS_CPU_PGDC_CC)
+#endif
+#endif
+
 /*
  * I-Cache snoops remote store.  This only matters on SMP.  Some multiprocessors
  * such as the R10000 have I-Caches that snoop local stores; the embedded ones
@@ -176,7 +201,7 @@
 #endif
 
 #ifndef cpu_has_contextconfig
-#define cpu_has_contextconfig	(cpu_data[0].options & MIPS_CPU_CTXTC)
+#define cpu_has_contextconfig	((cpu_data[0].options & MIPS_CPU_CTXTC) | cpu_has_smartmips)
 #endif
 
 #ifdef CONFIG_32BIT

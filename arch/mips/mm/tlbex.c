@@ -652,40 +652,44 @@ build_get_pgde32(u32 **p, unsigned int tmp, unsigned int ptr)
 {
 	long pgdc = (long)pgd_current;
 
-	/* 32 bit SMP has smp_processor_id() stored in CONTEXT. */
+	/* PGD base in Context, ContextConfig allows PGDE computation in hardware */
+	if (cpu_has_pgdc_in_context) {
+		uasm_i_mfc0(p, ptr, C0_CONTEXT);
+	} else {
+		/* 32 bit SMP has smp_processor_id() stored in CONTEXT. */
 #ifdef CONFIG_SMP
 #ifdef  CONFIG_MIPS_MT_SMTC
-	/*
-	 * SMTC uses TCBind value as "CPU" index
-	 */
-	uasm_i_mfc0(p, ptr, C0_TCBIND);
-	UASM_i_LA_mostly(p, tmp, pgdc);
-	uasm_i_srl(p, ptr, ptr, 19);
+		/*
+		 * SMTC uses TCBind value as "CPU" index
+		 */
+		uasm_i_mfc0(p, ptr, C0_TCBIND);
+		UASM_i_LA_mostly(p, tmp, pgdc);
+		uasm_i_srl(p, ptr, ptr, 19);
 #else
-	/*
-	 * smp_processor_id() << 3 is stored in CONTEXT.
-         */
-	uasm_i_mfc0(p, ptr, C0_CONTEXT);
-	UASM_i_LA_mostly(p, tmp, pgdc);
-	uasm_i_srl(p, ptr, ptr, 23);
+		/*
+		 * smp_processor_id() << 3 is stored in CONTEXT.
+		 */
+		uasm_i_mfc0(p, ptr, C0_CONTEXT);
+		UASM_i_LA_mostly(p, tmp, pgdc);
+		uasm_i_srl(p, ptr, ptr, 23);
 #endif
-	uasm_i_addu(p, ptr, tmp, ptr);
+		uasm_i_addu(p, ptr, tmp, ptr);
 #else
-	UASM_i_LA_mostly(p, ptr, pgdc);
+		UASM_i_LA_mostly(p, ptr, pgdc);
 #endif
-	uasm_i_mfc0(p, tmp, C0_BADVADDR); /* get faulting address */
-	uasm_i_lw(p, ptr, uasm_rel_lo(pgdc), ptr);
+		uasm_i_mfc0(p, tmp, C0_BADVADDR); /* get faulting address */
+		uasm_i_lw(p, ptr, uasm_rel_lo(pgdc), ptr);
 
-	/* Extract pgd offset bits from tmp, insert into pgd base */
-	if (cpu_has_mips32r2) {
-		uasm_i_ext(p, tmp, tmp, PGDIR_SHIFT, (32-PGDIR_SHIFT));
-		uasm_i_ins(p, ptr, tmp, PGD_T_LOG2, (32-PGDIR_SHIFT));
-	} else {
-		uasm_i_srl(p, tmp, tmp, PGDIR_SHIFT); /* get pgd only bits */
-		uasm_i_sll(p, tmp, tmp, PGD_T_LOG2);
-		uasm_i_addu(p, ptr, ptr, tmp); /* add in pgd offset */
+		/* Extract pgd offset bits from tmp, insert into pgd base */
+		if (cpu_has_mips32r2) {
+			uasm_i_ext(p, tmp, tmp, PGDIR_SHIFT, (32-PGDIR_SHIFT));
+			uasm_i_ins(p, ptr, tmp, PGD_T_LOG2, (32-PGDIR_SHIFT));
+		} else {
+			uasm_i_srl(p, tmp, tmp, PGDIR_SHIFT); /* get pgd only bits */
+			uasm_i_sll(p, tmp, tmp, PGD_T_LOG2);
+			uasm_i_addu(p, ptr, ptr, tmp); /* add in pgd offset */
+		}
 	}
-
 }
 
 #endif /* !CONFIG_64BIT */
