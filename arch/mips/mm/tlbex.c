@@ -675,9 +675,17 @@ build_get_pgde32(u32 **p, unsigned int tmp, unsigned int ptr)
 #endif
 	uasm_i_mfc0(p, tmp, C0_BADVADDR); /* get faulting address */
 	uasm_i_lw(p, ptr, uasm_rel_lo(pgdc), ptr);
-	uasm_i_srl(p, tmp, tmp, PGDIR_SHIFT); /* get pgd only bits */
-	uasm_i_sll(p, tmp, tmp, PGD_T_LOG2);
-	uasm_i_addu(p, ptr, ptr, tmp); /* add in pgd offset */
+
+	/* Extract pgd offset bits from tmp, insert into pgd base */
+	if (cpu_has_mips32r2) {
+		uasm_i_ext(p, tmp, tmp, PGDIR_SHIFT, (32-PGDIR_SHIFT));
+		uasm_i_ins(p, ptr, tmp, PGD_T_LOG2, (32-PGDIR_SHIFT));
+	} else {
+		uasm_i_srl(p, tmp, tmp, PGDIR_SHIFT); /* get pgd only bits */
+		uasm_i_sll(p, tmp, tmp, PGD_T_LOG2);
+		uasm_i_addu(p, ptr, ptr, tmp); /* add in pgd offset */
+	}
+
 }
 
 #endif /* !CONFIG_64BIT */
@@ -710,27 +718,35 @@ static void __cpuinit build_adjust_context(u32 **p, unsigned int ctx)
 
 static void __cpuinit build_get_ptep(u32 **p, unsigned int tmp, unsigned int ptr)
 {
-	/*
-	 * Bug workaround for the Nevada. It seems as if under certain
-	 * circumstances the move from cp0_context might produce a
-	 * bogus result when the mfc0 instruction and its consumer are
-	 * in a different cacheline or a load instruction, probably any
-	 * memory reference, is between them.
-	 */
-	switch (current_cpu_type()) {
-	case CPU_NEVADA:
+	if (cpu_has_mips32r2) {
+		/* For MIPS32R2, PTE ptr offset is obtained from BadVAddr */
+		UASM_i_MFC0(p, tmp, C0_BADVADDR);
 		UASM_i_LW(p, ptr, 0, ptr);
-		GET_CONTEXT(p, tmp); /* get context reg */
-		break;
+		UASM_i_EXT(p, tmp, tmp, PAGE_SHIFT+1, PGDIR_SHIFT-PAGE_SHIFT-1);
+		UASM_i_INS(p, ptr, tmp, PTE_T_LOG2+1, PGDIR_SHIFT-PAGE_SHIFT-1);
+	} else {
+		/*
+		 * Bug workaround for the Nevada. It seems as if under certain
+		 * circumstances the move from cp0_context might produce a
+		 * bogus result when the mfc0 instruction and its consumer are
+		 * in a different cacheline or a load instruction, probably any
+		 * memory reference, is between them.
+		 */
+		switch (current_cpu_type()) {
+		case CPU_NEVADA:
+			UASM_i_LW(p, ptr, 0, ptr);
+			GET_CONTEXT(p, tmp); /* get context reg */
+			break;
 
-	default:
-		GET_CONTEXT(p, tmp); /* get context reg */
-		UASM_i_LW(p, ptr, 0, ptr);
-		break;
+		default:
+			GET_CONTEXT(p, tmp); /* get context reg */
+			UASM_i_LW(p, ptr, 0, ptr);
+			break;
+		}
+
+		build_adjust_context(p, tmp);
+		UASM_i_ADDU(p, ptr, ptr, tmp); /* add in offset */
 	}
-
-	build_adjust_context(p, tmp);
-	UASM_i_ADDU(p, ptr, ptr, tmp); /* add in offset */
 }
 
 static void __cpuinit build_update_entries(u32 **p, unsigned int tmp,
