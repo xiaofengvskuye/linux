@@ -175,6 +175,10 @@
 #define cpu_has_userlocal	(cpu_data[0].options & MIPS_CPU_ULRI)
 #endif
 
+#ifndef cpu_has_contextconfig
+#define cpu_has_contextconfig	(cpu_data[0].options & MIPS_CPU_CTXTC)
+#endif
+
 #ifdef CONFIG_32BIT
 # ifndef cpu_has_nofpuex
 # define cpu_has_nofpuex	(cpu_data[0].options & MIPS_CPU_NOFPUEX)

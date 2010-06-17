@@ -696,6 +696,8 @@ static inline unsigned int decode_config3(struct cpuinfo_mips *c)
 	        c->ases |= MIPS_ASE_MIPSMT;
 	if (config3 & MIPS_CONF3_ULRI)
 		c->options |= MIPS_CPU_ULRI;
+	if (config3 & MIPS_CONF3_CTXTC)
+		c->options |= MIPS_CPU_CTXTC;
 
 	return config3 & MIPS_CONF_M;
 }
