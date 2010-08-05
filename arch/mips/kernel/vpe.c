@@ -30,6 +30,7 @@
 #include <linux/kernel.h>
 #include <linux/device.h>
 #include <linux/module.h>
+#include <linux/cred.h>
 #include <linux/fs.h>
 #include <linux/init.h>
 #include <asm/uaccess.h>
@@ -232,6 +233,7 @@ static struct tc *get_tc(int index)
 	return res;
 }
 
+#if 0
 static struct tc *get_tc_unused(void)
 {
 	struct tc *res, *t;
@@ -248,6 +250,7 @@ static struct tc *get_tc_unused(void)
 
 	return res;
 }
+#endif
 
 /* allocate a vpe and associate it with this minor (or index) */
 static struct vpe *alloc_vpe(int minor)
@@ -761,7 +764,7 @@ static int apply_relocations(Elf32_Shdr *sechdrs,
 	return 0;
 }
 
-static inline void save_gp_address(unsigned int secbase, unsigned int rel)
+void save_gp_address(unsigned int secbase, unsigned int rel)
 {
 	gp_addr = secbase + rel;
 	gp_offs = gp_addr - (secbase & 0xffff0000);
