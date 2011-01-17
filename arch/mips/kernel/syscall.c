@@ -310,7 +310,7 @@ asmlinkage int _sys_sysmips(long cmd, long arg1, long arg2, long arg3)
 		if (arg1 & 2)
 			set_thread_flag(TIF_LOGADE);
 		else
-			clear_thread_flag(TIF_FIXADE);
+			clear_thread_flag(TIF_LOGADE);
 
 		return 0;
 
