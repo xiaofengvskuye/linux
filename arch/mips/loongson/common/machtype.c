@@ -37,7 +37,7 @@ const char *get_system_type(void)
 
 void __init prom_init_machtype(void)
 {
-	char *p, str[MACHTYPE_LEN];
+	char *p, str[MACHTYPE_LEN + 1];
 	int machtype = MACH_LEMOTE_FL2E;
 
 	mips_machtype = LOONGSON_MACHTYPE;
@@ -47,6 +47,7 @@ void __init prom_init_machtype(void)
 		return;
 	p += strlen("machtype=");
 	strncpy(str, p, MACHTYPE_LEN);
+	str[MACHTYPE_LEN] = '\0';
 	p = strstr(str, " ");
 	if (p)
 		*p = '\0';
