@@ -85,6 +85,7 @@
 #include <asm/inst.h>
 #include <asm/uaccess.h>
 #include <asm/system.h>
+#include <asm/fpu_emulator.h>
 
 #define STR(x)  __STR(x)
 #define __STR(x)  #x
@@ -164,6 +165,7 @@ static void emulate_load_store_insn(struct pt_regs *regs,
 			"or\t%0, $1\n\t"
 			"li\t%1, 0\n"
 			"3:\t.set\tat\n\t"
+			".insn\n\t"
 			".section\t.fixup,\"ax\"\n\t"
 			"4:\tli\t%1, %3\n\t"
 			"j\t3b\n\t"
@@ -194,7 +196,9 @@ static void emulate_load_store_insn(struct pt_regs *regs,
 			"2:\tlwr\t%0, (%2)\n\t"
 #endif
 			"li\t%1, 0\n"
-			"3:\t.section\t.fixup,\"ax\"\n\t"
+			"3:\n\t"
+			".insn\n\t"
+			".section\t.fixup,\"ax\"\n\t"
 			"4:\tli\t%1, %3\n\t"
 			"j\t3b\n\t"
 			".previous\n\t"
@@ -227,7 +231,9 @@ static void emulate_load_store_insn(struct pt_regs *regs,
 			"sll\t%0, 0x8\n\t"
 			"or\t%0, $1\n\t"
 			"li\t%1, 0\n"
-			"3:\t.set\tat\n\t"
+			"3:\n\t"
+			".insn\n\t"
+			".set\tat\n\t"
 			".section\t.fixup,\"ax\"\n\t"
 			"4:\tli\t%1, %3\n\t"
 			"j\t3b\n\t"
@@ -268,7 +274,9 @@ static void emulate_load_store_insn(struct pt_regs *regs,
 			"dsll\t%0, %0, 32\n\t"
 			"dsrl\t%0, %0, 32\n\t"
 			"li\t%1, 0\n"
-			"3:\t.section\t.fixup,\"ax\"\n\t"
+			"3:\n\t"
+			".insn\n\t"
+			"\t.section\t.fixup,\"ax\"\n\t"
 			"4:\tli\t%1, %3\n\t"
 			"j\t3b\n\t"
 			".previous\n\t"
@@ -310,7 +318,9 @@ static void emulate_load_store_insn(struct pt_regs *regs,
 			"2:\tldr\t%0, (%2)\n\t"
 #endif
 			"li\t%1, 0\n"
-			"3:\t.section\t.fixup,\"ax\"\n\t"
+			"3:\n\t"
+			".insn\n\t"
+			"\t.section\t.fixup,\"ax\"\n\t"
 			"4:\tli\t%1, %3\n\t"
 			"j\t3b\n\t"
 			".previous\n\t"
@@ -352,6 +362,7 @@ static void emulate_load_store_insn(struct pt_regs *regs,
 #endif
 			"li\t%0, 0\n"
 			"3:\n\t"
+			".insn\n\t"
 			".section\t.fixup,\"ax\"\n\t"
 			"4:\tli\t%0, %3\n\t"
 			"j\t3b\n\t"
@@ -383,6 +394,7 @@ static void emulate_load_store_insn(struct pt_regs *regs,
 #endif
 			"li\t%0, 0\n"
 			"3:\n\t"
+			".insn\n\t"
 			".section\t.fixup,\"ax\"\n\t"
 			"4:\tli\t%0, %3\n\t"
 			"j\t3b\n\t"
@@ -422,6 +434,7 @@ static void emulate_load_store_insn(struct pt_regs *regs,
 #endif
 			"li\t%0, 0\n"
 			"3:\n\t"
+			".insn\n\t"
 			".section\t.fixup,\"ax\"\n\t"
 			"4:\tli\t%0, %3\n\t"
 			"j\t3b\n\t"
@@ -539,12 +552,27 @@ asmlinkage void do_ade(struct pt_regs *regs)
 	return;
 
 sigbus:
+#ifdef CONFIG_CPU_MICROMIPS
+	/* we don't fix unaligned accesses in micro mips mode => don't die and just do SIGBUS */
+	if ((regs->cp0_epc & 0x1) == 0)
+		die_if_kernel("Kernel unaligned instruction access", regs);
+	force_sig(SIGBUS, current);
+
+	/* advance the epc */
+	if (regs->cp0_epc & 0x1) {
+		if (mm_is16bit(*(u16 *)(regs->cp0_epc & ~1)))
+			regs->cp0_epc += 2;
+		else
+			regs->cp0_epc += 4;
+	}
+#else
 	die_if_kernel("Kernel unaligned instruction access", regs);
 	force_sig(SIGBUS, current);
 
 	/*
 	 * XXX On return from the signal handler we should advance the epc
 	 */
+#endif
 }
 
 #ifdef CONFIG_DEBUG_FS

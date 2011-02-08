@@ -116,6 +116,7 @@ cflags-$(CONFIG_CPU_BIG_ENDIAN)		+= $(shell $(CC) -dumpmachine |grep -q 'mips.*e
 cflags-$(CONFIG_CPU_LITTLE_ENDIAN)	+= $(shell $(CC) -dumpmachine |grep -q 'mips.*el-.*' || echo -EL $(undef-all) $(predef-le))
 
 cflags-$(CONFIG_CPU_HAS_SMARTMIPS)	+= $(call cc-option,-msmartmips)
+cflags-$(CONFIG_CPU_MICROMIPS) += $(call cc-option,-mmicromips -mno-jals)
 
 cflags-$(CONFIG_SB1XXX_CORELIS)	+= $(call cc-option,-mno-sched-prolog) \
 				   -fno-omit-frame-pointer
@@ -367,6 +368,14 @@ core-$(CONFIG_MIPS_MALTA)	+= arch/mips/mti-malta/
 cflags-$(CONFIG_MIPS_MALTA)	+= -I$(srctree)/arch/mips/include/asm/mach-malta
 load-$(CONFIG_MIPS_MALTA)	+= 0xffffffff80100000
 all-$(CONFIG_MIPS_MALTA)	:= $(COMPRESSION_FNAME).bin
+
+#
+# MIPS Sead3 board
+#
+core-$(CONFIG_MIPS_SEAD3)	+= arch/mips/mti-sead3/
+cflags-$(CONFIG_MIPS_SEAD3)	+= -I$(srctree)/arch/mips/include/asm/mach-sead3
+load-$(CONFIG_MIPS_SEAD3)	+= 0xffffffff80100000
+all-$(CONFIG_MIPS_SEAD3)	:= $(COMPRESSION_FNAME).srec
 
 #
 # MIPS SIM

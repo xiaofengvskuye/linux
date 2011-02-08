@@ -97,7 +97,7 @@ config CRYPTO_MANAGER2
 	select CRYPTO_PCOMP
 
 config CRYPTO_MANAGER_TESTS
-	bool "Run algolithms' self-tests"
+	bool "Run algorithms' self-tests"
 	default y
 	depends on CRYPTO_MANAGER2
 	help

@@ -14,6 +14,7 @@
 #include <asm/smtc_ipi.h>
 #include <asm/time.h>
 #include <asm/cevt-r4k.h>
+#include <asm/gic.h>
 
 /*
  * The SMTC Kernel for the 34K, 1004K, et. al. replaces several
@@ -97,24 +98,27 @@ void mips_event_handler(struct clock_event_device *dev)
  */
 static int c0_compare_int_pending(void)
 {
+#ifdef CONFIG_MIPS_SEAD3
+	if (cpu_has_veic)
+		return gic_get_timer_pending();
+#endif
 	return (read_c0_cause() >> cp0_compare_irq_shift) & (1ul << CAUSEB_IP);
 }
 
 /*
  * Compare interrupt can be routed and latched outside the core,
  * so a single execution hazard barrier may not be enough to give
- * it time to clear as seen in the Cause register.  4 time the
- * pipeline depth seems reasonably conservative, and empirically
- * works better in configurations with high CPU/bus clock ratios.
+ * it time to clear as seen in the Cause register. The number of
+ * hazard barriers is dependent on the CPU/bus ratio.
  */
 
-#define compare_change_hazard() \
-	do { \
-		irq_disable_hazard(); \
-		irq_disable_hazard(); \
-		irq_disable_hazard(); \
-		irq_disable_hazard(); \
-	} while (0)
+#define	CHANGEHAZARD 20
+static inline void compare_change_hazard(void)
+{
+	int n = CHANGEHAZARD;
+	while (n--)
+		irq_disable_hazard();
+}
 
 int c0_compare_int_usable(void)
 {

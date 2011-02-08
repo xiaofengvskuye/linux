@@ -223,9 +223,38 @@ config MIPS_MALTA
 	select SYS_SUPPORTS_MIPS_CMP
 	select SYS_SUPPORTS_MULTITHREADING
 	select SYS_SUPPORTS_SMARTMIPS
+	select SYS_SUPPORTS_MICROMIPS
 	select SYS_SUPPORTS_ZBOOT
 	help
 	  This enables support for the MIPS Technologies Malta evaluation
+	  board.
+
+config MIPS_SEAD3
+	bool "MIPS SEAD3 board"
+	select BOOT_ELF32
+	select BOOT_RAW
+	select CEVT_R4K
+	select CSRC_R4K
+	select DMA_NONCOHERENT
+	select IRQ_CPU
+	select IRQ_GIC
+	select MIPS_BOARDS_GEN
+	select MIPS_CPU_SCACHE
+	select MIPS_MSC
+	select SYS_HAS_CPU_MIPS32_R1
+	select SYS_HAS_CPU_MIPS32_R2
+	select SYS_HAS_CPU_MIPS64_R1
+	select SYS_HAS_EARLY_PRINTK
+	select SYS_SUPPORTS_32BIT_KERNEL
+	select SYS_SUPPORTS_64BIT_KERNEL
+	select SYS_SUPPORTS_BIG_ENDIAN
+	select SYS_SUPPORTS_LITTLE_ENDIAN
+	select SYS_SUPPORTS_MIPS_CMP if BROKEN	# because SYNC_R4K is broken
+	select SYS_SUPPORTS_MULTITHREADING
+	select SYS_SUPPORTS_SMARTMIPS
+	select SYS_SUPPORTS_MICROMIPS
+	help
+	  This enables support for the MIPS Technologies SEAD3 evaluation
 	  board.
 
 config MIPS_SIM
@@ -1477,11 +1506,11 @@ config CPU_SUPPORTS_ADDRWINCFG
 	bool
 config CPU_SUPPORTS_HUGEPAGES
 	bool
-config CPU_SUPPORTS_UNCACHED_ACCELERATED
-	bool
 config MIPS_PGD_C0_CONTEXT
 	bool
 	default y if 64BIT && CPU_MIPSR2
+config CPU_SUPPORTS_UNCACHED_ACCELERATED
+	bool
 
 #
 # Set to y for ptrace access to watch registers.
@@ -1623,14 +1652,14 @@ config MIPS_MT_SMP
 	select SYS_SUPPORTS_SMP
 	select SMP_UP
 	help
-	  This is a kernel model which is known a VSMP but lately has been
-	  marketesed into SMVP.
-	  Virtual SMP uses the processor's VPEs  to implement virtual
-	  processors. In currently available configuration of the 34K processor
-	  this allows for a dual processor. Both processors will share the same
-	  primary caches; each will obtain the half of the TLB for it's own
-	  exclusive use. For a layman this model can be described as similar to
-	  what Intel calls Hyperthreading.
+	  Virtual SMP uses the processor's VPEs to implement virtual
+	  processors. In currently available configurations of the 34K
+	  processor this allows for a dual processor. Both processors will
+	  share the same primary caches and each will obtain the half of
+	  the TLB for its own exclusive use. For a layman this model can
+	  be described as similar to what Intel calls Hyperthreading. At
+	  some point MIPS marketing decided to renamed to SMVP but the
+	  renaming hasn't caught on as of yet. 
 
 	  For further information see http://www.linux-mips.org/wiki/34K#VSMP
 
@@ -1647,14 +1676,16 @@ config MIPS_MT_SMTC
 	select SYS_SUPPORTS_SMP
 	select SMP_UP
 	help
-	  This is a kernel model which is known a SMTC or lately has been
-	  marketesed into SMVP.
-	  is presenting the available TC's of the core as processors to Linux.
-	  On currently available 34K processors this means a Linux system will
-	  see up to 5 processors. The implementation of the SMTC kernel differs
-	  significantly from VSMP and cannot efficiently coexist in the same
-	  kernel binary so the choice between VSMP and SMTC is a compile time
-	  decision.
+	  SMTC is presenting the available TCs of the core as processors to
+	  Linux. On currently available 34K processors this means a Linux
+	  system will see up to 5 processors. The implementation of the SMTC
+	  kernel differs significantly from VSMP. It was found that SMTC cannot
+	  efficiently coexist in the same kernel binary with other modes of
+	  multiprocessor support, so enabling SMTC is a compile time decision.
+	  The choice between VSMP and SMTC is a bit delicate as it is affected
+	  by clockspeed, memory speed, the specific workload and other factors.
+	  As such the choice should not be made on an evaluation board such as
+	  the Malta but preferably on final target hardware.
 
 	  For further information see http://www.linux-mips.org/wiki/34K#SMTC
 
@@ -1788,6 +1819,20 @@ config CPU_HAS_SMARTMIPS
 	  you don't know you probably don't have SmartMIPS and should say N
 	  here.
 
+config CPU_HAS_MICROMIPS
+	depends on SYS_SUPPORTS_MICROMIPS
+	bool "Support for the MicroMIPS ISA"
+	help
+	  Enabling this option adds kernel support for running userland programs
+ 	  that use the MIcroMIPS ISA.
+
+config CPU_MICROMIPS
+	depends on SYS_SUPPORTS_MICROMIPS
+	bool "Build kernel using MicroMIPS ISA"
+	help
+	  When this option is enabled the kernel will be built using the
+	  MicroMIPS ISA
+
 config CPU_HAS_WB
 	bool
 
@@ -1862,6 +1907,9 @@ config SYS_SUPPORTS_HIGHMEM
 	bool
 
 config SYS_SUPPORTS_SMARTMIPS
+	bool
+
+config SYS_SUPPORTS_MICROMIPS
 	bool
 
 config ARCH_FLATMEM_ENABLE
@@ -1993,9 +2041,6 @@ choice
 	help
 	 Allows the configuration of the timer frequency.
 
-	config HZ_48
-		bool "48 HZ" if SYS_SUPPORTS_48HZ || SYS_SUPPORTS_ARBIT_HZ
-
 	config HZ_100
 		bool "100 HZ" if SYS_SUPPORTS_100HZ || SYS_SUPPORTS_ARBIT_HZ
 
@@ -2015,9 +2060,6 @@ choice
 		bool "1024 HZ" if SYS_SUPPORTS_1024HZ || SYS_SUPPORTS_ARBIT_HZ
 
 endchoice
-
-config SYS_SUPPORTS_48HZ
-	bool
 
 config SYS_SUPPORTS_100HZ
 	bool
@@ -2039,14 +2081,12 @@ config SYS_SUPPORTS_1024HZ
 
 config SYS_SUPPORTS_ARBIT_HZ
 	bool
-	default y if !SYS_SUPPORTS_48HZ && !SYS_SUPPORTS_100HZ && \
-		     !SYS_SUPPORTS_128HZ && !SYS_SUPPORTS_250HZ && \
-		     !SYS_SUPPORTS_256HZ && !SYS_SUPPORTS_1000HZ && \
-		     !SYS_SUPPORTS_1024HZ
+	default y if !SYS_SUPPORTS_100HZ && !SYS_SUPPORTS_128HZ && \
+		     !SYS_SUPPORTS_250HZ && !SYS_SUPPORTS_256HZ && \
+		     !SYS_SUPPORTS_1000HZ && !SYS_SUPPORTS_1024HZ
 
 config HZ
 	int
-	default 48 if HZ_48
 	default 100 if HZ_100
 	default 128 if HZ_128
 	default 250 if HZ_250

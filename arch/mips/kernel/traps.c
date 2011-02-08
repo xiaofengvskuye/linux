@@ -90,6 +90,7 @@ void (*board_nmi_handler_setup)(void);
 void (*board_ejtag_handler_setup)(void);
 void (*board_bind_eic_interrupt)(int irq, int regset);
 
+static void mt_ase_fp_affinity(void);
 
 static void show_raw_backtrace(unsigned long reg29)
 {
@@ -795,9 +796,28 @@ static void do_trap_or_bp(struct pt_regs *regs, unsigned int code,
 asmlinkage void do_bp(struct pt_regs *regs)
 {
 	unsigned int opcode, bcode;
+	u32 epc;
+	u16 instr[2];
 
-	if (__get_user(opcode, (unsigned int __user *) exception_epc(regs)))
-		goto out_sigsegv;
+	if (regs->cp0_epc & 1) {
+		/* calc exception pc */
+		epc = (u32)regs->cp0_epc;
+		if (delay_slot(regs)) {
+			if (get_user(instr[0], (u16 __user *)(epc & ~0x1)))
+				goto out_sigsegv;
+			if (mm_is16bit(instr[0]))
+				epc += 2;
+			else
+				epc += 4;
+		}
+		if ((get_user(instr[0], (u16 __user *)(epc & ~0x1))) ||
+			(get_user(instr[1], (u16 __user *)((epc+2) & ~0x1))))
+			goto out_sigsegv;
+		opcode = (instr[0] << 16) | instr[1];
+	} else {
+		if (__get_user(opcode, (unsigned int __user *) exception_epc(regs)))
+			goto out_sigsegv;
+	}
 
 	/*
 	 * There is the ancient bug in the MIPS assemblers that the break
@@ -1156,6 +1176,7 @@ static inline void parity_protection_init(void)
 	case CPU_34K:
 	case CPU_74K:
 	case CPU_1004K:
+	case CPU_1074K:
 		{
 #define ERRCTL_PE	0x80000000
 #define ERRCTL_L2P	0x00800000
@@ -1545,7 +1566,11 @@ void __cpuinit per_cpu_trap_init(void)
 	if (cpu_has_mips_r2) {
 		cp0_compare_irq_shift = CAUSEB_TI - CAUSEB_IP;
 		cp0_compare_irq = (read_c0_intctl() >> INTCTLB_IPTI) & 7;
+		if (!cp0_compare_irq)
+			cp0_compare_irq = CP0_LEGACY_COMPARE_IRQ;
 		cp0_perfcount_irq = (read_c0_intctl() >> INTCTLB_IPPCI) & 7;
+		if (!cp0_perfcount_irq)
+			cp0_perfcount_irq = CP0_LEGACY_PERFCNT_IRQ;
 		if (cp0_perfcount_irq == cp0_compare_irq)
 			cp0_perfcount_irq = -1;
 	} else {

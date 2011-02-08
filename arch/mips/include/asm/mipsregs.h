@@ -588,6 +588,7 @@
 #define MIPS_CONF3_VINT		(_ULCAST_(1) <<  5)
 #define MIPS_CONF3_VEIC		(_ULCAST_(1) <<  6)
 #define MIPS_CONF3_LPA		(_ULCAST_(1) <<  7)
+#define MIPS_CONF3_CTXTC	(_ULCAST_(1) <<  9)
 #define MIPS_CONF3_DSP		(_ULCAST_(1) << 10)
 #define MIPS_CONF3_ULRI		(_ULCAST_(1) << 13)
 
@@ -838,6 +839,9 @@ do {									\
 
 #define read_c0_context()	__read_ulong_c0_register($4, 0)
 #define write_c0_context(val)	__write_ulong_c0_register($4, 0, val)
+
+#define read_c0_contextconfig()	__read_ulong_c0_register($4, 1)
+#define write_c0_contextconfig(val)	__write_ulong_c0_register($4, 1, val)
 
 #define read_c0_userlocal()	__read_ulong_c0_register($4, 2)
 #define write_c0_userlocal(val)	__write_ulong_c0_register($4, 2, val)

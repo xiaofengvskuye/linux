@@ -78,11 +78,13 @@ int __init oprofile_arch_init(struct oprofile_operations *ops)
 
 	switch (current_cpu_type()) {
 	case CPU_5KC:
+	case CPU_14K:
 	case CPU_20KC:
 	case CPU_24K:
 	case CPU_25KF:
 	case CPU_34K:
 	case CPU_1004K:
+	case CPU_1074K:
 	case CPU_74K:
 	case CPU_SB1:
 	case CPU_SB1A:

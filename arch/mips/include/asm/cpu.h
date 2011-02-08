@@ -93,6 +93,8 @@
 #define PRID_IMP_24KE		0x9600
 #define PRID_IMP_74K		0x9700
 #define PRID_IMP_1004K		0x9900
+#define PRID_IMP_1074K		0x9a00
+#define PRID_IMP_14K		0x9c00
 
 /*
  * These are the PRID's for when 23:16 == PRID_COMP_SIBYTE
@@ -218,7 +220,7 @@ enum cpu_type_enum {
 	 */
 	CPU_4KC, CPU_4KEC, CPU_4KSC, CPU_24K, CPU_34K, CPU_1004K, CPU_74K,
 	CPU_ALCHEMY, CPU_PR4450, CPU_BCM3302, CPU_BCM4710,
-	CPU_BCM6338, CPU_BCM6345, CPU_BCM6348, CPU_BCM6358,
+	CPU_BCM6338, CPU_BCM6345, CPU_BCM6348, CPU_BCM6358, CPU_14K, CPU_1074K,
 
 	/*
 	 * MIPS64 class processors
@@ -274,6 +276,8 @@ enum cpu_type_enum {
 #define MIPS_CPU_VINT		0x00080000 /* CPU supports MIPSR2 vectored interrupts */
 #define MIPS_CPU_VEIC		0x00100000 /* CPU supports MIPSR2 external interrupt controller mode */
 #define MIPS_CPU_ULRI		0x00200000 /* CPU has ULRI feature */
+#define MIPS_CPU_CTXTC		0x00400000 /* CPU has ContextConfig feature */
+#define MIPS_CPU_PGDC_CC	0x00800000 /* CPU has usable ContextConfig */
 
 /*
  * CPU ASE encodings

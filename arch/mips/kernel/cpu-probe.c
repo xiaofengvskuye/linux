@@ -194,6 +194,7 @@ void __init check_wait(void)
 		cpu_wait = rm7k_wait_irqoff;
 		break;
 
+	case CPU_14K:
 	case CPU_24K:
 	case CPU_34K:
 	case CPU_1004K:
@@ -202,6 +203,7 @@ void __init check_wait(void)
 			cpu_wait = r4k_wait_irqoff;
 		break;
 
+	case CPU_1074K:
 	case CPU_74K:
 		cpu_wait = r4k_wait;
 		if ((c->processor_id & 0xff) >= PRID_REV_ENCODE_332(2, 1, 0))
@@ -721,6 +723,8 @@ static inline unsigned int decode_config3(struct cpuinfo_mips *c)
 	        c->ases |= MIPS_ASE_MIPSMT;
 	if (config3 & MIPS_CONF3_ULRI)
 		c->options |= MIPS_CPU_ULRI;
+	if (config3 & MIPS_CONF3_CTXTC)
+		c->options |= MIPS_CPU_CTXTC;
 
 	return config3 & MIPS_CONF_M;
 }
@@ -805,9 +809,17 @@ static inline void cpu_probe_mips(struct cpuinfo_mips *c, unsigned int cpu)
 		c->cputype = CPU_74K;
 		__cpu_name[cpu] = "MIPS 74Kc";
 		break;
+	case PRID_IMP_14K:
+		c->cputype = CPU_14K;
+		__cpu_name[cpu] = "MIPS 14Kc";
+		break;
 	case PRID_IMP_1004K:
 		c->cputype = CPU_1004K;
 		__cpu_name[cpu] = "MIPS 1004Kc";
+		break;
+	case PRID_IMP_1074K:
+		c->cputype = CPU_1074K;
+		__cpu_name[cpu] = "MIPS 1074Kc";
 		break;
 	}
 
