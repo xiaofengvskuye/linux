@@ -1236,6 +1236,11 @@ MODULE_LICENSE ("GPL");
 #define	PLATFORM_DRIVER		ehci_atmel_driver
 #endif
 
+#ifdef CONFIG_MIPS_SEAD3
+#include "ehci-mips.c"
+#define	PLATFORM_DRIVER		ehci_hcd_mips_driver
+#endif
+
 #ifdef CONFIG_USB_OCTEON_EHCI
 #include "ehci-octeon.c"
 #define PLATFORM_DRIVER		ehci_octeon_driver
