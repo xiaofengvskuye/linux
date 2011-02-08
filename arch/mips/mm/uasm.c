@@ -63,6 +63,7 @@ enum opcode {
 	insn_bne, insn_cache, insn_daddu, insn_daddiu, insn_dmfc0,
 	insn_dmtc0, insn_dsll, insn_dsll32, insn_dsra, insn_dsrl,
 	insn_dsrl32, insn_drotr, insn_drotr32, insn_dsubu, insn_eret,
+	insn_ins, insn_ext,
 	insn_j, insn_jal, insn_jr, insn_ld, insn_ll, insn_lld,
 	insn_lui, insn_lw, insn_mfc0, insn_mtc0, insn_or, insn_ori,
 	insn_pref, insn_rfe, insn_sc, insn_scd, insn_sd, insn_sll,
@@ -113,6 +114,8 @@ static struct insn insn_table[] __uasminitdata = {
 	{ insn_drotr32, M(spec_op, 1, 0, 0, 0, dsrl32_op), RT | RD | RE },
 	{ insn_dsubu, M(spec_op, 0, 0, 0, 0, dsubu_op), RS | RT | RD },
 	{ insn_eret,  M(cop0_op, cop_op, 0, 0, 0, eret_op),  0 },
+	{ insn_ins, M(spec3_op, 0, 0, 0, 0, ins_op), RS | RT | RD | RE },
+	{ insn_ext, M(spec3_op, 0, 0, 0, 0, ext_op), RS | RT | RD | RE },
 	{ insn_j,  M(j_op, 0, 0, 0, 0, 0),  JIMM },
 	{ insn_jal,  M(jal_op, 0, 0, 0, 0, 0),  JIMM },
 	{ insn_jr,  M(spec_op, 0, 0, 0, 0, jr_op),  RS },
@@ -287,6 +290,16 @@ static void __uasminit build_insn(u32 **buf, enum opcode opc, ...)
 	(*buf)++;
 }
 
+#define I_bit_extract(op)				\
+Ip_bit_extract(op)					\
+{							\
+	build_insn(buf, insn##op, b, a, d-1, c);	\
+}
+#define I_bit_insert(op)				\
+Ip_bit_insert(op)					\
+{							\
+	build_insn(buf, insn##op, b, a, c+d-1, c);	\
+}
 #define I_u1u2u3(op)					\
 Ip_u1u2u3(op)						\
 {							\
@@ -396,6 +409,8 @@ I_u2u1u3(_drotr)
 I_u2u1u3(_drotr32)
 I_u3u1u2(_dsubu)
 I_0(_eret)
+I_bit_insert(_ins)
+I_bit_extract(_ext)
 I_u1(_j)
 I_u1(_jal)
 I_u1(_jr)

@@ -14,6 +14,7 @@ platforms += lasat
 platforms += loongson
 platforms += mipssim
 platforms += mti-malta
+platforms += mti-sead3
 platforms += pmc-sierra
 platforms += pnx833x
 platforms += pnx8550

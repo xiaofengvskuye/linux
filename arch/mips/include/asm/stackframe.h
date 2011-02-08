@@ -100,6 +100,11 @@
 #endif
 		.macro	get_saved_sp	/* SMP variation */
 		CPU_ID_MFC0	k0, CPU_ID_REG
+#ifdef CONFIG_MIPS_TLB_SMPID_ERROREPC
+		MFC0	k0, CP0_ERROREPC
+#else
+		MFC0	k0, CP0_CONTEXT
+#endif
 #if defined(CONFIG_32BIT) || defined(KBUILD_64BIT_SYM32)
 		lui	k1, %hi(kernelsp)
 #else
@@ -116,6 +121,11 @@
 
 		.macro	set_saved_sp stackp temp temp2
 		CPU_ID_MFC0	\temp, CPU_ID_REG
+#ifdef CONFIG_MIPS_TLB_SMPID_ERROREPC
+		MFC0	\temp, CP0_ERROREPC
+#else
+		MFC0	\temp, CP0_CONTEXT
+#endif
 		LONG_SRL	\temp, PTEBASE_SHIFT
 		LONG_S	\stackp, kernelsp(\temp)
 		.endm
@@ -139,7 +149,7 @@
 1:		move	ra, k0
 		li	k0, 3
 		mtc0	k0, $22
-#endif /* CONFIG_CPU_LOONGSON2F */
+#endif /* CONFIG_CPU_JUMP_WORKAROUNDS */
 #if defined(CONFIG_32BIT) || defined(KBUILD_64BIT_SYM32)
 		lui	k1, %hi(kernelsp)
 #else

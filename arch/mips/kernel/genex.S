@@ -24,6 +24,7 @@
 
 #define PANIC_PIC(msg)					\
 		.set push;				\
+		.set	nomicromips;			\
 		.set	reorder;			\
 		PTR_LA	a0,8f;				\
 		.set	noat;				\
@@ -52,6 +53,7 @@ NESTED(except_vec1_generic, 0, sp)
 NESTED(except_vec3_generic, 0, sp)
 	.set	push
 	.set	noat
+	.set	nomicromips
 #if R5432_CP0_INTERRUPT_WAR
 	mfc0	k0, CP0_INDEX
 #endif
@@ -73,6 +75,7 @@ NESTED(except_vec3_generic, 0, sp)
  */
 NESTED(except_vec3_r4000, 0, sp)
 	.set	push
+	.set	nomicromips
 	.set	mips3
 	.set	noat
 	mfc0	k1, CP0_CAUSE
@@ -128,6 +131,8 @@ handle_vcei:
 	__FINIT
 
 	.align	5	/* 32 byte rollback region */
+	.set	push
+	.set	nomicromips
 LEAF(r4k_wait)
 	.set	push
 	.set	noreorder
@@ -142,15 +147,18 @@ LEAF(r4k_wait)
 	.set	mips3
 	wait
 	/* end of rollback region (the region size must be power of two) */
-	.set	pop
 1:
 	jr	ra
+	nop
+	.set	pop
 	END(r4k_wait)
+	.set pop
 
 	.macro	BUILD_ROLLBACK_PROLOGUE handler
 	FEXPORT(rollback_\handler)
 	.set	push
 	.set	noat
+	.set	nomicromips
 	MFC0	k0, CP0_EPC
 	PTR_LA	k1, r4k_wait
 	ori	k0, 0x1f	/* 32 byte rollback region */
@@ -164,6 +172,8 @@ LEAF(r4k_wait)
 	.align  5
 BUILD_ROLLBACK_PROLOGUE handle_int
 NESTED(handle_int, PT_SIZE, sp)
+	.set	push
+	.set	nomicromips
 #ifdef CONFIG_TRACE_IRQFLAGS
 	/*
 	 * Check to see if the interrupted code has just disabled
@@ -202,7 +212,9 @@ NESTED(handle_int, PT_SIZE, sp)
 	LONG_L	s0, TI_REGS($28)
 	LONG_S	sp, TI_REGS($28)
 	PTR_LA	ra, ret_from_irq
-	j	plat_irq_dispatch
+	LA	v0, plat_irq_dispatch
+	jr	v0
+	.set	pop
 	END(handle_int)
 
 	__INIT
@@ -217,7 +229,10 @@ NESTED(handle_int, PT_SIZE, sp)
  * to fit into space reserved for the exception handler.
  */
 NESTED(except_vec4, 0, sp)
+	.set	push
+	.set	nomicromips
 1:	j	1b			/* Dummy, will be replaced */
+	.set	pop
 	END(except_vec4)
 
 /*
@@ -227,7 +242,10 @@ NESTED(except_vec4, 0, sp)
  * unconditional jump to this vector.
  */
 NESTED(except_vec_ejtag_debug, 0, sp)
+	.set	push
+	.set	nomicromips
 	j	ejtag_debug_handler
+	.set	pop
 	END(except_vec_ejtag_debug)
 
 	__FINIT
@@ -239,9 +257,10 @@ NESTED(except_vec_ejtag_debug, 0, sp)
  */
 BUILD_ROLLBACK_PROLOGUE except_vec_vi
 NESTED(except_vec_vi, 0, sp)
+	.set	push
+	.set	nomicromips
 	SAVE_SOME
 	SAVE_AT
-	.set	push
 	.set	noreorder
 #ifdef CONFIG_MIPS_MT_SMTC
 	/*
@@ -266,6 +285,8 @@ EXPORT(except_vec_vi_end)
  * Complete the register saves and invoke the handler which is passed in $v0
  */
 NESTED(except_vec_vi_handler, 0, sp)
+	.set	push
+	.set	nomicromips
 	SAVE_TEMP
 	SAVE_STATIC
 #ifdef CONFIG_MIPS_MT_SMTC
@@ -306,6 +327,7 @@ NESTED(except_vec_vi_handler, 0, sp)
 	LONG_S	sp, TI_REGS($28)
 	PTR_LA	ra, ret_from_irq
 	jr	v0
+	.set	pop
 	END(except_vec_vi_handler)
 
 /*
@@ -314,6 +336,7 @@ NESTED(except_vec_vi_handler, 0, sp)
 NESTED(ejtag_debug_handler, PT_SIZE, sp)
 	.set	push
 	.set	noat
+	.set	nomicromips
 	MTC0	k0, CP0_DESAVE
 	mfc0	k0, CP0_DEBUG
 
@@ -354,7 +377,10 @@ EXPORT(ejtag_debug_buffer)
  * unconditional jump to this vector.
  */
 NESTED(except_vec_nmi, 0, sp)
+	.set	push
+	.set	nomicromips
 	j	nmi_handler
+	.set	pop
 	END(except_vec_nmi)
 
 	__FINIT
@@ -362,6 +388,7 @@ NESTED(except_vec_nmi, 0, sp)
 NESTED(nmi_handler, PT_SIZE, sp)
 	.set	push
 	.set	noat
+	.set	nomicromips
 	SAVE_ALL
  	move	a0, sp
 	jal	nmi_exception_handler
@@ -501,13 +528,35 @@ NESTED(nmi_handler, PT_SIZE, sp)
 	.set	push
 	.set	noat
 	.set	noreorder
-	/* 0x7c03e83b: rdhwr v1,$29 */
+	/* MIPS32: 0x7c03e83b: rdhwr v1,$29 */
+	/* uMIPS:  0x007d6b3c: rdhwr v1,$29 */
 	MFC0	k1, CP0_EPC
+#ifdef CONFIG_CPU_HAS_MICROMIPS
+	and	k0, k1, 1
+	beqz	k0, 1f
+	xor	k1, k0
+	lhu	k0, (k1)
+	lhu	k1, 2(k1)
+	ins	k1, k0, 16, 16
+	lui	k0, 0x007d
+	b	docheck
+	ori	k0, 0x6b3c
+1:
 	lui	k0, 0x7c03
 	lw	k1, (k1)
 	ori	k0, 0xe83b
+#else
+	andi	k0, k1, 1
+	bnez	k0, handle_ri
+	lui	k0, 0x7c03
+	lw	k1, (k1)
+	ori	k0, 0xe83b
+#endif
 	.set	reorder
+docheck:
 	bne	k0, k1, handle_ri	/* if not ours */
+
+isrdhwr:
 	/* The insn is rdhwr.  No need to check CAUSE.BD here. */
 	get_saved_sp	/* k1 := current_thread_info */
 	.set	noreorder
