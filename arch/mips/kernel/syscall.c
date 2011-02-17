@@ -243,7 +243,7 @@ _sys_clone(nabi_no_regargs struct pt_regs regs)
 	child_tidptr = (int __user *) regs.regs[8];
 #endif
 	return do_fork(clone_flags, newsp, &regs, 0,
-	               parent_tidptr, child_tidptr);
+		       parent_tidptr, child_tidptr);
 }
 
 /*
@@ -405,7 +405,7 @@ _sys_sysmips(nabi_no_regargs struct pt_regs regs)
 		if (arg1 & 2)
 			set_thread_flag(TIF_LOGADE);
 		else
-			clear_thread_flag(TIF_FIXADE);
+			clear_thread_flag(TIF_LOGADE);
 
 		return 0;
 
