@@ -80,10 +80,6 @@ extern asmlinkage void handle_dsp(void);
 extern asmlinkage void handle_mcheck(void);
 extern asmlinkage void handle_reserved(void);
 
-extern int fpu_emulator_cop1Handler(struct pt_regs *xcp,
-				    struct mips_fpu_struct *ctx, int has_fpu,
-				    void *__user *fault_addr);
-
 void (*board_be_init)(void);
 int (*board_be_handler)(struct pt_regs *regs, int is_fixup);
 void (*board_nmi_handler_setup)(void);
@@ -476,6 +472,12 @@ asmlinkage void do_be(struct pt_regs *regs)
 #define SYNC   0x0000000f
 #define RDHWR  0x0000003b
 
+/*  uMIPS definitions   */
+#define MM_POOL32A_FUNC 0xfc00ffff
+#define MM_RDHWR        0x00006b3c
+#define MM_RS           0x001f0000
+#define MM_RT           0x03e00000
+
 /*
  * The ll_bit is cleared by r*_switch.S
  */
@@ -499,7 +501,7 @@ static inline int simulate_ll(struct pt_regs *regs, unsigned int opcode)
 	offset >>= 16;
 
 	vaddr = (unsigned long __user *)
-	        ((unsigned long)(regs->regs[(opcode & BASE) >> 21]) + offset);
+		((unsigned long)(regs->regs[(opcode & BASE) >> 21]) + offset);
 
 	if ((unsigned long)vaddr & 3)
 		return SIGBUS;
@@ -539,7 +541,7 @@ static inline int simulate_sc(struct pt_regs *regs, unsigned int opcode)
 	offset >>= 16;
 
 	vaddr = (unsigned long __user *)
-	        ((unsigned long)(regs->regs[(opcode & BASE) >> 21]) + offset);
+		((unsigned long)(regs->regs[(opcode & BASE) >> 21]) + offset);
 	reg = (opcode & RT) >> 16;
 
 	if ((unsigned long)vaddr & 3)
@@ -584,45 +586,68 @@ static int simulate_llsc(struct pt_regs *regs, unsigned int opcode)
  * Simulate trapping 'rdhwr' instructions to provide user accessible
  * registers not implemented in hardware.
  */
-static int simulate_rdhwr(struct pt_regs *regs, unsigned int opcode)
+static int simulate_rdhwr(struct pt_regs *regs, int rd, int rt)
 {
 	struct thread_info *ti = task_thread_info(current);
 
+	switch (rd) {
+	case 0:		/* CPU number */
+		regs->regs[rt] = smp_processor_id();
+		return 0;
+	case 1:		/* SYNCI length */
+		regs->regs[rt] = min(current_cpu_data.dcache.linesz,
+				     current_cpu_data.icache.linesz);
+		return 0;
+	case 2:		/* Read count register */
+		regs->regs[rt] = read_c0_count();
+		return 0;
+	case 3:		/* Count register resolution */
+		switch (current_cpu_data.cputype) {
+		case CPU_20KC:
+		case CPU_25KF:
+			regs->regs[rt] = 1;
+			break;
+		default:
+			regs->regs[rt] = 2;
+		}
+		return 0;
+	case 29:
+		regs->regs[rt] = ti->tp_value;
+		return 0;
+	default:
+		return -1;
+	}
+}
+
+static int simulate_rdhwr_normal(struct pt_regs *regs, unsigned int opcode)
+{
 	if ((opcode & OPCODE) == SPEC3 && (opcode & FUNC) == RDHWR) {
 		int rd = (opcode & RD) >> 11;
 		int rt = (opcode & RT) >> 16;
-		switch (rd) {
-		case 0:		/* CPU number */
-			regs->regs[rt] = smp_processor_id();
-			return 0;
-		case 1:		/* SYNCI length */
-			regs->regs[rt] = min(current_cpu_data.dcache.linesz,
-					     current_cpu_data.icache.linesz);
-			return 0;
-		case 2:		/* Read count register */
-			regs->regs[rt] = read_c0_count();
-			return 0;
-		case 3:		/* Count register resolution */
-			switch (current_cpu_data.cputype) {
-			case CPU_20KC:
-			case CPU_25KF:
-				regs->regs[rt] = 1;
-				break;
-			default:
-				regs->regs[rt] = 2;
-			}
-			return 0;
-		case 29:
-			regs->regs[rt] = ti->tp_value;
-			return 0;
-		default:
-			return -1;
-		}
+		simulate_rdhwr(regs, rd, rt);
+		return 0;
 	}
 
 	/* Not ours.  */
 	return -1;
 }
+
+static int simulate_rdhwr_mm(struct pt_regs *regs, unsigned short opcode)
+{
+	if ((opcode & MM_POOL32A_FUNC) == MM_RDHWR) {
+		int rd = (opcode & MM_RS) >> 16;
+		int rt = (opcode & MM_RT) >> 21;
+		simulate_rdhwr(regs, rd, rt);
+		return 0;
+	}
+
+	/* Not ours.  */
+	return -1;
+}
+
+
+
+
 
 static int simulate_sync(struct pt_regs *regs, unsigned int opcode)
 {
@@ -645,7 +670,7 @@ asmlinkage void do_ov(struct pt_regs *regs)
 	force_sig_info(SIGFPE, &info, current);
 }
 
-static int process_fpemu_return(int sig, void __user *fault_addr)
+int process_fpemu_return(int sig, void __user *fault_addr)
 {
 	if (sig == SIGSEGV || sig == SIGBUS) {
 		struct siginfo si = {0};
@@ -771,6 +796,7 @@ static void do_trap_or_bp(struct pt_regs *regs, unsigned int code,
 		die_if_kernel("Kernel bug detected", regs);
 		force_sig(SIGTRAP, current);
 		break;
+	case MM_BRK_MEMU:
 	case BRK_MEMU:
 		/*
 		 * Address errors may be deliberately induced by the FPU
@@ -796,24 +822,25 @@ static void do_trap_or_bp(struct pt_regs *regs, unsigned int code,
 asmlinkage void do_bp(struct pt_regs *regs)
 {
 	unsigned int opcode, bcode;
-	u32 epc;
+	unsigned long epc;
 	u16 instr[2];
 
-	if (regs->cp0_epc & 1) {
+	if (regs->cp0_epc & MIPS_ISA_MODE) {
 		/* calc exception pc */
-		epc = (u32)regs->cp0_epc;
-		if (delay_slot(regs)) {
-			if (get_user(instr[0], (u16 __user *)(epc & ~0x1)))
+		epc = exception_epc(regs);
+		if (cpu_has_mm) {
+			if ((__get_user(instr[0], (u16 __user *)(epc & ~MIPS_ISA_MODE))) ||
+			    (__get_user(instr[1], (u16 __user *)((epc+2) & ~MIPS_ISA_MODE))))
 				goto out_sigsegv;
-			if (mm_is16bit(instr[0]))
-				epc += 2;
-			else
-				epc += 4;
+		    opcode = (instr[0] << 16) | instr[1];
+		} else {
+		    /* MIPS16e mode */
+		    if (__get_user(instr[0], (u16 __user *)(epc & ~MIPS_ISA_MODE)))
+				goto out_sigsegv;
+		    bcode = (instr[0] >> 6) & 0x3f;
+		    do_trap_or_bp(regs, bcode, "Break");
+		    return;
 		}
-		if ((get_user(instr[0], (u16 __user *)(epc & ~0x1))) ||
-			(get_user(instr[1], (u16 __user *)((epc+2) & ~0x1))))
-			goto out_sigsegv;
-		opcode = (instr[0] << 16) | instr[1];
 	} else {
 		if (__get_user(opcode, (unsigned int __user *) exception_epc(regs)))
 			goto out_sigsegv;
@@ -839,13 +866,22 @@ out_sigsegv:
 asmlinkage void do_tr(struct pt_regs *regs)
 {
 	unsigned int opcode, tcode = 0;
+	u16 instr[2];
+	unsigned long epc = exception_epc(regs);
 
-	if (__get_user(opcode, (unsigned int __user *) exception_epc(regs)))
-		goto out_sigsegv;
+	if ((__get_user(instr[0], (u16 __user *)(epc & ~MIPS_ISA_MODE))) ||
+		(__get_user(instr[1], (u16 __user *)((epc+2) & ~MIPS_ISA_MODE))))
+			goto out_sigsegv;
+	opcode = (instr[0] << 16) | instr[1];
 
 	/* Immediate versions don't provide a code.  */
-	if (!(opcode & OPCODE))
-		tcode = ((opcode >> 6) & ((1 << 10) - 1));
+	if (!(opcode & OPCODE)) {
+		if (is16mode(regs))
+			/* uMIPS */
+			tcode = (opcode >> 12) & 0x1f;
+		else
+			tcode = ((opcode >> 6) & ((1 << 10) - 1));
+	}
 
 	do_trap_or_bp(regs, tcode, "Trap");
 	return;
@@ -858,8 +894,10 @@ asmlinkage void do_ri(struct pt_regs *regs)
 {
 	unsigned int __user *epc = (unsigned int __user *)exception_epc(regs);
 	unsigned long old_epc = regs->cp0_epc;
+	unsigned long old31 = regs->regs[31];
 	unsigned int opcode = 0;
 	int status = -1;
+	unsigned short mmop[2];
 
 	if (notify_die(DIE_RI, "RI Fault", regs, SIGSEGV, 0, 0)
 	    == NOTIFY_STOP)
@@ -870,23 +908,35 @@ asmlinkage void do_ri(struct pt_regs *regs)
 	if (unlikely(compute_return_epc(regs) < 0))
 		return;
 
-	if (unlikely(get_user(opcode, epc) < 0))
-		status = SIGSEGV;
+	if (is16mode(regs)) {
+		if (unlikely(get_user(mmop[0], epc) < 0))
+			status = SIGSEGV;
+		if (unlikely(get_user(mmop[1], epc) < 0))
+			status = SIGSEGV;
+		opcode = (mmop[0] << 16) | mmop[1];
 
-	if (!cpu_has_llsc && status < 0)
-		status = simulate_llsc(regs, opcode);
+		if (status < 0)
+			status = simulate_rdhwr_mm(regs, opcode);
+	} else {
+		if (unlikely(get_user(opcode, epc) < 0))
+			status = SIGSEGV;
 
-	if (status < 0)
-		status = simulate_rdhwr(regs, opcode);
+		if (!cpu_has_llsc && status < 0)
+			status = simulate_llsc(regs, opcode);
 
-	if (status < 0)
-		status = simulate_sync(regs, opcode);
+		if (status < 0)
+			status = simulate_rdhwr_normal(regs, opcode);
+
+		if (status < 0)
+			status = simulate_sync(regs, opcode);
+	}
 
 	if (status < 0)
 		status = SIGILL;
 
 	if (unlikely(status > 0)) {
-		regs->cp0_epc = old_epc;		/* Undo skip-over.  */
+		regs->cp0_epc = old_epc;                /* Undo skip-over.  */
+		regs->regs[31] = old31;
 		force_sig(status, current);
 	}
 }
@@ -961,11 +1011,12 @@ static struct notifier_block default_cu2_notifier = {
 asmlinkage void do_cpu(struct pt_regs *regs)
 {
 	unsigned int __user *epc;
-	unsigned long old_epc;
+	unsigned long old_epc, old31;
 	unsigned int opcode;
 	unsigned int cpid;
 	int status;
 	unsigned long __maybe_unused flags;
+	unsigned short mmop[2];
 
 	die_if_kernel("do_cpu invoked from kernel context!", regs);
 
@@ -975,26 +1026,39 @@ asmlinkage void do_cpu(struct pt_regs *regs)
 	case 0:
 		epc = (unsigned int __user *)exception_epc(regs);
 		old_epc = regs->cp0_epc;
+		old31 = regs->regs[31];
 		opcode = 0;
 		status = -1;
 
 		if (unlikely(compute_return_epc(regs) < 0))
 			return;
 
-		if (unlikely(get_user(opcode, epc) < 0))
-			status = SIGSEGV;
+		if (is16mode(regs)) {
+			if (unlikely(get_user(mmop[0], epc) < 0))
+				status = SIGSEGV;
+			if (unlikely(get_user(mmop[1], epc) < 0))
+				status = SIGSEGV;
+			opcode = (mmop[0] << 16) | mmop[1];
 
-		if (!cpu_has_llsc && status < 0)
-			status = simulate_llsc(regs, opcode);
+			if (status < 0)
+				status = simulate_rdhwr_mm(regs, opcode);
+		} else {
+			if (unlikely(get_user(opcode, epc) < 0))
+				status = SIGSEGV;
 
-		if (status < 0)
-			status = simulate_rdhwr(regs, opcode);
+			if (!cpu_has_llsc && status < 0)
+				status = simulate_llsc(regs, opcode);
+
+			if (status < 0)
+				status = simulate_rdhwr_normal(regs, opcode);
+		}
 
 		if (status < 0)
 			status = SIGILL;
 
 		if (unlikely(status > 0)) {
-			regs->cp0_epc = old_epc;	/* Undo skip-over.  */
+			regs->cp0_epc = old_epc;        /* Undo skip-over.  */
+			regs->regs[31] = old31;
 			force_sig(status, current);
 		}
 
@@ -1292,7 +1356,7 @@ asmlinkage void cache_parity_error(void)
 void ejtag_exception_handler(struct pt_regs *regs)
 {
 	const int field = 2 * sizeof(unsigned long);
-	unsigned long depc, old_epc;
+	unsigned long depc, old_epc, old_ra;
 	unsigned int debug;
 
 	printk(KERN_DEBUG "SDBBP EJTAG debug exception - not handled yet, just ignored!\n");
@@ -1307,10 +1371,12 @@ void ejtag_exception_handler(struct pt_regs *regs)
 		 * calculation.
 		 */
 		old_epc = regs->cp0_epc;
+		old_ra = regs->regs[31];
 		regs->cp0_epc = depc;
-		__compute_return_epc(regs);
+		compute_return_epc(regs);
 		depc = regs->cp0_epc;
 		regs->cp0_epc = old_epc;
+		regs->regs[31] = old_ra;
 	} else
 		depc += 4;
 	write_c0_depc(depc);

@@ -390,7 +390,7 @@ NESTED(nmi_handler, PT_SIZE, sp)
 	.set	noat
 	.set	nomicromips
 	SAVE_ALL
- 	move	a0, sp
+	move	a0, sp
 	jal	nmi_exception_handler
 	RESTORE_ALL
 	.set	mips3
@@ -529,9 +529,9 @@ NESTED(nmi_handler, PT_SIZE, sp)
 	.set	noat
 	.set	noreorder
 	/* MIPS32: 0x7c03e83b: rdhwr v1,$29 */
-	/* uMIPS:  0x007d6b3c: rdhwr v1,$29 */
+	/* uMIPS:  0x007d6b3c: rdhwr v1,$29 -- in MIPS16e it is  */
+	/*         ADDIUSP $16,0x7d; LI $3,0x3c and never RI. LY22 */
 	MFC0	k1, CP0_EPC
-#ifdef CONFIG_CPU_HAS_MICROMIPS
 	and	k0, k1, 1
 	beqz	k0, 1f
 	xor	k1, k0
@@ -545,13 +545,6 @@ NESTED(nmi_handler, PT_SIZE, sp)
 	lui	k0, 0x7c03
 	lw	k1, (k1)
 	ori	k0, 0xe83b
-#else
-	andi	k0, k1, 1
-	bnez	k0, handle_ri
-	lui	k0, 0x7c03
-	lw	k1, (k1)
-	ori	k0, 0xe83b
-#endif
 	.set	reorder
 docheck:
 	bne	k0, k1, handle_ri	/* if not ours */

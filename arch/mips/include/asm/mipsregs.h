@@ -591,6 +591,7 @@
 #define MIPS_CONF3_CTXTC	(_ULCAST_(1) <<  9)
 #define MIPS_CONF3_DSP		(_ULCAST_(1) << 10)
 #define MIPS_CONF3_ULRI		(_ULCAST_(1) << 13)
+#define MIPS_CONF3_ISA		(_ULCAST_(3) << 14)
 
 #define MIPS_CONF4_MMUSIZEEXT	(_ULCAST_(255) << 0)
 #define MIPS_CONF4_MMUEXTDEF	(_ULCAST_(3) << 14)
@@ -626,10 +627,10 @@
 	unsigned int __res;					\
 	__asm__ __volatile__(					\
 	"mfpc\t%0, %1"						\
-        : "=r" (__res)						\
+	: "=r" (__res)						\
 	: "i" (counter));					\
 								\
-        __res;							\
+	__res;							\
 })
 
 #define write_r10k_perf_cntr(counter,val)                       \
@@ -645,10 +646,10 @@ do {								\
 	unsigned int __res;					\
 	__asm__ __volatile__(					\
 	"mfps\t%0, %1"						\
-        : "=r" (__res)						\
+	: "=r" (__res)						\
 	: "i" (counter));					\
 								\
-        __res;							\
+	__res;							\
 })
 
 #define write_r10k_perf_cntl(counter,val)                       \
@@ -1095,10 +1096,11 @@ do {									\
 	".set\treorder\n\t"					\
 	/* gas fails to assemble cfc1 for some archs (octeon).*/ \
 	".set\tmips1\n\t"					\
-        "cfc1\t%0,"STR(source)"\n\t"                            \
+	"cfc1\t%0,"STR(source)"\n\t"                            \
 	".set\tpop"						\
-        : "=r" (__res));                                        \
-        __res;})
+	: "=r" (__res));                                        \
+	__res;								\
+})
 
 #define rddsp(mask)							\
 ({									\
@@ -1125,7 +1127,7 @@ do {									\
 	"	# wrdsp $1, %x1					\n"	\
 	"	.word	0x7c2004f8 | (%x1 << 11)		\n"	\
 	"	.set	pop					\n"	\
-        :								\
+	:								\
 	: "r" (val), "i" (mask));					\
 } while (0)
 
