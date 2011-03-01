@@ -100,11 +100,6 @@
 #endif
 		.macro	get_saved_sp	/* SMP variation */
 		CPU_ID_MFC0	k0, CPU_ID_REG
-#ifdef CONFIG_MIPS_TLB_SMPID_ERROREPC
-		MFC0	k0, CP0_ERROREPC
-#else
-		MFC0	k0, CP0_CONTEXT
-#endif
 #if defined(CONFIG_32BIT) || defined(KBUILD_64BIT_SYM32)
 		lui	k1, %hi(kernelsp)
 #else
@@ -121,11 +116,6 @@
 
 		.macro	set_saved_sp stackp temp temp2
 		CPU_ID_MFC0	\temp, CPU_ID_REG
-#ifdef CONFIG_MIPS_TLB_SMPID_ERROREPC
-		MFC0	\temp, CP0_ERROREPC
-#else
-		MFC0	\temp, CP0_CONTEXT
-#endif
 		LONG_SRL	\temp, PTEBASE_SHIFT
 		LONG_S	\stackp, kernelsp(\temp)
 		.endm
@@ -199,6 +189,7 @@
 		LONG_S	$0, PT_R0(sp)
 		mfc0	v1, CP0_STATUS
 		LONG_S	$2, PT_R2(sp)
+		LONG_S	v1, PT_STATUS(sp)
 #ifdef CONFIG_MIPS_MT_SMTC
 		/*
 		 * Ideally, these instructions would be shuffled in
@@ -210,21 +201,20 @@
 		LONG_S	v1, PT_TCSTATUS(sp)
 #endif /* CONFIG_MIPS_MT_SMTC */
 		LONG_S	$4, PT_R4(sp)
-		LONG_S	$5, PT_R5(sp)
-		LONG_S	v1, PT_STATUS(sp)
 		mfc0	v1, CP0_CAUSE
-		LONG_S	$6, PT_R6(sp)
-		LONG_S	$7, PT_R7(sp)
+		LONG_S	$5, PT_R5(sp)
 		LONG_S	v1, PT_CAUSE(sp)
+		LONG_S	$6, PT_R6(sp)
 		MFC0	v1, CP0_EPC
+		LONG_S	$7, PT_R7(sp)
 #ifdef CONFIG_64BIT
 		LONG_S	$8, PT_R8(sp)
 		LONG_S	$9, PT_R9(sp)
 #endif
+		LONG_S	v1, PT_EPC(sp)
 		LONG_S	$25, PT_R25(sp)
 		LONG_S	$28, PT_R28(sp)
 		LONG_S	$31, PT_R31(sp)
-		LONG_S	v1, PT_EPC(sp)
 		ori	$28, sp, _THREAD_MASK
 		xori	$28, _THREAD_MASK
 #ifdef CONFIG_CPU_CAVIUM_OCTEON
