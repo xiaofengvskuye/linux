@@ -41,6 +41,9 @@ extern void __flush_dcache_page(struct page *page);
 #define ARCH_IMPLEMENTS_FLUSH_DCACHE_PAGE 1
 static inline void flush_dcache_page(struct page *page)
 {
+	if (PageAnon(page))
+		return;
+
 	if (cpu_has_dc_aliases || !cpu_has_ic_fills_f_dc)
 		__flush_dcache_page(page);
 
@@ -56,6 +59,23 @@ static inline void flush_anon_page(struct vm_area_struct *vma,
 {
 	if (cpu_has_dc_aliases && PageAnon(page))
 		__flush_anon_page(page, vmaddr);
+}
+
+#define ARCH_HAS_FLUSH_KERNEL_DCACHE_PAGE
+static inline void flush_kernel_dcache_page(struct page *page)
+{
+	if (cpu_has_dc_aliases || !cpu_has_ic_fills_f_dc)
+		__flush_dcache_page(page);
+}
+
+static inline void flush_kernel_vmap_range(unsigned long addr, unsigned long size)
+{
+	_dma_cache_wback_inv(addr, size);
+}
+
+static inline void invalidate_kernel_vmap_range(unsigned long addr, unsigned long size)
+{
+	_dma_cache_inv(addr, size);
 }
 
 static inline void flush_icache_page(struct vm_area_struct *vma,
