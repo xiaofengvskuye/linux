@@ -12,10 +12,12 @@
 
 extern int usb_disabled(void);
 
+#ifdef CONFIG_PM
 static void mips_start_ehc(void)
 {
 	pr_debug("mips_start_ehc\n");
 }
+#endif
 
 static void mips_stop_ehc(void)
 {
