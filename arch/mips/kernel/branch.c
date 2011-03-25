@@ -207,23 +207,22 @@ int __compute_return_epc(struct pt_regs *regs)
 	union mips_instruction insn;
 
 	epc = regs->cp0_epc;
-
 	if (epc & 3)
 		goto unaligned;
 
 	/*
 	 * Read the instruction
 	 */
-	addr = (unsigned int __user *)epc;
+	addr = (unsigned int __user *) epc;
 	if (__get_user(insn.word, addr)) {
 		force_sig(SIGSEGV, current);
 		return -EFAULT;
 	}
 
 	switch (insn.i_format.opcode) {
-		/*
-		 * jr and jalr are in r_format format.
-		 */
+	/*
+	 * jr and jalr are in r_format format.
+	 */
 	case spec_op:
 		switch (insn.r_format.func) {
 		case jalr_op:
@@ -235,11 +234,11 @@ int __compute_return_epc(struct pt_regs *regs)
 		}
 		break;
 
-		/*
-		 * This group contains:
-		 * bltz_op, bgez_op, bltzl_op, bgezl_op,
-		 * bltzal_op, bgezal_op, bltzall_op, bgezall_op.
-		 */
+	/*
+	 * This group contains:
+	 * bltz_op, bgez_op, bltzl_op, bgezl_op,
+	 * bltzal_op, bgezal_op, bltzall_op, bgezall_op.
+	 */
 	case bcond_op:
 		switch (insn.i_format.rt) {
 		case bltz_op:
@@ -294,10 +293,9 @@ int __compute_return_epc(struct pt_regs *regs)
 		}
 		break;
 
-		/*
-		 * These are unconditional and in j_format.
-		 */
-	case jalx_op:
+	/*
+	 * These are unconditional and in j_format.
+	 */
 	case jal_op:
 		regs->regs[31] = regs->cp0_epc + 8;
 	case j_op:
@@ -310,9 +308,9 @@ int __compute_return_epc(struct pt_regs *regs)
 			regs->cp0_epc |= MIPS_ISA_MODE;
 		break;
 
-		/*
-		 * These are conditional and in i_format.
-		 */
+	/*
+	 * These are conditional and in i_format.
+	 */
 	case beq_op:
 	case beql_op:
 		if (regs->regs[insn.i_format.rs] ==
@@ -333,7 +331,7 @@ int __compute_return_epc(struct pt_regs *regs)
 		regs->cp0_epc = epc;
 		break;
 
-	case blez_op:		/* not really i_format */
+	case blez_op:	/* not really i_format */
 	case blezl_op:
 		/* rt field assumed to be zero */
 		if ((long)regs->regs[insn.i_format.rs] <= 0)
@@ -353,13 +351,13 @@ int __compute_return_epc(struct pt_regs *regs)
 		regs->cp0_epc = epc;
 		break;
 
-		/*
-		 * And now the FPA/cp1 branch instructions.
-		 */
+	/*
+	 * And now the FPA/cp1 branch instructions.
+	 */
 	case cop1_op:
 		preempt_disable();
 		if (is_fpu_owner())
-			__asm__ __volatile__("cfc1\t%0,$31" : "=r"(fcr31));
+			asm volatile("cfc1\t%0,$31" : "=r" (fcr31));
 		else
 			fcr31 = current->thread.fpu.fcr31;
 		preempt_enable();
@@ -425,14 +423,12 @@ int __compute_return_epc(struct pt_regs *regs)
 	return 0;
 
 unaligned:
-	printk(KERN_DEBUG "%s: unaligned epc - sending SIGBUS.\n",
-		current->comm);
+	printk("%s: unaligned epc - sending SIGBUS.\n", current->comm);
 	force_sig(SIGBUS, current);
 	return -EFAULT;
 
 sigill:
-	printk(KERN_DEBUG "%s: DSP branch but not DSP ASE - sending SIGBUS.\n",
-		current->comm);
+	printk("%s: DSP branch but not DSP ASE - sending SIGBUS.\n", current->comm);
 	force_sig(SIGBUS, current);
 	return -EFAULT;
 }
