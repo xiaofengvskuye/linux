@@ -1602,7 +1602,7 @@ asmlinkage void do_ade(struct pt_regs *regs)
 			return;
 		}
 
-		if (cpu_has_mm) {	/* micromips unaligned access */
+		if (cpu_has_mmips) {	/* micromips unaligned access */
 			seg = get_fs();
 			if (!user_mode(regs))
 				set_fs(KERNEL_DS);
@@ -1656,6 +1656,5 @@ static int __init debugfs_unaligned(void)
 		return -ENOMEM;
 	return 0;
 }
-
 __initcall(debugfs_unaligned);
 #endif

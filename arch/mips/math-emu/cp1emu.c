@@ -1875,7 +1875,7 @@ int fpu_emulator_cop1Handler(struct pt_regs *xcp, struct mips_fpu_struct *ctx,
 	do {
 		prevepc = xcp->cp0_epc;
 
-		if (is16mode(xcp) && cpu_has_mm) {
+		if (is16mode(xcp) && cpu_has_mmips) {
 			/* get the next 2 micro_mips instn and decode them into 2 mips32 instn */
 			if ((get_user(instr[0], (u16 __user *)(xcp->cp0_epc & ~MIPS_ISA_MODE))) ||
 			    (get_user(instr[1], (u16 __user *)((xcp->cp0_epc+2) & ~MIPS_ISA_MODE))) ||

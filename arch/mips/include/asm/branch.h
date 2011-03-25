@@ -39,7 +39,7 @@ static inline int compute_return_epc(struct pt_regs *regs)
 	if (is16mode(regs)) {
 		if (cpu_has_mips16)
 			return __MIPS16e_compute_return_epc(regs);
-		if (cpu_has_mm)
+		if (cpu_has_mmips)
 			return __microMIPS_compute_return_epc(regs);
 		return regs->cp0_epc;
 	}

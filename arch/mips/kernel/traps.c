@@ -809,6 +809,7 @@ static void do_trap_or_bp(struct pt_regs *regs, unsigned int code,
 		info.si_addr = (void __user *) regs->cp0_epc;
 		force_sig_info(SIGFPE, &info, current);
 		break;
+	case MM_BRK_BUG:
 	case BRK_BUG:
 		die_if_kernel("Kernel bug detected", regs);
 		force_sig(SIGTRAP, current);
@@ -845,7 +846,7 @@ asmlinkage void do_bp(struct pt_regs *regs)
 	if (regs->cp0_epc & MIPS_ISA_MODE) {
 		/* calc exception pc */
 		epc = exception_epc(regs);
-		if (cpu_has_mm) {
+		if (cpu_has_mmips) {
 			if ((__get_user(instr[0], (u16 __user *)(epc & ~MIPS_ISA_MODE))) ||
 			    (__get_user(instr[1], (u16 __user *)((epc+2) & ~MIPS_ISA_MODE))))
 				goto out_sigsegv;

@@ -1683,11 +1683,11 @@ config CPU_SUPPORTS_ADDRWINCFG
 	bool
 config CPU_SUPPORTS_HUGEPAGES
 	bool
+config CPU_SUPPORTS_UNCACHED_ACCELERATED
+	bool
 config MIPS_PGD_C0_CONTEXT
 	bool
 	default y if 64BIT && CPU_MIPSR2
-config CPU_SUPPORTS_UNCACHED_ACCELERATED
-	bool
 
 #
 # Set to y for ptrace access to watch registers.
@@ -2018,12 +2018,19 @@ config CPU_HAS_SMARTMIPS
 	  you don't know you probably don't have SmartMIPS and should say N
 	  here.
 
+config CPU_HAS_MICROMIPS
+	depends on SYS_SUPPORTS_MICROMIPS
+	bool "Support for the microMIPS ISA"
+	help
+	  Enabling this option adds kernel support for running userland programs
+ 	  that use the microMIPS ISA.
+
 config CPU_MICROMIPS
 	depends on SYS_SUPPORTS_MICROMIPS
-	bool "Build kernel using MicroMIPS ISA"
+	bool "Build kernel using microMIPS ISA"
 	help
 	  When this option is enabled the kernel will be built using the
-	  MicroMIPS ISA
+	  microMIPS ISA
 
 config CPU_HAS_WB
 	bool
