@@ -1058,10 +1058,8 @@ static void __cpuinit probe_pcache(void)
 		 * In this case it is better to treat the cache as always
 		 * having aliases
 		 */
-		if ((c->processor_id & 0xff) < PRID_REV_ENCODE_332(2, 4, 0)) {
-			c->dcache.flags |= MIPS_CACHE_ALIASES;
-			break;
-		}
+		if ((c->processor_id & 0xff) < PRID_REV_ENCODE_332(2, 4, 0))
+			c->dcache.flags |= MIPS_CACHE_VTAG;
 	case CPU_14K:
 	case CPU_24K:
 	case CPU_34K:
