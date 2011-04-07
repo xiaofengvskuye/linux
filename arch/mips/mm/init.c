@@ -221,8 +221,8 @@ void copy_user_highpage(struct page *to, struct page *from,
 	if (cpu_has_dc_aliases)
 		SetPageDcacheDirty(to);
 	if (((vma->vm_flags & VM_EXEC) && !cpu_has_ic_fills_f_dc) ||
-	    cpu_has_vtag_dcache ||
-	    pages_do_alias((unsigned long)vto, vaddr & PAGE_MASK)) {
+	    cpu_has_vtag_dcache || (cpu_has_dc_aliases &&
+	     pages_do_alias((unsigned long)vto, vaddr & PAGE_MASK))) {
 		flush_data_cache_page((unsigned long)vto);
 		if (cpu_has_dc_aliases)
 			ClearPageDcacheDirty(to);
