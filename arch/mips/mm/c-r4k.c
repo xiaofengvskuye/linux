@@ -1058,19 +1058,31 @@ static void __cpuinit probe_pcache(void)
 		 * In this case it is better to treat the cache as always
 		 * having aliases
 		 */
-		if ((c->processor_id & 0xff) < PRID_REV_ENCODE_332(2, 4, 0))
+		if ((c->processor_id & 0xff) <= PRID_REV_ENCODE_332(2, 4, 0))
 			c->dcache.flags |= MIPS_CACHE_VTAG;
+		if ((c->processor_id & 0xff) == PRID_REV_ENCODE_332(2, 4, 0))
+			write_c0_config6(read_c0_config6() | MIPS_CONF6_SYND);
+		goto bypass1074;
+
+	case CPU_1074K:
+		if ((c->processor_id & 0xff) <= PRID_REV_ENCODE_332(1, 1, 0)) {
+			c->dcache.flags |= MIPS_CACHE_VTAG;
+			write_c0_config6(read_c0_config6() | MIPS_CONF6_SYND);
+		}
+		/* fall through */
+bypass1074:
+		;
 	case CPU_14K:
 	case CPU_24K:
 	case CPU_34K:
 	case CPU_1004K:
-	case CPU_1074K:
-		if ((read_c0_config7() & (1 << 16))) {
+		if (read_c0_config7() & MIPS_CONF7_AR) {
 			/* effectively physically indexed dcache,
 			   thus no virtual aliases. */
 			c->dcache.flags |= MIPS_CACHE_PINDEX;
 			break;
 		}
+		/* fall through */
 	default:
 		if (c->dcache.waysize > PAGE_SIZE)
 			c->dcache.flags |= MIPS_CACHE_ALIASES;
