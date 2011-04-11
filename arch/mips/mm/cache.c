@@ -133,9 +133,11 @@ void __update_cache(struct vm_area_struct *vma, unsigned long address,
 	page = pfn_to_page(pfn);
 	if (page_mapped(page) && Page_dcache_dirty(page)) {
 		addr = (unsigned long) page_address(page);
-		if (exec || pages_do_alias(addr, address & PAGE_MASK)) {
+		if (exec || (cpu_has_dc_aliases &&
+		    pages_do_alias(addr, address & PAGE_MASK))) {
 			flush_data_cache_page(addr);
-			ClearPageDcacheDirty(page);
+			if (cpu_has_dc_aliases)
+				ClearPageDcacheDirty(page);
 		}
 	}
 }
