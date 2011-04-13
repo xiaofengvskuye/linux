@@ -42,47 +42,52 @@ void board_reset(void)
 
 void __init board_setup(void)
 {
-	u32 pin_func = 0;
-
 	/* Not valid for Au1550 */
 #if defined(CONFIG_IRDA) && \
    (defined(CONFIG_SOC_AU1000) || defined(CONFIG_SOC_AU1100))
-	/* Set IRFIRSEL instead of GPIO15 */
-	pin_func = au_readl(SYS_PINFUNC) | SYS_PF_IRF;
-	au_writel(pin_func, SYS_PINFUNC);
-	/* Power off until the driver is in use */
-	bcsr->resets &= ~BCSR_RESETS_IRDA_MODE_MASK;
-	bcsr->resets |=  BCSR_RESETS_IRDA_MODE_OFF;
-	au_sync();
+	{
+		u32 pin_func;
+
+		/* Set IRFIRSEL instead of GPIO15 */
+		pin_func = au_readl(SYS_PINFUNC) | SYS_PF_IRF;
+		au_writel(pin_func, SYS_PINFUNC);
+		/* Power off until the driver is in use */
+		bcsr->resets &= ~BCSR_RESETS_IRDA_MODE_MASK;
+		bcsr->resets |=  BCSR_RESETS_IRDA_MODE_OFF;
+		au_sync();
+	}
 #endif
 	bcsr->pcmcia = 0x0000; /* turn off PCMCIA power */
 
 #ifdef CONFIG_MIPS_MIRAGE
-	/* Enable GPIO[31:0] inputs */
-	au_writel(0, SYS_PININPUTEN);
+	{
+		u32 pin_func;
 
-	/* GPIO[20] is output, tristate the other input primary GPIOs */
-	au_writel(~(1 << 20), SYS_TRIOUTCLR);
+		/* Enable GPIO[31:0] inputs */
+		au_writel(0, SYS_PININPUTEN);
 
-	/* Set GPIO[210:208] instead of SSI_0 */
-	pin_func = au_readl(SYS_PINFUNC) | SYS_PF_S0;
+		/* GPIO[20] is output, tristate the other input primary GPIOs */
+		au_writel(~(1 << 20), SYS_TRIOUTCLR);
 
-	/* Set GPIO[215:211] for LEDs */
-	pin_func |= 5 << 2;
+		/* GPIO[20] is output */
+		alchemy_gpio_direction_output(20, 0);
 
-	/* Set GPIO[214:213] for more LEDs */
-	pin_func |= 5 << 12;
+		/* Set GPIO[210:208] instead of SSI_0 */
+		pin_func = au_readl(SYS_PINFUNC) | SYS_PF_S0;
 
-	/* Set GPIO[207:200] instead of PCMCIA/LCD */
-	pin_func |= SYS_PF_LCD | SYS_PF_PC;
-	au_writel(pin_func, SYS_PINFUNC);
+		/* Set GPIO[215:211] for LEDs */
+		pin_func |= 5 << 2;
 
-	/*
-	 * Enable speaker amplifier.  This should
-	 * be part of the audio driver.
-	 */
-	au_writel(au_readl(GPIO2_DIR) | 0x200, GPIO2_DIR);
-	au_writel(0x02000200, GPIO2_OUTPUT);
+		/* Set GPIO[214:213] for more LEDs */
+		pin_func |= 5 << 12;
+
+		/*
+		 * Enable speaker amplifier.  This should
+		 * be part of the audio driver.
+		 */
+		au_writel(au_readl(GPIO2_DIR) | 0x200, GPIO2_DIR);
+		au_writel(0x02000200, GPIO2_OUTPUT);
+	}
 #endif
 
 	au_sync();
