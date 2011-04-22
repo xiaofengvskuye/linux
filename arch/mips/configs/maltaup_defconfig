@@ -1,7 +1,7 @@
 #
 # Automatically generated make config: don't edit
 # Linux kernel version: 2.6.35.9
-# Mon Feb 28 21:58:12 2011
+# Fri Apr 22 15:33:11 2011
 #
 CONFIG_MIPS=y
 
@@ -150,7 +150,6 @@ CONFIG_SYS_SUPPORTS_MULTITHREADING=y
 # CONFIG_MIPS_CMP is not set
 # CONFIG_ARCH_PHYS_ADDR_T_64BIT is not set
 # CONFIG_CPU_HAS_SMARTMIPS is not set
-# CONFIG_CPU_HAS_MICROMIPS is not set
 # CONFIG_CPU_MICROMIPS is not set
 CONFIG_CPU_HAS_SYNC=y
 CONFIG_GENERIC_HARDIRQS=y

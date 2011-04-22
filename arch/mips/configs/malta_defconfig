@@ -1,7 +1,7 @@
 #
 # Automatically generated make config: don't edit
 # Linux kernel version: 2.6.35.9
-# Thu Jan 27 09:29:24 2011
+# Fri Apr 22 15:32:31 2011
 #
 CONFIG_MIPS=y
 
@@ -154,7 +154,6 @@ CONFIG_MIPS_MT_FPAFF=y
 # CONFIG_MIPS_CMP is not set
 # CONFIG_ARCH_PHYS_ADDR_T_64BIT is not set
 # CONFIG_CPU_HAS_SMARTMIPS is not set
-# CONFIG_CPU_HAS_MICROMIPS is not set
 # CONFIG_CPU_MICROMIPS is not set
 CONFIG_CPU_MIPSR2_IRQ_VI=y
 CONFIG_CPU_MIPSR2_IRQ_EI=y
@@ -191,6 +190,7 @@ CONFIG_TICK_ONESHOT=y
 CONFIG_NO_HZ=y
 CONFIG_HIGH_RES_TIMERS=y
 CONFIG_GENERIC_CLOCKEVENTS_BUILD=y
+# CONFIG_HZ_48 is not set
 CONFIG_HZ_100=y
 # CONFIG_HZ_128 is not set
 # CONFIG_HZ_250 is not set
