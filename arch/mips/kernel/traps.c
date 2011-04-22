@@ -89,6 +89,7 @@ void (*board_ejtag_handler_setup)(void);
 void (*board_bind_eic_interrupt)(int irq, int regset);
 
 static void mt_ase_fp_affinity(void);
+void __init set_handler(unsigned long offset, void *addr, unsigned long size);
 
 static void show_raw_backtrace(unsigned long reg29)
 {
@@ -1497,10 +1498,23 @@ static void *set_vi_srs_handler(int n, vi_handler_t addr, int srs)
 
 	if (srs == 0) {
 		/*
-		 * If no shadow set is selected then use the default handler
-		 * that does normal register saving and a standard interrupt exit
+		 * MicroMIPS requires some additional instructions for each of
+		 * the exceptions to make sure that we are in MicroMIPS mode.
+		 * This is necessary for situations where the boot loader may
+		 * use MIPS32 instructions instead of MicroMIPS. 
 		 */
+#ifdef CONFIG_CPU_MICROMIPS
+#define MMLEN	17
+#define MMOFF	18
+#else
+#define MMLEN	0
+#define MMOFF	0
+#endif
 
+		/*
+		 * If no shadow set is selected then use the default handler
+		 * that does normal register saving and standard interrupt exit
+		 */
 		extern char except_vec_vi, except_vec_vi_lui;
 		extern char except_vec_vi_ori, except_vec_vi_end;
 		extern char rollback_except_vec_vi;
@@ -1513,11 +1527,11 @@ static void *set_vi_srs_handler(int n, vi_handler_t addr, int srs)
 		 * Status.IM bit to be masked before going there.
 		 */
 		extern char except_vec_vi_mori;
-		const int mori_offset = &except_vec_vi_mori - vec_start;
+		const int mori_offset = &except_vec_vi_mori - vec_start + MMOFF;
 #endif /* CONFIG_MIPS_MT_SMTC */
-		const int handler_len = &except_vec_vi_end - vec_start;
-		const int lui_offset = &except_vec_vi_lui - vec_start;
-		const int ori_offset = &except_vec_vi_ori - vec_start;
+		const int handler_len = &except_vec_vi_end - vec_start + MMLEN;
+		const int lui_offset = &except_vec_vi_lui - vec_start + MMOFF;
+		const int ori_offset = &except_vec_vi_ori - vec_start + MMOFF;
 
 		if (handler_len > VECTORSPACING) {
 			/*
@@ -1527,29 +1541,45 @@ static void *set_vi_srs_handler(int n, vi_handler_t addr, int srs)
 			panic("VECTORSPACING too small");
 		}
 
-		memcpy(b, vec_start, handler_len);
+		set_handler(((unsigned long)b - ebase), vec_start, handler_len);
 #ifdef CONFIG_MIPS_MT_SMTC
 		BUG_ON(n > 7);	/* Vector index %d exceeds SMTC maximum. */
 
 		w = (u32 *)(b + mori_offset);
+#ifdef CONFIG_CPU_MICROMIPS
+		*w |= (((u32)(0x100 << n) & 0x0000ffff) << 16);
+#else
 		*w = (*w & 0xffff0000) | (0x100 << n);
+#endif
 #endif /* CONFIG_MIPS_MT_SMTC */
+#ifdef CONFIG_CPU_MICROMIPS
+		w = (u32 *)(b + lui_offset);
+		*w |= ((u32)handler & 0xffff0000);
+		w = (u32 *)(b + ori_offset);
+		*w |= (((u32)handler & 0x0000ffff) << 16);
+#else
 		w = (u32 *)(b + lui_offset);
 		*w = (*w & 0xffff0000) | (((u32)handler >> 16) & 0xffff);
 		w = (u32 *)(b + ori_offset);
 		*w = (*w & 0xffff0000) | ((u32)handler & 0xffff);
+#endif
 		local_flush_icache_range((unsigned long)b,
 					 (unsigned long)(b+handler_len));
 	}
 	else {
 		/*
-		 * In other cases jump directly to the interrupt handler
-		 *
-		 * It is the handlers responsibility to save registers if required
-		 * (eg hi/lo) and return from the exception using "eret"
+		 * In other cases jump directly to the interrupt handler. It
+		 * is the handler's responsibility to save registers if required
+		 * (eg hi/lo) and return from the exception using "eret".
 		 */
 		w = (u32 *)b;
-		*w++ = 0x08000000 | (((u32)handler >> 2) & 0x03fffff); /* j handler */
+		/* j handler */
+#ifdef CONFIG_CPU_MICROMIPS
+		*w++ = ((((u32)(handler) >> 1) & 0x0000ffff) << 16) |
+			(((u32)(handler) & 0x003fffff) >> 17) | 0x0000d400;
+#else
+		*w++ = 0x08000000 | (((u32)handler >> 2) & 0x03fffff);
+#endif
 		*w = 0;
 		local_flush_icache_range((unsigned long)b,
 					 (unsigned long)(b+8));
@@ -1708,11 +1738,30 @@ void __cpuinit per_cpu_trap_init(void)
 }
 
 /* Install CPU exception handler */
+#ifdef CONFIG_CPU_MICROMIPS
+void __init set_handler(unsigned long offset, void *addr, unsigned long size)
+{
+#ifdef CONFIG_32BIT
+	unsigned long addr2 = (ebase + offset);
+
+	*((unsigned long *)addr2) = (0x3c1a << 16) | ((addr2 + 16) >> 16);
+	*((unsigned long *)addr2 + 1) = (0x375a << 16) |
+		(((addr2 + 16) & 0x0000ffff) + 1);
+	*((unsigned long *)addr2 + 2) = 0x03400008;
+	*((unsigned long *)addr2 + 3) = 0x00000000;
+	memcpy(((unsigned long *)addr2 + 4), ((unsigned char *)addr - 3),
+		(size - 16));
+#else
+#error MicroMIPS64 not currently supported!!!
+#endif
+}
+#else
 void __init set_handler(unsigned long offset, void *addr, unsigned long size)
 {
 	memcpy((void *)(ebase + offset), addr, size);
 	local_flush_icache_range(ebase + offset, ebase + offset + size);
 }
+#endif
 
 static char panic_null_cerr[] __cpuinitdata =
 	"Trying to set NULL cache error exception handler";
@@ -1873,11 +1922,11 @@ void __init trap_init(void)
 
 	if (cpu_has_vce)
 		/* Special exception: R4[04]00 uses also the divec space. */
-		memcpy((void *)(ebase + 0x180), &except_vec3_r4000, 0x100);
+		set_handler(0x180, &except_vec3_r4000, 0x100);
 	else if (cpu_has_4kex)
-		memcpy((void *)(ebase + 0x180), &except_vec3_generic, 0x80);
+		set_handler(0x180, &except_vec3_generic, 0x80);
 	else
-		memcpy((void *)(ebase + 0x080), &except_vec3_generic, 0x80);
+		set_handler(0x080, &except_vec3_generic, 0x80);
 
 	local_flush_icache_range(ebase, ebase + 0x400);
 	flush_tlb_handlers();
