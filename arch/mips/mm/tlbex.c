@@ -502,6 +502,7 @@ static void __cpuinit build_tlb_write_entry(u32 **p, struct uasm_label **l,
 	case CPU_4KC:
 	case CPU_4KEC:
 	case CPU_14K:
+	case CPU_14KE:
 	case CPU_SB1:
 	case CPU_SB1A:
 	case CPU_4KSC:

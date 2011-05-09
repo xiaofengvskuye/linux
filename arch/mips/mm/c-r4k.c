@@ -1073,6 +1073,7 @@ static void __cpuinit probe_pcache(void)
 bypass1074:
 		;
 	case CPU_14K:
+	case CPU_14KE:
 	case CPU_24K:
 	case CPU_34K:
 	case CPU_1004K:
