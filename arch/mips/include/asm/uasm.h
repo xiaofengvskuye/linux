@@ -173,6 +173,7 @@ static inline void __uasminit uasm_l##lb(struct uasm_label **lab, u32 *addr) \
 # define UASM_i_SC(buf, rs, rt, off) uasm_i_scd(buf, rs, rt, off)
 # define UASM_i_LWX(buf, rs, rt, rd) uasm_i_ldx(buf, rs, rt, rd)
 #else
+/* actually, the argument sequence is: rt, rs, pos, size. -- LY22 */
 # define UASM_i_EXT(buf, rs, rt, size, pos) uasm_i_ext(buf, rs, rt, size, pos)
 # define UASM_i_INS(buf, rs, rt, size, pos) uasm_i_ins(buf, rs, rt, size, pos)
 # define UASM_i_LW(buf, rs, rt, off) uasm_i_lw(buf, rs, rt, off)

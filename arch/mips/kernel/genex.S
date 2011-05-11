@@ -204,7 +204,7 @@ NESTED(handle_int, PT_SIZE, sp)
 	LONG_L	s0, TI_REGS($28)
 	LONG_S	sp, TI_REGS($28)
 	PTR_LA	ra, ret_from_irq
-	LA	v0, plat_irq_dispatch
+	PTR_LA  v0, plat_irq_dispatch
 	jr	v0
 #ifdef CONFIG_CPU_MICROMIPS
 	nop
