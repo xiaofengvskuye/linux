@@ -280,6 +280,7 @@ config MIPS_MALTA
 	select SYS_HAS_CPU_MIPS32_R1
 	select SYS_HAS_CPU_MIPS32_R2
 	select SYS_HAS_CPU_MIPS64_R1
+	select SYS_HAS_CPU_MIPS64_R2
 	select SYS_HAS_CPU_NEVADA
 	select SYS_HAS_CPU_RM7000
 	select SYS_HAS_EARLY_PRINTK
@@ -1722,6 +1723,22 @@ config 64BIT
 
 endchoice
 
+config 64BIT_PHYS_ADDR
+	bool "Kernel supports 64 bit physical addresses" if EXPERIMENTAL
+	depends on 64BIT
+	help
+	  Defines 64 bit physical addresses in kernel.
+	  Increases page table sizes.
+
+	  It is an alternative for HIGHMEM usage of huge physical memory.
+	  Requires 64bit capable CPU and 64 bit kernel code model.
+
+	  Note: without this option kernel can support up to 4GB physical
+	  memory for 4KB pages and up to 64GB for 64KB pages.
+
+config ARCH_PHYS_ADDR_T_64BIT
+       def_bool 64BIT_PHYS_ADDR
+
 choice
 	prompt "Kernel page size"
 	default PAGE_SIZE_4KB
@@ -1999,12 +2016,6 @@ config SB1_PASS_2_1_WORKAROUNDS
 	bool
 	depends on CPU_SB1 && CPU_SB1_PASS_2
 	default y
-
-config 64BIT_PHYS_ADDR
-	bool
-
-config ARCH_PHYS_ADDR_T_64BIT
-       def_bool 64BIT_PHYS_ADDR
 
 config CPU_HAS_SMARTMIPS
 	depends on SYS_SUPPORTS_SMARTMIPS
@@ -2290,16 +2301,6 @@ config HZ
 
 source "kernel/Kconfig.preempt"
 
-config MIPS_INSANE_LARGE
-	bool "Support for large 64-bit configurations"
-	depends on CPU_R10000 && 64BIT
-	help
-	  MIPS R10000 does support a 44 bit / 16TB address space as opposed to
-	  previous 64-bit processors which only supported 40 bit / 1TB. If you
-	  need processes of more than 1TB virtual address space, say Y here.
-	  This will result in additional memory usage, so it is not
-	  recommended for normal users.
-
 config KEXEC
 	bool "Kexec system call (EXPERIMENTAL)"
 	depends on EXPERIMENTAL
@@ -2460,6 +2461,7 @@ config TRAD_SIGNALS
 config MIPS32_COMPAT
 	bool "Kernel support for Linux/MIPS 32-bit binary compatibility"
 	depends on 64BIT
+	default y if CPU_SUPPORTS_32BIT_KERNEL && SYS_SUPPORTS_32BIT_KERNEL
 	help
 	  Select this option if you want Linux/MIPS 32-bit binary
 	  compatibility. Since all software available for Linux/MIPS is
@@ -2478,6 +2480,7 @@ config SYSVIPC_COMPAT
 config MIPS32_O32
 	bool "Kernel support for o32 binaries"
 	depends on MIPS32_COMPAT
+	default y if CPU_SUPPORTS_32BIT_KERNEL && SYS_SUPPORTS_32BIT_KERNEL
 	help
 	  Select this option if you want to run o32 binaries.  These are pure
 	  32-bit binaries as used by the 32-bit Linux/MIPS port.  Most of
@@ -2495,6 +2498,10 @@ config MIPS32_N32
 	  cases.
 
 	  If unsure, say N.
+
+comment "64bit kernel, but support of 32bit applications is disabled!"
+	depends on 64BIT && !MIPS32_O32 && !MIPS32_N32
+	depends on CPU_SUPPORTS_32BIT_KERNEL && SYS_SUPPORTS_32BIT_KERNEL
 
 config BINFMT_ELF32
 	bool

@@ -986,6 +986,7 @@ static void __cpuinit build_adjust_context(u32 **p, unsigned int ctx)
 
 static void __cpuinit build_get_ptep(u32 **p, unsigned int tmp, unsigned int ptr)
 {
+#ifndef CONFIG_64BIT
 	if (cpu_has_mips32r2) {
 		/* For MIPS32R2, PTE ptr offset is obtained from BadVAddr */
 		UASM_i_MFC0(p, tmp, C0_BADVADDR);
@@ -993,6 +994,9 @@ static void __cpuinit build_get_ptep(u32 **p, unsigned int tmp, unsigned int ptr
 		UASM_i_EXT(p, tmp, tmp, PAGE_SHIFT+1, PGDIR_SHIFT-PAGE_SHIFT-1);
 		UASM_i_INS(p, ptr, tmp, PTE_T_LOG2+1, PGDIR_SHIFT-PAGE_SHIFT-1);
 	} else {
+#else /* CONFIG_64BIT */
+	{
+#endif /* CONFIG_64BIT */
 		/*
 		 * Bug workaround for the Nevada. It seems as if under certain
 		 * circumstances the move from cp0_context might produce a
