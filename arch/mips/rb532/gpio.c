@@ -199,8 +199,7 @@ EXPORT_SYMBOL(rb532_gpio_get_func);
 int __init rb532_gpio_init(void)
 {
 	rb532_gpio_reg0 = ioremap_nocache(rb532_gpio_reg0_res[0].start,
-				rb532_gpio_reg0_res[0].end -
-				rb532_gpio_reg0_res[0].start);
+					resource_size(&rb532_gpio_reg0_res[0]));
 
 	if (!rb532_gpio_reg0) {
 		printk(KERN_ERR "rb532: cannot remap GPIO register 0\n");
