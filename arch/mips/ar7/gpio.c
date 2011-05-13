@@ -111,12 +111,10 @@ static int __init ar7_gpio_init(void)
 {
 	int ret;
 
-	ar7_gpio_chip.regs = ioremap_nocache(AR7_REGS_GPIO,
-					AR7_REGS_GPIO + 0x10);
+	ar7_gpio_chip.regs = ioremap_nocache(AR7_REGS_GPIO, 0x10);
 
 	if (!ar7_gpio_chip.regs) {
 		printk(KERN_ERR "ar7-gpio: failed to ioremap regs\n");
-		return -ENOMEM;
 	}
 
 	ret = gpiochip_add(&ar7_gpio_chip.chip);
