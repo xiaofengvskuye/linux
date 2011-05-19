@@ -116,7 +116,8 @@ enum bcop_op {
 enum cop0_coi_func {
 	tlbr_op       = 0x01, tlbwi_op      = 0x02,
 	tlbwr_op      = 0x06, tlbp_op       = 0x08,
-	rfe_op        = 0x10, eret_op       = 0x18
+	rfe_op        = 0x10, eret_op       = 0x18,
+	iret_op       = 0x38
 };
 
 /*
