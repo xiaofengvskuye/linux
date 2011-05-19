@@ -95,6 +95,7 @@ Ip_u2u1u3(_drotr);
 Ip_u2u1u3(_drotr32);
 Ip_u3u1u2(_dsubu);
 Ip_0(_eret);
+Ip_0(_iret);
 Ip_u1(_j);
 Ip_u1(_jal);
 Ip_u1(_jr);
