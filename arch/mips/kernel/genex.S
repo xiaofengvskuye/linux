@@ -60,6 +60,7 @@ NESTED(except_vec3_generic, 0, sp)
 	.set	pop
 	END(except_vec3_generic)
 
+#if (cpu_has_vce != 0)
 /*
  * General exception handler for CPUs with virtual coherency exception.
  *
@@ -119,6 +120,7 @@ handle_vcei:
 	eret
 	.set	pop
 	END(except_vec3_r4000)
+#endif /* (cpu_has_vce == 0) */
 
 	__FINIT
 

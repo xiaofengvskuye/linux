@@ -1475,6 +1475,7 @@ static void *set_vi_srs_handler(int n, vi_handler_t addr, int srs)
 	unsigned char *b;
 
 	BUG_ON(!cpu_has_veic && !cpu_has_vint);
+	BUG_ON((n < 0) && (n > 9));
 
 	if (addr == NULL) {
 		handler = (unsigned long) do_default_vi;
@@ -1494,7 +1495,14 @@ static void *set_vi_srs_handler(int n, vi_handler_t addr, int srs)
 	} else if (cpu_has_vint) {
 		/* SRSMap is only defined if shadow sets are implemented */
 		if (srssets > 1)
-			change_c0_srsmap(0xf << n*4, srs << n*4);
+		{
+			if (n < 8)
+				change_c0_srsmap(0xf << (n * 4),
+					srs << (n * 4));
+			else
+				change_c0_srsmap2(0xf << ((n - 8) * 4),
+					srs << ((n - 8) * 4));
+		}
 	}
 
 	if (srs == 0) {
@@ -1794,8 +1802,11 @@ __setup("rdhwr_noopt", set_rdhwr_noopt);
 
 void __init trap_init(void)
 {
-	extern char except_vec3_generic, except_vec3_r4000;
+	extern char except_vec3_generic;
 	extern char except_vec4;
+#if (cpu_has_vce != 0)
+	extern char except_vec3_r4000;
+#endif
 	unsigned long i;
 	int rollback;
 
@@ -1921,10 +1932,13 @@ void __init trap_init(void)
 
 	set_except_vector(26, handle_dsp);
 
+#if (cpu_has_vce != 0)
 	if (cpu_has_vce)
 		/* Special exception: R4[04]00 uses also the divec space. */
 		set_handler(0x180, &except_vec3_r4000, 0x100);
-	else if (cpu_has_4kex)
+	else
+#endif
+	if (cpu_has_4kex)
 		set_handler(0x180, &except_vec3_generic, 0x80);
 	else
 		set_handler(0x080, &except_vec3_generic, 0x80);

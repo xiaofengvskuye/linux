@@ -106,6 +106,11 @@
 #define CP0_S3_SRSMAP	  $12	/* MIPSR2 */
 
 /*
+ * Coprocessor 0 Set 5 register names
+ */
+#define CP0_S5_SRSMAP2	  $12	/* MIPSR2 */
+
+/*
  *  TX39 Series
  */
 #define CP0_TX39_CACHE	$7
@@ -1072,6 +1077,9 @@ do {									\
 #define read_c0_srsmap()	__read_32bit_c0_register($12, 3)
 #define write_c0_srsmap(val)	__write_32bit_c0_register($12, 3, val)
 
+#define read_c0_srsmap2()	__read_32bit_c0_register($12, 5)
+#define write_c0_srsmap2(val)	__write_32bit_c0_register($12, 5, val)
+
 #define read_c0_ebase()		__read_32bit_c0_register($15, 1)
 #define write_c0_ebase(val)	__write_32bit_c0_register($15, 1, val)
 
@@ -1665,8 +1673,10 @@ __BUILD_SET_C0(status)
 __BUILD_SET_C0(cause)
 __BUILD_SET_C0(config)
 __BUILD_SET_C0(intcontrol)
+__BUILD_SET_C0(srsctl)
 __BUILD_SET_C0(intctl)
 __BUILD_SET_C0(srsmap)
+__BUILD_SET_C0(srsmap2)
 
 #endif /* !__ASSEMBLY__ */
 
