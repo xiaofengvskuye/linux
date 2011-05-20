@@ -41,9 +41,6 @@ extern void __flush_dcache_page(struct page *page);
 #define ARCH_IMPLEMENTS_FLUSH_DCACHE_PAGE 1
 static inline void flush_dcache_page(struct page *page)
 {
-	if (PageAnon(page))
-		return;
-
 	if (cpu_has_dc_aliases || !cpu_has_ic_fills_f_dc)
 		__flush_dcache_page(page);
 
