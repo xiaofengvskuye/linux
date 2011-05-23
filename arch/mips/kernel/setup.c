@@ -312,6 +312,7 @@ static void __init bootmem_init(void)
 	/*
 	 * Determine low and high memory ranges
 	 */
+	max_pfn = max_low_pfn;
 	if (max_low_pfn > PFN_DOWN(HIGHMEM_START)) {
 #ifdef CONFIG_HIGHMEM
 		highstart_pfn = PFN_DOWN(HIGHMEM_START);
@@ -319,9 +320,6 @@ static void __init bootmem_init(void)
 #endif
 		max_low_pfn = PFN_DOWN(HIGHMEM_START);
 	}
-
-	/* Propagate final value of max_low_pfn to max_pfn */
-	max_pfn = max_low_pfn;
 
 	/*
 	 * Initialize the boot-time allocator with low memory only.
