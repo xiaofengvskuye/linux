@@ -790,8 +790,8 @@ static int smsc911x_mii_probe(struct net_device *dev)
 		return -ENODEV;
 	}
 
-	SMSC_TRACE(PROBE, "PHY %d: addr %d, phy_id 0x%08X",
-			phy_addr, phydev->addr, phydev->phy_id);
+	SMSC_TRACE(PROBE, "PHY: addr %d, phy_id 0x%08X",
+			phydev->addr, phydev->phy_id);
 
 	ret = phy_connect_direct(dev, phydev,
 			&smsc911x_phy_adjust_link, 0,
@@ -1169,9 +1169,12 @@ static int smsc911x_open(struct net_device *dev)
 	}
 
 	/* Reset the LAN911x */
-	if (smsc911x_soft_reset(pdata)) {
-		SMSC_WARNING(HW, "soft reset failed");
-		return -EIO;
+	if (!(pdata->config.flags & SMSC911X_SAVE_MAC_ADDRESS))
+	{
+		if (smsc911x_soft_reset(pdata)) {
+			SMSC_WARNING(HW, "soft reset failed");
+			return -EIO;
+		}
 	}
 
 	smsc911x_reg_write(pdata, HW_CFG, 0x00050000);
