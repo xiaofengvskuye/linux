@@ -3,7 +3,7 @@
  * License.  See the file "COPYING" in the main directory of this archive
  * for more details.
  *
- * Copyright (C) 2007 MIPS Technologies, Inc.
+ * Copyright (C) 2007-2011 MIPS Technologies, Inc.
  *   written by Ralf Baechle (ralf@linux-mips.org)
  *
  * Probe driver for the SEAD3 network device
@@ -18,7 +18,7 @@
 static struct smsc911x_platform_config net_data = {
 	.irq_polarity = SMSC911X_IRQ_POLARITY_ACTIVE_LOW,
 	.irq_type = SMSC911X_IRQ_TYPE_PUSH_PULL,
-	.flags	= SMSC911X_USE_32BIT,
+	.flags	= SMSC911X_USE_32BIT | SMSC911X_SAVE_MAC_ADDRESS,
 	.phy_interface = PHY_INTERFACE_MODE_MII,
 };
 

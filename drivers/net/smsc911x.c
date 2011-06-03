@@ -1170,9 +1170,12 @@ static int smsc911x_open(struct net_device *dev)
 	}
 
 	/* Reset the LAN911x */
-	if (smsc911x_soft_reset(pdata)) {
-		SMSC_WARNING(HW, "soft reset failed");
-		return -EIO;
+	if (!(pdata->config.flags & SMSC911X_SAVE_MAC_ADDRESS))
+	{
+		if (smsc911x_soft_reset(pdata)) {
+			SMSC_WARNING(HW, "soft reset failed");
+			return -EIO;
+		}
 	}
 
 	smsc911x_reg_write(pdata, HW_CFG, 0x00050000);
