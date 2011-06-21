@@ -449,14 +449,23 @@ static void __cpuinit build_tlb_write_entry(u32 **p, struct uasm_label **l,
 
 	if (cpu_has_mips_r2) {
 		/*
-		 * The architecture spec says an ehb is required here
-		 * but the 74K/1074K implementation does not need one and
-		 * using an ehb causes an expensive pipeline stall
+		 * The architecture spec says an ehb is required here,
+		 * but a number of cores do not have the hazard and
+		 * using an ehb causes an expensive pipeline stall.
 		 */
-		if ((current_cpu_type() != CPU_74K) &&
-			(current_cpu_type() != CPU_1074K) &&
-			cpu_has_mips_r2_exec_hazard)
-			uasm_i_ehb(p);
+		if (cpu_has_mips_r2_exec_hazard) {
+			switch (current_cpu_type()) {
+			case CPU_14K:
+			case CPU_14KE:
+			case CPU_74K:
+			case CPU_1074K:
+				break;
+
+			default:
+				uasm_i_ehb(p);
+				break;
+			}
+		}
 		tlbw(p);
 		return;
 	}
