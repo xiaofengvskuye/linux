@@ -379,7 +379,7 @@ struct mm16b1_format {		/* micro_mips 16-bit branch format */
 
 struct mm16b0_format {		/* micro_mips 16-bit branch format */
 	unsigned int opcode:6;
-	unsigned int simmediate:10;
+	signed int simmediate:10;
 	unsigned int duplicate:16;	/* a copy of the instn */
 };
 
@@ -671,7 +671,7 @@ struct mm16b1_format {		/* micro_mips 16-bit branch format */
 
 struct mm16b0_format {		/* micro_mips 16-bit branch format */
 	unsigned int duplicate:16;	/* a copy of the instn */
-	unsigned int simmediate:10;
+	signed int simmediate:10;
 	unsigned int opcode:6;
 };
 
