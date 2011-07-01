@@ -83,6 +83,7 @@ Ip_u2u1u3(_dsrl32);
 Ip_u2u1u3(_drotr);
 Ip_u3u1u2(_dsubu);
 Ip_0(_eret);
+Ip_0(_iret);
 Ip_u1(_j);
 Ip_u1(_jal);
 Ip_u1(_jr);
@@ -154,6 +155,7 @@ static inline void __cpuinit uasm_l##lb(struct uasm_label **lab, u32 *addr) \
 # define UASM_i_LL(buf, rs, rt, off) uasm_i_lld(buf, rs, rt, off)
 # define UASM_i_SC(buf, rs, rt, off) uasm_i_scd(buf, rs, rt, off)
 #else
+/* actually, the argument sequence is: rt, rs, pos, size. -- LY22 */
 # define UASM_i_EXT(buf, rs, rt, size, pos) uasm_i_ext(buf, rs, rt, size, pos)
 # define UASM_i_INS(buf, rs, rt, size, pos) uasm_i_ins(buf, rs, rt, size, pos)
 # define UASM_i_LW(buf, rs, rt, off) uasm_i_lw(buf, rs, rt, off)

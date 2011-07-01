@@ -12,10 +12,12 @@
 
 extern int usb_disabled(void);
 
+#ifdef CONFIG_PM
 static void mips_start_ehc(void)
 {
 	pr_debug("mips_start_ehc\n");
 }
+#endif
 
 static void mips_stop_ehc(void)
 {
@@ -108,10 +110,10 @@ static int ehci_hcd_mips_drv_probe(struct platform_device *pdev)
 
 #if defined(CONFIG_MIPS)
 #if defined(CONFIG_CPU_BIG_ENDIAN)
-       ehci_big_endian_desc(ehci) = 1;
+       ehci->big_endian_desc = 1;
 #endif
 #if defined(CONFIG_CPU_LITTLE_ENDIAN)
-       ehci_big_endian_desc(ehci) = 0;
+       ehci->big_endian_desc = 0;
 #endif
 #endif
 	/* Set burst length to 16 words */

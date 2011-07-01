@@ -41,18 +41,27 @@ struct mips_fpu_emulator_stats {
 DECLARE_PER_CPU(struct mips_fpu_emulator_stats, fpuemustats);
 
 #define MIPS_FPU_EMU_INC_STATS(M)					\
-	cpu_local_wrap(__local_inc(&__get_cpu_var(fpuemustats).M))
+do {									\
+	preempt_disable();						\
+	__local_inc(&__get_cpu_var(fpuemustats).M);			\
+	preempt_disable();						\
+} while (0)
 
 #else
 #define MIPS_FPU_EMU_INC_STATS(M) do { } while (0)
 #endif /* CONFIG_DEBUG_FS */
 
+extern int fpu_emulator_cop1Handler(struct pt_regs *xcp,
+				    struct mips_fpu_struct *ctx, int has_fpu,
+				    void *__user *fault_addr);
+int process_fpemu_return(int sig, void __user *fault_addr);
+
 extern int mips_dsemul(struct pt_regs *regs, mips_instruction ir,
-	unsigned long cpc);
+		       unsigned long cpc);
 extern int do_dsemulret(struct pt_regs *xcp);
 
-/* function to check if an micro_mips instr is 16-bits */
-extern int mm_is16bit(u16);
+int mm_isBranchInstr(struct pt_regs *regs, struct decoded_instn dec_insn,
+		     unsigned long *contpc);
 
 /*
  * Instruction inserted following the badinst to further tag the sequence
@@ -63,6 +72,6 @@ extern int mm_is16bit(u16);
  * Break instruction with special math emu break code set
  */
 #define BREAK_MATH (0x0000000d | (BRK_MEMU << 16))
-#define MM_BREAK_MATH (0x00000007 | (BRK_MEMU << 16))
+#define MM_BREAK_MATH (0x00000007 | (MM_BRK_MEMU << 16))
 
 #endif /* _ASM_FPU_EMULATOR_H */

@@ -10,7 +10,11 @@
 
 static inline void __noreturn BUG(void)
 {
+#ifdef CONFIG_CPU_MICROMIPS
+	__asm__ __volatile__("break %0" : : "i" (MM_BRK_BUG));
+#else
 	__asm__ __volatile__("break %0" : : "i" (BRK_BUG));
+#endif
 	unreachable();
 }
 
@@ -27,7 +31,11 @@ static inline void  __BUG_ON(unsigned long condition)
 			return;
 	}
 	__asm__ __volatile__("tne $0, %0, %1"
+#ifdef CONFIG_CPU_MICROMIPS
+			     : : "r" (condition), "i" (MM_BRK_BUG));
+#else
 			     : : "r" (condition), "i" (BRK_BUG));
+#endif
 }
 
 #define BUG_ON(C) __BUG_ON((unsigned long)(C))

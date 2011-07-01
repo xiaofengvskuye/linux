@@ -148,6 +148,7 @@ static inline void dump_handler(const u32 *handler, int count)
 #define C0_ENTRYHI	10, 0
 #define C0_EPC		14, 0
 #define C0_XCONTEXT	20, 0
+#define C0_ERROREPC	30, 0
 
 #ifdef CONFIG_64BIT
 # define GET_CONTEXT(buf, reg) UASM_i_MFC0(buf, reg, C0_XCONTEXT)
@@ -289,13 +290,23 @@ static void __cpuinit build_tlb_write_entry(u32 **p, struct uasm_label **l,
 
 	if (cpu_has_mips_r2) {
 		/*
-		 * The architecture spec says an ehb is required here
-		 * but the 74K implementation does not need one and
-		 * using an ehb causes an expensive pipeline stall
+		 * The architecture spec says an ehb is required here,
+		 * but a number of cores do not have the hazard and
+		 * using an ehb causes an expensive pipeline stall.
 		 */
-		if ((current_cpu_type() != CPU_74K) &&
-			cpu_has_mips_r2_exec_hazard)
-			uasm_i_ehb(p);
+		if (cpu_has_mips_r2_exec_hazard) {
+			switch (current_cpu_type()) {
+			case CPU_14K:
+			case CPU_14KE:
+			case CPU_74K:
+			case CPU_1074K:
+				break;
+
+			default:
+				uasm_i_ehb(p);
+				break;
+			}
+		}
 		tlbw(p);
 		return;
 	}
@@ -340,6 +351,7 @@ static void __cpuinit build_tlb_write_entry(u32 **p, struct uasm_label **l,
 	case CPU_4KC:
 	case CPU_4KEC:
 	case CPU_14K:
+	case CPU_14KE:
 	case CPU_SB1:
 	case CPU_SB1A:
 	case CPU_4KSC:
@@ -695,32 +707,55 @@ build_get_pgde32(u32 **p, unsigned int tmp, unsigned int ptr)
 {
 	long pgdc = (long)pgd_current;
 
-	/* 32 bit SMP has smp_processor_id() stored in CONTEXT. */
+	/* PGD base in Context, ContextConfig allows PGDE computation in hardware */
+	if (cpu_has_pgdc_in_context) {
+		uasm_i_mfc0(p, ptr, C0_CONTEXT);
+	} else {
+		/* PGD base in ErrorEPC, as used as a scratch register */
+		if (cpu_has_pgdc_in_errorepc) {
+			uasm_i_mfc0(p, tmp, C0_BADVADDR);
+			uasm_i_mfc0(p, ptr, C0_ERROREPC);
+		} else {	/* PGD base in memory, array of per-cpu values */
+			/* 32 bit SMP has smp_processor_id() stored in CONTEXT. */
 #ifdef CONFIG_SMP
 #ifdef  CONFIG_MIPS_MT_SMTC
-	/*
-	 * SMTC uses TCBind value as "CPU" index
-	 */
-	uasm_i_mfc0(p, ptr, C0_TCBIND);
-	UASM_i_LA_mostly(p, tmp, pgdc);
-	uasm_i_srl(p, ptr, ptr, 19);
+			/*
+			 * SMTC uses TCBind value as "CPU" index
+			 */
+			uasm_i_mfc0(p, ptr, C0_TCBIND);
+			UASM_i_LA_mostly(p, tmp, pgdc);
+			uasm_i_srl(p, ptr, ptr, 19);
 #else
-	/*
-	 * smp_processor_id() << 3 is stored in CONTEXT.
-         */
-	uasm_i_mfc0(p, ptr, C0_CONTEXT);
-	UASM_i_LA_mostly(p, tmp, pgdc);
-	uasm_i_srl(p, ptr, ptr, 23);
-#endif
-	uasm_i_addu(p, ptr, tmp, ptr);
+			/*
+			 * smp_processor_id() << 3 is stored in CONTEXT.
+			 * - or ErrorEPC
+			 */
+#ifdef CONFIG_MIPS_TLB_SMPID_ERROREPC
+			uasm_i_mfc0(p, ptr, C0_ERROREPC);
 #else
-	UASM_i_LA_mostly(p, ptr, pgdc);
+			uasm_i_mfc0(p, ptr, C0_CONTEXT);
 #endif
-	uasm_i_mfc0(p, tmp, C0_BADVADDR); /* get faulting address */
-	uasm_i_lw(p, ptr, uasm_rel_lo(pgdc), ptr);
-	uasm_i_srl(p, tmp, tmp, PGDIR_SHIFT); /* get pgd only bits */
-	uasm_i_sll(p, tmp, tmp, PGD_T_LOG2);
-	uasm_i_addu(p, ptr, ptr, tmp); /* add in pgd offset */
+			UASM_i_LA_mostly(p, tmp, pgdc);
+			uasm_i_srl(p, ptr, ptr, 23);
+#endif
+			uasm_i_addu(p, ptr, tmp, ptr);
+#else
+			UASM_i_LA_mostly(p, ptr, pgdc);
+#endif
+			uasm_i_mfc0(p, tmp, C0_BADVADDR); /* get faulting address */
+			uasm_i_lw(p, ptr, uasm_rel_lo(pgdc), ptr);
+		}
+
+		/* Extract pgd offset bits from tmp, insert into pgd base */
+		if (cpu_has_mips32r2) {
+			uasm_i_ext(p, tmp, tmp, PGDIR_SHIFT, (32-PGDIR_SHIFT));
+			uasm_i_ins(p, ptr, tmp, PGD_T_LOG2, (32-PGDIR_SHIFT));
+		} else {
+			uasm_i_srl(p, tmp, tmp, PGDIR_SHIFT); /* get pgd only bits */
+			uasm_i_sll(p, tmp, tmp, PGD_T_LOG2);
+			uasm_i_addu(p, ptr, ptr, tmp); /* add in pgd offset */
+		}
+	}
 }
 
 #endif /* !CONFIG_64BIT */
@@ -753,27 +788,39 @@ static void __cpuinit build_adjust_context(u32 **p, unsigned int ctx)
 
 static void __cpuinit build_get_ptep(u32 **p, unsigned int tmp, unsigned int ptr)
 {
-	/*
-	 * Bug workaround for the Nevada. It seems as if under certain
-	 * circumstances the move from cp0_context might produce a
-	 * bogus result when the mfc0 instruction and its consumer are
-	 * in a different cacheline or a load instruction, probably any
-	 * memory reference, is between them.
-	 */
-	switch (current_cpu_type()) {
-	case CPU_NEVADA:
+#ifndef CONFIG_64BIT
+	if (cpu_has_mips32r2) {
+		/* For MIPS32R2, PTE ptr offset is obtained from BadVAddr */
+		UASM_i_MFC0(p, tmp, C0_BADVADDR);
 		UASM_i_LW(p, ptr, 0, ptr);
-		GET_CONTEXT(p, tmp); /* get context reg */
-		break;
+		UASM_i_EXT(p, tmp, tmp, PAGE_SHIFT+1, PGDIR_SHIFT-PAGE_SHIFT-1);
+		UASM_i_INS(p, ptr, tmp, PTE_T_LOG2+1, PGDIR_SHIFT-PAGE_SHIFT-1);
+	} else {
+#else /* CONFIG_64BIT */
+	{
+#endif /* CONFIG_64BIT */
+		/*
+		 * Bug workaround for the Nevada. It seems as if under certain
+		 * circumstances the move from cp0_context might produce a
+		 * bogus result when the mfc0 instruction and its consumer are
+		 * in a different cacheline or a load instruction, probably any
+		 * memory reference, is between them.
+		 */
+		switch (current_cpu_type()) {
+		case CPU_NEVADA:
+			UASM_i_LW(p, ptr, 0, ptr);
+			GET_CONTEXT(p, tmp); /* get context reg */
+			break;
 
-	default:
-		GET_CONTEXT(p, tmp); /* get context reg */
-		UASM_i_LW(p, ptr, 0, ptr);
-		break;
+		default:
+			GET_CONTEXT(p, tmp); /* get context reg */
+			UASM_i_LW(p, ptr, 0, ptr);
+			break;
+		}
+
+		build_adjust_context(p, tmp);
+		UASM_i_ADDU(p, ptr, ptr, tmp); /* add in offset */
 	}
-
-	build_adjust_context(p, tmp);
-	UASM_i_ADDU(p, ptr, ptr, tmp); /* add in offset */
 }
 
 static void __cpuinit build_update_entries(u32 **p, unsigned int tmp,
@@ -1478,7 +1525,14 @@ static void __cpuinit build_r4000_tlb_load_handler(void)
 #endif
 
 	uasm_l_nopage_tlbl(&l, p);
-	uasm_i_j(&p, (unsigned long)tlb_do_page_fault_0 & 0x0fffffff);
+#ifdef CONFIG_CPU_MICROMIPS
+	if ((unsigned long)tlb_do_page_fault_0 & 1) {
+		uasm_i_lui(&p, K0, uasm_rel_hi((long)tlb_do_page_fault_0));
+		uasm_i_addiu(&p, K0, K0, uasm_rel_lo((long)tlb_do_page_fault_0));
+		uasm_i_jr(&p, K0);
+	} else
+#endif
+		uasm_i_j(&p, (unsigned long)tlb_do_page_fault_0 & 0x0fffffff);
 	uasm_i_nop(&p);
 
 	if ((p - handle_tlbl) > FASTPATH_SIZE)
@@ -1523,7 +1577,14 @@ static void __cpuinit build_r4000_tlb_store_handler(void)
 #endif
 
 	uasm_l_nopage_tlbs(&l, p);
-	uasm_i_j(&p, (unsigned long)tlb_do_page_fault_1 & 0x0fffffff);
+#ifdef CONFIG_CPU_MICROMIPS
+	if ((unsigned long)tlb_do_page_fault_1 & 1) {
+		uasm_i_lui(&p, K0, uasm_rel_hi((long)tlb_do_page_fault_1));
+		uasm_i_addiu(&p, K0, K0, uasm_rel_lo((long)tlb_do_page_fault_1));
+		uasm_i_jr(&p, K0);
+	} else
+#endif
+		uasm_i_j(&p, (unsigned long)tlb_do_page_fault_1 & 0x0fffffff);
 	uasm_i_nop(&p);
 
 	if ((p - handle_tlbs) > FASTPATH_SIZE)
@@ -1569,7 +1630,14 @@ static void __cpuinit build_r4000_tlb_modify_handler(void)
 #endif
 
 	uasm_l_nopage_tlbm(&l, p);
-	uasm_i_j(&p, (unsigned long)tlb_do_page_fault_1 & 0x0fffffff);
+#ifdef CONFIG_CPU_MICROMIPS
+	if ((unsigned long)tlb_do_page_fault_1 & 1) {
+		uasm_i_lui(&p, K0, uasm_rel_hi((long)tlb_do_page_fault_1));
+		uasm_i_addiu(&p, K0, K0, uasm_rel_lo((long)tlb_do_page_fault_1));
+		uasm_i_jr(&p, K0);
+	} else
+#endif
+		uasm_i_j(&p, (unsigned long)tlb_do_page_fault_1 & 0x0fffffff);
 	uasm_i_nop(&p);
 
 	if ((p - handle_tlbm) > FASTPATH_SIZE)

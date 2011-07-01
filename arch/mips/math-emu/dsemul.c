@@ -101,9 +101,9 @@ int mips_dsemul(struct pt_regs *regs, mips_instruction ir, unsigned long cpc)
 
 	if (regs->cp0_epc & 1) {
 		err = __put_user(ir >> 16, (u16 __user *)(&fr->emul));
-		err |= __put_user(ir & 0xffff, (u16 __user *)((int)(&fr->emul) + 2));
+		err |= __put_user(ir & 0xffff, (u16 __user *)((long)(&fr->emul) + 2));
 		err |= __put_user(MM_BREAK_MATH >> 16, (u16 __user *)(&fr->badinst));
-		err |= __put_user(MM_BREAK_MATH & 0xffff, (u16 __user *)((int)(&fr->badinst) + 2));
+		err |= __put_user(MM_BREAK_MATH & 0xffff, (u16 __user *)((long)(&fr->badinst) + 2));
 	} else {
 		err = __put_user(ir, &fr->emul);
 		err |= __put_user((mips_instruction)BREAK_MATH, &fr->badinst);
@@ -155,7 +155,7 @@ int do_dsemulret(struct pt_regs *xcp)
 	 */
 	if (xcp->cp0_epc & 1) {
 		err = __get_user(instr[0], (u16 __user *)(&fr->badinst));
-		err |= __get_user(instr[1], (u16 __user *)((int)(&fr->badinst) + 2));
+		err |= __get_user(instr[1], (u16 __user *)((long)(&fr->badinst) + 2));
 		insn = (instr[0] << 16) | instr[1];
 	} else
 		err = __get_user(insn, &fr->badinst);

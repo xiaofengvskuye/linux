@@ -121,20 +121,6 @@ static const int dwl_format[] = {17, 20, 21, 0, 0, 0, 0, 0};
 static const int swl_format[] = {16, 20, 21, 0, 0, 0, 0, 0};
 
 /*
- * This functions returns 1 if the micro_mips instr is a 16 bit instr.
- * Otherwise return 0.
- */
-int mm_is16bit(u16 instr)
-{
-	u16 opcode_low = (instr >> MM_16_OPCODE_SFT) & 0x7;   /* take LS 3 bits */
-
-	if (opcode_low >= 1 && opcode_low <= 3)
-		return 1;
-	else
-		return 0;
-}
-
-/*
  * This functions translates a 32 bit micro_mips instr into a 32 bit mips32 instr.
  * It return 0 or SIGILL.
  */
@@ -438,7 +424,8 @@ static int micro_mips32_to_mips32(union mips_instruction *insn_ptr)
 }
 
 /* micro_mips version of isBranchInstr() */
-static int mm_isBranchInstr(struct pt_regs *regs, struct decoded_instn dec_insn, unsigned long *contpc)
+int mm_isBranchInstr(struct pt_regs *regs, struct decoded_instn dec_insn,
+		     unsigned long *contpc)
 {
 	union mips_instruction insn = (union mips_instruction)dec_insn.insn;
 	int bc_false = 0;
@@ -456,7 +443,7 @@ static int mm_isBranchInstr(struct pt_regs *regs, struct decoded_instn dec_insn,
 			case mm_jalrshb_op:
 				if (insn.mm_i_format.rt != 0)   /* not a mm_jr_op */
 					regs->regs[insn.mm_i_format.rt] = regs->cp0_epc + dec_insn.pc_inc + dec_insn.next_pc_inc;
-				*contpc = regs->regs[insn.mm_i_format.rs] | 1; /* set micro_mips mode bit */
+				*contpc = regs->regs[insn.mm_i_format.rs];
 				return 1;
 				break;
 			}
@@ -534,7 +521,7 @@ static int mm_isBranchInstr(struct pt_regs *regs, struct decoded_instn dec_insn,
 			regs->regs[31] = regs->cp0_epc + dec_insn.pc_inc + dec_insn.next_pc_inc;
 			/* Fall through */
 		case mm_jr16_op:
-			*contpc = regs->regs[insn.mm_i_format.rs] | 1;  /* set micro_mips mode bit */
+			*contpc = regs->regs[insn.mm_i_format.rs];
 			return 1;
 			break;
 		}
@@ -572,6 +559,14 @@ static int mm_isBranchInstr(struct pt_regs *regs, struct decoded_instn dec_insn,
 		return 1;
 		break;
 	case mm_jalx32_op:
+		regs->regs[31] = regs->cp0_epc + dec_insn.pc_inc +
+			dec_insn.next_pc_inc;
+		*contpc = regs->cp0_epc + dec_insn.pc_inc;
+		*contpc >>= 28;
+		*contpc <<= 28;
+		*contpc |= (insn.j_format.target << 2);
+		return 1;
+		break;
 	case mm_jals32_op:
 	case mm_jal32_op:
 		regs->regs[31] = regs->cp0_epc + dec_insn.pc_inc + dec_insn.next_pc_inc;
@@ -581,7 +576,7 @@ static int mm_isBranchInstr(struct pt_regs *regs, struct decoded_instn dec_insn,
 		*contpc >>= 27;
 		*contpc <<= 27;
 		*contpc |= (insn.j_format.target << 1);
-		*contpc |= 1;  /* set micro_mips mode bit */
+		*contpc |= MIPS_ISA_MODE;
 		return 1;
 		break;
 	}
@@ -598,7 +593,7 @@ static int isBranchInstr(struct pt_regs *regs, struct decoded_instn dec_insn, un
 {
 	union mips_instruction insn = (union mips_instruction)dec_insn.insn;
 	unsigned int fcr31;
-	unsigned int bit;
+	unsigned int bit = 0;
 
 	switch (insn.i_format.opcode) {
 	case spec_op:
@@ -641,6 +636,7 @@ static int isBranchInstr(struct pt_regs *regs, struct decoded_instn dec_insn, un
 		}
 		break;
 	case jalx_op:
+		bit = MIPS_ISA_MODE;
 	case jal_op:
 		regs->regs[31] = regs->cp0_epc + dec_insn.pc_inc + dec_insn.next_pc_inc;
 		/* Fall through */
@@ -649,6 +645,8 @@ static int isBranchInstr(struct pt_regs *regs, struct decoded_instn dec_insn, un
 		*contpc >>= 28;
 		*contpc <<= 28;
 		*contpc |= (insn.j_format.target << 2);
+		/* set micro_mips mode bit: xor for jalx. LY22 */
+		*contpc ^= bit;
 		return 1;
 		break;
 	case beq_op:
@@ -1875,12 +1873,12 @@ int fpu_emulator_cop1Handler(struct pt_regs *xcp, struct mips_fpu_struct *ctx,
 	do {
 		prevepc = xcp->cp0_epc;
 
-		if (xcp->cp0_epc & 0x1) {
+		if (is16mode(xcp) && cpu_has_mmips) {
 			/* get the next 2 micro_mips instn and decode them into 2 mips32 instn */
-			if ((get_user(instr[0], (u16 __user *)(xcp->cp0_epc & ~0x1))) ||
-				(get_user(instr[1], (u16 __user *)((xcp->cp0_epc+2) & ~0x1))) ||
-				(get_user(instr[2], (u16 __user *)((xcp->cp0_epc+4) & ~0x1))) ||
-				(get_user(instr[3], (u16 __user *)((xcp->cp0_epc+6) & ~0x1)))) {
+			if ((get_user(instr[0], (u16 __user *)(xcp->cp0_epc & ~MIPS_ISA_MODE))) ||
+			    (get_user(instr[1], (u16 __user *)((xcp->cp0_epc+2) & ~MIPS_ISA_MODE))) ||
+			    (get_user(instr[2], (u16 __user *)((xcp->cp0_epc+4) & ~MIPS_ISA_MODE))) ||
+			    (get_user(instr[3], (u16 __user *)((xcp->cp0_epc+6) & ~MIPS_ISA_MODE)))) {
 				MIPS_FPU_EMU_INC_STATS(errors);
 				return SIGBUS;
 			}
