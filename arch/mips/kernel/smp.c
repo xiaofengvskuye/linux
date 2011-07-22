@@ -224,7 +224,7 @@ int __cpuinit __cpu_up(unsigned int cpu)
 			.done   = COMPLETION_INITIALIZER_ONSTACK(c_idle.done),
 		};
 
-		INIT_WORK_ONSTACK(&c_idle.work, do_fork_idle);
+		INIT_WORK_ON_STACK(&c_idle.work, do_fork_idle);
 		schedule_work(&c_idle.work);
 		wait_for_completion(&c_idle.done);
 		idle = cpu_idle_thread[cpu] = c_idle.idle;
