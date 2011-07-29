@@ -19,7 +19,7 @@
 #include <asm-generic/bitops/find.h>
 #include <asm/traps.h>
 
-static unsigned long _gic_base;
+unsigned long _gic_base;
 static unsigned int _irqbase;
 static unsigned int gic_irq_flags[GIC_NUM_INTRS];
 #define GIC_IRQ_FLAG_EDGE      0x0001
