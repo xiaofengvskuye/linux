@@ -38,6 +38,7 @@
 #include <asm/time.h>
 #include <asm/mc146818-time.h>
 #include <asm/msc01_ic.h>
+#include <asm/gic.h>
 
 #include <asm/mips-boards/generic.h>
 #include <asm/mips-boards/prom.h>
@@ -156,8 +157,13 @@ void __init plat_time_init(void)
         cpu_khz = est_freq / 1000;
 
 	mips_scroll_message();
+
 #ifdef CONFIG_I8253		/* Only Malta has a PIT */
 	setup_pit_timer();
+#endif
+
+#ifdef CONFIG_CSRC_GIC
+	gic_clocksource_init();
 #endif
 
 	plat_perf_setup();

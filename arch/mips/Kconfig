@@ -317,7 +317,6 @@ config MIPS_SEAD3
 	select SYS_SUPPORTS_64BIT_KERNEL
 	select SYS_SUPPORTS_BIG_ENDIAN
 	select SYS_SUPPORTS_LITTLE_ENDIAN
-	select SYS_SUPPORTS_MIPS_CMP if BROKEN	# because SYNC_R4K is broken
 	select SYS_SUPPORTS_MULTITHREADING
 	select SYS_SUPPORTS_SMARTMIPS
 	select SYS_SUPPORTS_MICROMIPS
@@ -1700,7 +1699,6 @@ config HARDWARE_WATCHPOINTS
 menu "Kernel type"
 
 choice
-
 	prompt "Kernel code model"
 	help
 	  You should only select this option if you have a workload that
@@ -1812,6 +1810,23 @@ config FORCE_MAX_ZONEORDER
 	  The page size is not necessarily 4KB.  Keep this in mind
 	  when choosing a value for this option.
 
+choice
+	prompt "Clock source"
+	depends on MIPS_MALTA || MIPS_SEAD3
+	default CSRC_R4K
+
+config CSRC_R4K
+	bool "R4K count/compare counter"
+	help
+	  Use the R4K count/compare counter for the kernel clock source.
+
+config CSRC_GIC
+	bool "GIC global counter"
+	help
+	  Use the GIC global counter for the kernel clock source.
+
+endchoice
+
 config BOARD_SCACHE
 	bool
 
@@ -1922,7 +1937,6 @@ config SCHED_SMT
 config SYS_SUPPORTS_SCHED_SMT
 	bool
 
-
 config SYS_SUPPORTS_MULTITHREADING
 	bool
 
@@ -1993,7 +2007,7 @@ config MIPS_APSP_KSPD
 config MIPS_CMP
 	bool "MIPS CMP framework support"
 	depends on SYS_SUPPORTS_MIPS_CMP
-	select SYNC_R4K
+	select SYNC_R4K if CSRC_R4K
 	select SYS_SUPPORTS_SMP
 	select SYS_SUPPORTS_SCHED_SMT if SMP
 	select WEAK_ORDERING
