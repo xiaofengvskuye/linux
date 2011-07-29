@@ -10,6 +10,7 @@
  * Kevin D. Kissell, kevink@mips.com and Carsten Langgaard, carstenl@mips.com
  * Copyright (C) 2000, 01 MIPS Technologies, Inc.
  * Copyright (C) 2002, 2003, 2004, 2005, 2007  Maciej W. Rozycki
+ * Copyright (C) 2011 MIPS Technologies, Inc.
  */
 #include <linux/bug.h>
 #include <linux/compiler.h>
@@ -89,7 +90,6 @@ void (*board_ejtag_handler_setup)(void);
 void (*board_bind_eic_interrupt)(int irq, int regset);
 
 static void mt_ase_fp_affinity(void);
-void __init set_handler(unsigned long offset, void *addr, unsigned long size);
 
 static void show_raw_backtrace(unsigned long reg29)
 {
@@ -1437,6 +1437,51 @@ unsigned long ebase;
 unsigned long exception_handlers[32];
 unsigned long vi_handlers[64];
 
+/* Install CPU exception handler */
+#ifdef CONFIG_CPU_MICROMIPS
+void __cpuinit set_handler(unsigned long offset, void *addr, unsigned long size)
+{
+#ifdef CONFIG_32BIT
+	unsigned long addr2 = (ebase + offset);
+
+	*((unsigned long *)addr2) = (0x3c1a << 16) | ((addr2 + 16) >> 16);
+	*((unsigned long *)addr2 + 1) = (0x375a << 16) |
+		(((addr2 + 16) & 0x0000ffff) + 1);
+	*((unsigned long *)addr2 + 2) = 0x03400008;
+	*((unsigned long *)addr2 + 3) = 0x00000000;
+	memcpy(((unsigned long *)addr2 + 4), ((unsigned char *)addr - 3),
+		(size - 16));
+#else
+#error MicroMIPS64 not currently supported!!!
+#endif
+}
+#else
+void __cpuinit set_handler(unsigned long offset, void *addr, unsigned long size)
+{
+	memcpy((void *)(ebase + offset), addr, size);
+	local_flush_icache_range(ebase + offset, ebase + offset + size);
+}
+#endif
+
+static char panic_null_cerr[] __cpuinitdata =
+	"Trying to set NULL cache error exception handler";
+
+/*
+ * Install uncached CPU exception handler.
+ * This is suitable only for the cache error exception which is the only
+ * exception handler that is being run uncached.
+ */
+void __cpuinit set_uncached_handler(unsigned long offset, void *addr,
+	unsigned long size)
+{
+	unsigned long uncached_ebase = CKSEG1ADDR(ebase);
+
+	if (!addr)
+		panic(panic_null_cerr);
+
+	memcpy((void *)(uncached_ebase + offset), addr, size);
+}
+
 void __init *set_except_vector(int n, void *addr)
 {
 	unsigned long handler = (unsigned long) addr;
@@ -1744,51 +1789,6 @@ void __cpuinit per_cpu_trap_init(void)
 	}
 #endif /* CONFIG_MIPS_MT_SMTC */
 	TLBMISS_HANDLER_SETUP();
-}
-
-/* Install CPU exception handler */
-#ifdef CONFIG_CPU_MICROMIPS
-void __init set_handler(unsigned long offset, void *addr, unsigned long size)
-{
-#ifdef CONFIG_32BIT
-	unsigned long addr2 = (ebase + offset);
-
-	*((unsigned long *)addr2) = (0x3c1a << 16) | ((addr2 + 16) >> 16);
-	*((unsigned long *)addr2 + 1) = (0x375a << 16) |
-		(((addr2 + 16) & 0x0000ffff) + 1);
-	*((unsigned long *)addr2 + 2) = 0x03400008;
-	*((unsigned long *)addr2 + 3) = 0x00000000;
-	memcpy(((unsigned long *)addr2 + 4), ((unsigned char *)addr - 3),
-		(size - 16));
-#else
-#error MicroMIPS64 not currently supported!!!
-#endif
-}
-#else
-void __init set_handler(unsigned long offset, void *addr, unsigned long size)
-{
-	memcpy((void *)(ebase + offset), addr, size);
-	local_flush_icache_range(ebase + offset, ebase + offset + size);
-}
-#endif
-
-static char panic_null_cerr[] __cpuinitdata =
-	"Trying to set NULL cache error exception handler";
-
-/*
- * Install uncached CPU exception handler.
- * This is suitable only for the cache error exception which is the only
- * exception handler that is being run uncached.
- */
-void __cpuinit set_uncached_handler(unsigned long offset, void *addr,
-	unsigned long size)
-{
-	unsigned long uncached_ebase = CKSEG1ADDR(ebase);
-
-	if (!addr)
-		panic(panic_null_cerr);
-
-	memcpy((void *)(uncached_ebase + offset), addr, size);
 }
 
 static int __initdata rdhwr_noopt;

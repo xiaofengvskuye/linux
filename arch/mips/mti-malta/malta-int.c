@@ -1,6 +1,6 @@
 /*
  * Carsten Langgaard, carstenl@mips.com
- * Copyright (C) 2000, 2001, 2004 MIPS Technologies, Inc.
+ * Copyright (C) 2000, 2001, 2004, 2011 MIPS Technologies, Inc.
  * Copyright (C) 2001 Ralf Baechle
  *
  *  This program is free software; you can distribute it and/or modify it
@@ -744,3 +744,10 @@ int malta_be_handler(struct pt_regs *regs, int is_fixup)
 
 	return retval;
 }
+
+#ifdef CONFIG_HOTPLUG_CPU
+void fixup_irqs(void)
+{
+        pr_debug("CPU%d: fixup_irqs\n", smp_processor_id());
+}
+#endif

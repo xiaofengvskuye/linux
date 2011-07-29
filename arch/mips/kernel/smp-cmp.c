@@ -12,12 +12,14 @@
  *  with this program; if not, write to the Free Software Foundation, Inc.,
  *  59 Temple Place - Suite 330, Boston MA 02111-1307, USA.
  *
- * Copyright (C) 2007 MIPS Technologies, Inc.
+ * Copyright (C) 2007, 2011 MIPS Technologies, Inc.
  *    Chris Dearman (chris@mips.com)
+ *    Steven J. Hill (sjhill@mips.com)
  */
 
 #undef DEBUG
 
+#include <linux/cpu.h>
 #include <linux/kernel.h>
 #include <linux/sched.h>
 #include <linux/smp.h>
@@ -88,7 +90,7 @@ static void cmp_send_ipi_mask(const struct cpumask *mask, unsigned int action)
 		cmp_send_ipi_single(i, action);
 }
 
-static void cmp_init_secondary(void)
+static void __cpuinit cmp_init_secondary(void)
 {
 	struct cpuinfo_mips *c = &current_cpu_data;
 
@@ -107,12 +109,12 @@ static void cmp_init_secondary(void)
 #endif
 }
 
-static void cmp_smp_finish(void)
+static void __cpuinit cmp_smp_finish(void)
 {
 	pr_debug("SMPCMP: CPU%d: %s\n", smp_processor_id(), __func__);
 
-	/* CDFIXME: remove this? */
-	write_c0_compare(read_c0_count() + (8 * mips_hpt_frequency / HZ));
+	/* Arrange for a clock interrupt immediately */
+	write_c0_compare(read_c0_count() + 200);
 
 #ifdef CONFIG_MIPS_MT_FPAFF
 	/* If we have an FPU, enroll ourselves in the FPU-full mask */
@@ -123,7 +125,7 @@ static void cmp_smp_finish(void)
 	local_irq_enable();
 }
 
-static void cmp_cpus_done(void)
+static void __cpuinit cmp_cpus_done(void)
 {
 	pr_debug("SMPCMP: CPU%d: %s\n", smp_processor_id(), __func__);
 }
@@ -134,7 +136,7 @@ static void cmp_cpus_done(void)
  * __KSTK_TOS(idle) is apparently the stack pointer
  * (unsigned long)idle->thread_info the gp
  */
-static void cmp_boot_secondary(int cpu, struct task_struct *idle)
+static void __cpuinit cmp_boot_secondary(int cpu, struct task_struct *idle)
 {
 	struct thread_info *gp = task_thread_info(idle);
 	unsigned long sp = __KSTK_TOS(idle);
@@ -176,6 +178,7 @@ void __init cmp_smp_setup(void)
 			__cpu_logical_map[ncpu]	= i;
 		}
 	}
+	cpu_present_map = cpu_possible_map;
 
 	if (cpu_has_mipsmt) {
 		unsigned int nvpe, mvpconf0 = read_c0_mvpconf0();
@@ -198,6 +201,99 @@ void __init cmp_prepare_cpus(unsigned int max_cpus)
 	mips_mt_set_cpuoptions();
 }
 
+#ifdef CONFIG_HOTPLUG_CPU
+
+/* State of each CPU. */
+DEFINE_PER_CPU(int, cpu_state);
+
+extern void fixup_irqs(void);
+
+static DEFINE_SPINLOCK(smp_reserve_lock);
+
+static int cmp_cpu_disable(void)
+{
+	unsigned int cpu = smp_processor_id();
+
+	if (cpu == 0)		/* FIXME */
+		return -EBUSY;
+
+	spin_lock(&smp_reserve_lock);
+
+	cpu_clear(cpu, cpu_online_map);
+	cpu_clear(cpu, cpu_callin_map);
+	local_irq_disable();
+	fixup_irqs();
+	local_irq_enable();
+
+	flush_cache_all();
+	local_flush_tlb_all();
+
+	spin_unlock(&smp_reserve_lock);
+
+	return 0;
+}
+
+static void cmp_cpu_die(unsigned int cpu)
+{
+	while (per_cpu(cpu_state, cpu) != CPU_DEAD)
+		cpu_relax();
+	/*
+	 * If all of the CPU's on the other core are now disabled
+	 * the core can be powered down
+	 */
+}
+
+void play_dead(void)
+{
+	int coreid = smp_processor_id();
+
+	idle_task_exit();
+
+	per_cpu(cpu_state, coreid) = CPU_DEAD;
+
+	/*
+	 * This CPU is now inactive. Other CPU's (VPE's) on the
+	 * same core may still be active
+	 */
+	amon_cpu_dead();	/* This will not return */
+}
+
+static int __cpuinit cmp_cpu_callback(struct notifier_block *nfb,
+	unsigned long action, void *hcpu)
+{
+	unsigned int cpu = (unsigned long)hcpu;
+
+	switch (action) {
+	case CPU_UP_PREPARE:
+		pr_debug("CPU%d: prepare\n", cpu);
+		break;
+	case CPU_ONLINE:
+		pr_debug("CPU%d: online\n", cpu);
+		break;
+	case CPU_DEAD:
+		pr_debug("CPU%d: dead\n", cpu);
+		break;
+	}
+
+	return NOTIFY_OK;
+}
+
+static struct notifier_block __cpuinitdata cmp_cpu_notifier = {
+	.notifier_call = cmp_cpu_callback,
+};
+
+static int __cpuinit register_cmp_notifier(void)
+{
+	register_hotcpu_notifier(&cmp_cpu_notifier);
+
+	return 0;
+}
+
+late_initcall(register_cmp_notifier);
+
+#endif  /* CONFIG_HOTPLUG_CPU */
+
+
 struct plat_smp_ops cmp_smp_ops = {
 	.send_ipi_single	= cmp_send_ipi_single,
 	.send_ipi_mask		= cmp_send_ipi_mask,
@@ -207,4 +303,8 @@ struct plat_smp_ops cmp_smp_ops = {
 	.boot_secondary		= cmp_boot_secondary,
 	.smp_setup		= cmp_smp_setup,
 	.prepare_cpus		= cmp_prepare_cpus,
+#ifdef CONFIG_HOTPLUG_CPU
+	.cpu_disable		= cmp_cpu_disable,
+	.cpu_die		= cmp_cpu_die,
+#endif
 };
