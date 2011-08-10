@@ -48,7 +48,11 @@ enum fields {
 #define IMM_MASK	0xffff
 #define IMM_SH		0
 #define JIMM_MASK	0x3ffffff
-#define JIMM_SH		0
+#ifdef CONFIG_CPU_MICROMIPS
+#define JIMM_SH		1
+#else
+#define JIMM_SH		2
+#endif
 #define FUNC_MASK	0x3f
 #define FUNC_SH		0
 #define SET_MASK	0x7
@@ -213,10 +217,12 @@ static inline __uasminit u32 build_bimm(s32 arg)
 
 static inline __uasminit u32 build_jimm(u32 arg)
 {
-	WARN(arg & ~(JIMM_MASK << 2),
+#ifndef CONFIG_CPU_MICROMIPS
+	WARN(arg & ~(JIMM_MASK << JIMM_SH),
 	     KERN_WARNING "Micro-assembler field overflow\n");
+#endif
 
-	return (arg >> 2) & JIMM_MASK;
+	return (arg >> JIMM_SH) & JIMM_MASK;
 }
 
 static inline __uasminit u32 build_scimm(u32 arg)
