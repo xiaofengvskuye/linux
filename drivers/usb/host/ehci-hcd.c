@@ -684,7 +684,11 @@ static int ehci_run (struct usb_hcd *hcd)
 	 * Don't reset here, because configuration settings will
 	 * vanish.
 	 */
+#ifdef CONFIG_MIPS_SEAD3
+	if ((retval = ehci_reset(ehci)) != 0) {
+#else
 	if (!ehci_is_TDI(ehci) && (retval = ehci_reset(ehci)) != 0) {
+#endif
 		ehci_mem_cleanup(ehci);
 		return retval;
 	}
