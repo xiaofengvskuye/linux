@@ -314,7 +314,7 @@ do {									\
 									\
 		if (p != PER_LINUX32 && p != PER_LINUX)			\
 			set_personality(PER_LINUX);			\
-	}
+	}								\
 } while (0)
 
 #endif /* CONFIG_64BIT */
