@@ -359,3 +359,10 @@ asmlinkage long sys32_lookup_dcookie(u32 a0, u32 a1, char __user *buf,
 {
 	return sys_lookup_dcookie(merge_64(a0, a1), buf, len);
 }
+
+SYSCALL_DEFINE6(32_futex, u32 __user *, uaddr, int, op, u32, val,
+		struct compat_timespec __user *, utime, u32 __user *, uaddr2,
+		u32, val3)
+{
+	return compat_sys_futex(uaddr, op, val, utime, uaddr2, val3);
+}
