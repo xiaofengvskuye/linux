@@ -1558,9 +1558,15 @@ static void *set_vi_srs_handler(int n, vi_handler_t addr, int srs)
 		 * use MIPS32 instructions instead of MicroMIPS. 
 		 */
 #ifdef CONFIG_CPU_MICROMIPS
+# ifdef CONFIG_CPU_LITTLE_ENDIAN
+# define MMSWP	0
+# else
+# define MMSWP	16
+# endif
 #define MMLEN	17
 #define MMOFF	18
 #else
+#define MMSWP	16
 #define MMLEN	0
 #define MMOFF	0
 #endif
@@ -1600,23 +1606,12 @@ static void *set_vi_srs_handler(int n, vi_handler_t addr, int srs)
 		BUG_ON(n > 7);	/* Vector index %d exceeds SMTC maximum. */
 
 		w = (u32 *)(b + mori_offset);
-#ifdef CONFIG_CPU_MICROMIPS
-		*w |= (((u32)(0x100 << n) & 0x0000ffff) << 16);
-#else
-		*w = (*w & 0xffff0000) | (0x100 << n);
-#endif
+		*w = (*w & (0x0000ffff << MMSWP)) | (0x100 << (n + 16 - MMSWP));
 #endif /* CONFIG_MIPS_MT_SMTC */
-#ifdef CONFIG_CPU_MICROMIPS
 		w = (u32 *)(b + lui_offset);
-		*w |= ((u32)handler & 0xffff0000);
+		*w |= (((u32)handler & 0xffff0000) >> MMSWP);
 		w = (u32 *)(b + ori_offset);
-		*w |= (((u32)handler & 0x0000ffff) << 16);
-#else
-		w = (u32 *)(b + lui_offset);
-		*w = (*w & 0xffff0000) | (((u32)handler >> 16) & 0xffff);
-		w = (u32 *)(b + ori_offset);
-		*w = (*w & 0xffff0000) | ((u32)handler & 0xffff);
-#endif
+		*w |= (((u32)handler & 0x0000ffff) << (16 - MMSWP));
 		local_flush_icache_range((unsigned long)b,
 					 (unsigned long)(b+handler_len));
 	}
@@ -1629,10 +1624,15 @@ static void *set_vi_srs_handler(int n, vi_handler_t addr, int srs)
 		w = (u32 *)b;
 		/* j handler */
 #ifdef CONFIG_CPU_MICROMIPS
-		*w++ = ((((u32)(handler) >> 1) & 0x0000ffff) << 16) |
-			(((u32)(handler) & 0x003fffff) >> 17) | 0x0000d400;
+		*w = (0x0000d400 << MMSWP);
+#ifdef CONFIG_CPU_LITTLE_ENDIAN
+		*w |= (((u32)handler & 0x07ff0000) >> 17);
+		*w |= (((u32)handler & 0x0001fffe) << 15);
 #else
-		*w++ = 0x08000000 | (((u32)handler >> 2) & 0x03fffff);
+		*w |= (((u32)handler & 0x07ffffff) >> 1);
+#endif
+#else
+		*w = 0x08000000 | (((u32)handler & 0x07fffff) >> 2);
 #endif
 		*w = 0;
 		local_flush_icache_range((unsigned long)b,
