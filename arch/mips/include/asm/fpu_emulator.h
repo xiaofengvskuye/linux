@@ -44,7 +44,7 @@ DECLARE_PER_CPU(struct mips_fpu_emulator_stats, fpuemustats);
 do {									\
 	preempt_disable();						\
 	__local_inc(&__get_cpu_var(fpuemustats).M);			\
-	preempt_disable();						\
+	preempt_enable();						\
 } while (0)
 
 #else
