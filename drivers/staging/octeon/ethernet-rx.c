@@ -397,8 +397,7 @@ void cvm_oct_tasklet_rx(unsigned long unused)
 
 				if (unlikely
 				    (work->word2.s.not_IP
-				     || work->word2.s.IP_exc
-				     || work->word2.s.L4_error))
+				     || work->word2.s.IP_exc))
 					skb->ip_summed = CHECKSUM_NONE;
 				else
 					skb->ip_summed = CHECKSUM_UNNECESSARY;
