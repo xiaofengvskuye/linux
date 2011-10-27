@@ -30,12 +30,9 @@ static struct clocksource gic_clocksource = {
 	.flags	= CLOCK_SOURCE_IS_CONTINUOUS,
 };
 
-void __init gic_clocksource_init(void)
+void __init gic_clocksource_init(unsigned int frequency)
 {
 	unsigned int config, bits;
-
-	if (!cpu_has_counter || !mips_hpt_frequency)
-		BUG();
 
 	/* Calculate the clocksource mask. */
 	GICREAD(GIC_REG(SHARED, GIC_SH_CONFIG), config);
@@ -46,7 +43,7 @@ void __init gic_clocksource_init(void)
 	gic_clocksource.mask = CLOCKSOURCE_MASK(bits);
 
 	/* Calculate a somewhat reasonable rating value. */
-	gic_clocksource.rating = 200 + (mips_hpt_frequency * 2) / 10000000;
+	gic_clocksource.rating = 200 + frequency / 10000000;
 
-	clocksource_register_hz(&gic_clocksource, (mips_hpt_frequency * 2));
+	clocksource_register_hz(&gic_clocksource, frequency);
 }

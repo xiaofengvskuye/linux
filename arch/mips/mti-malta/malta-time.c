@@ -50,6 +50,9 @@ unsigned long cpu_khz;
 static int mips_cpu_timer_irq;
 static int mips_cpu_perf_irq;
 extern int cp0_perfcount_irq;
+#ifdef CONFIG_CSRC_GIC
+static int gic_frequency;
+#endif
 
 static void mips_timer_dispatch(void)
 {
@@ -61,16 +64,23 @@ static void mips_perf_dispatch(void)
 	do_IRQ(mips_cpu_perf_irq);
 }
 
-/*
- * Estimate CPU frequency.  Sets mips_hpt_frequency as a side-effect
- */
-static unsigned int __init estimate_cpu_frequency(void)
+static unsigned int freqround(unsigned int freq, unsigned int amount)
 {
-	unsigned int prid = read_c0_prid() & 0xffff00;
-	unsigned int count;
+	freq += amount;
+	freq -= freq % (amount*2);
+	return freq;
+}
 
+/*
+ * Estimate CPU (and GIC) frequencies
+ */
+static void __init estimate_frequencies(void)
+{
 	unsigned long flags;
-	unsigned int start;
+	unsigned int count, start;
+#ifdef CONFIG_CSRC_GIC
+	unsigned int giccount, gicstart;
+#endif
 
 	local_irq_save(flags);
 
@@ -80,25 +90,30 @@ static unsigned int __init estimate_cpu_frequency(void)
 
 	/* Start r4k counter. */
 	start = read_c0_count();
+#ifdef CONFIG_CSRC_GIC
+	GICREAD(GIC_REG(SHARED, GIC_SH_COUNTER_31_00), gicstart);
+#endif
 
 	/* Read counter exactly on falling edge of update flag */
 	while (CMOS_READ(RTC_REG_A) & RTC_UIP);
 	while (!(CMOS_READ(RTC_REG_A) & RTC_UIP));
 
-	count = read_c0_count() - start;
-
+	count = read_c0_count();
+#ifdef CONFIG_CSRC_GIC
+	GICREAD(GIC_REG(SHARED, GIC_SH_COUNTER_31_00), giccount);
+#endif
 	/* restore interrupts */
 	local_irq_restore(flags);
 
+	count -= start;
+#ifdef CONFIG_CSRC_GIC
+	giccount -= gicstart;
+#endif
+
 	mips_hpt_frequency = count;
-	if ((prid != (PRID_COMP_MIPS | PRID_IMP_20KC)) &&
-	    (prid != (PRID_COMP_MIPS | PRID_IMP_25KF)))
-		count *= 2;
-
-	count += 5000;    /* round */
-	count -= count%10000;
-
-	return count;
+#ifdef CONFIG_CSRC_GIC
+	gic_frequency = giccount;
+#endif
 }
 
 void read_persistent_clock(struct timespec *ts)
@@ -144,14 +159,24 @@ unsigned int __cpuinit get_c0_compare_int(void)
 
 void __init plat_time_init(void)
 {
-	unsigned int est_freq;
+	unsigned int prid = read_c0_prid() & 0xffff00;
+	unsigned int freq;
 
-	est_freq = estimate_cpu_frequency();
+	estimate_frequencies();
 
-	printk("CPU frequency %d.%02d MHz\n", est_freq/1000000,
-	       (est_freq%1000000)*100/1000000);
+	freq = mips_hpt_frequency;
+	if ((prid != (PRID_COMP_MIPS | PRID_IMP_20KC)) &&
+	    (prid != (PRID_COMP_MIPS | PRID_IMP_25KF)))
+		freq *= 2;
+	freq = freqround(freq, 5000);
+	printk("CPU frequency %d.%02d MHz\n", freq/1000000,
+	       (freq%1000000)*100/1000000);
+        cpu_khz = freq / 1000;
 
-        cpu_khz = est_freq / 1000;
+	freq = gic_frequency;
+	freq = freqround(freq, 5000);
+	printk("GIC frequency %d.%02d MHz\n", freq/1000000,
+	       (freq%1000000)*100/1000000);
 
 	mips_scroll_message();
 
@@ -160,7 +185,7 @@ void __init plat_time_init(void)
 #endif
 
 #ifdef CONFIG_CSRC_GIC
-	gic_clocksource_init();
+	gic_clocksource_init(gic_frequency);
 #endif
 
 	plat_perf_setup();
