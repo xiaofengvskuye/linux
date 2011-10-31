@@ -173,10 +173,12 @@ void __init plat_time_init(void)
 	       (freq%1000000)*100/1000000);
         cpu_khz = freq / 1000;
 
+#ifdef CONFIG_CSRC_GIC
 	freq = gic_frequency;
 	freq = freqround(freq, 5000);
 	printk("GIC frequency %d.%02d MHz\n", freq/1000000,
 	       (freq%1000000)*100/1000000);
+#endif
 
 	mips_scroll_message();
 
