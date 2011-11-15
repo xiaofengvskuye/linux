@@ -231,25 +231,6 @@ static struct tc *get_tc(int index)
 	return res;
 }
 
-#if 0
-static struct tc *get_tc_unused(void)
-{
-	struct tc *res, *t;
-
-	res = NULL;
-	spin_lock(&vpecontrol.tc_list_lock);
-	list_for_each_entry(t, &vpecontrol.tc_list, list) {
-		if (t->state == TC_STATE_UNUSED) {
-			res = t;
-			break;
-		}
-	}
-	spin_unlock(&vpecontrol.tc_list_lock);
-
-	return res;
-}
-#endif
-
 /* allocate a vpe and associate it with this minor (or index) */
 static struct vpe *alloc_vpe(int minor)
 {
