@@ -1122,6 +1122,9 @@ struct decoded_instn {
 	int micro_mips_mode;
 };
 
+/* Recode table from MIPS16e register notation to GPR. */
+extern const int mips16e_reg2gpr[];
+
 union mips16e_instruction {
 	unsigned int full:16;
 	struct rr rr;

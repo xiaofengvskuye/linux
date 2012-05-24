@@ -102,6 +102,9 @@ static u32 unaligned_action;
 #endif
 extern void show_registers(struct pt_regs *regs);
 
+/* Recode table from MIPS16e register notation to GPR. */
+const int mips16e_reg2gpr[] = { 16, 17, 2, 3, 4, 5, 6, 7 };
+
 static void emulate_load_store_insn(struct pt_regs *regs,
 	void __user *addr, unsigned int __user *pc)
 {
