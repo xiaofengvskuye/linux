@@ -35,6 +35,7 @@
 #include <asm/war.h>
 #include <asm/vdso.h>
 #include <asm/dsp.h>
+#include <asm/inst.h>
 
 #include "signal-common.h"
 
@@ -535,7 +536,12 @@ static int handle_signal(unsigned long sig, siginfo_t *info,
 {
 	int ret;
 	struct mips_abi *abi = current->thread.abi;
+#ifdef CONFIG_CPU_MICROMIPS
+	void *vdso = (void *)
+		((unsigned int)current->mm->context.vdso | MIPS_ISA_MODE);
+#else
 	void *vdso = current->mm->context.vdso;
+#endif
 
 	if (regs->regs[0]) {
 		switch(regs->regs[2]) {
