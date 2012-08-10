@@ -276,6 +276,7 @@ int apply_relocate(Elf_Shdr *sechdrs, const char *strtab,
 	pr_debug("Applying relocate section %u to %u\n", relsec,
 	       sechdrs[relsec].sh_info);
 
+	me->arch.r_mips_hi16_list = NULL;
 	for (i = 0; i < sechdrs[relsec].sh_size / sizeof(*rel); i++) {
 		/* This is where to make the change */
 		location = (void *)sechdrs[sechdrs[relsec].sh_info].sh_addr
