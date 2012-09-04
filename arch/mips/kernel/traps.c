@@ -992,6 +992,7 @@ asmlinkage void do_cpu(struct pt_regs *regs)
 		local_irq_restore(flags);
 		return;
 #endif
+		;
 	}
 
 	force_sig(SIGILL, current);
