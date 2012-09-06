@@ -306,6 +306,9 @@ asmlinkage long compat_sys_futimesat(unsigned int dfd, char __user *filename,
 asmlinkage long compat_sys_newfstatat(unsigned int dfd, char __user * filename,
 				      struct compat_stat __user *statbuf,
 				      int flag);
+asmlinkage long compat_sys_futex(u32 __user *uaddr, int op, u32 val,
+		struct compat_timespec __user *utime, u32 __user *uaddr2,
+		u32 val3);
 asmlinkage long compat_sys_openat(unsigned int dfd, const char __user *filename,
 				  int flags, int mode);
 
