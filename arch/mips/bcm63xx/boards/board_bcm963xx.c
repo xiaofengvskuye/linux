@@ -563,6 +563,41 @@ static const struct board_info __initdata *bcm963xx_boards[] = {
 };
 
 /*
+ * register & return a new board mac address
+ */
+static int board_get_mac_address(u8 *mac)
+{
+	u8 *p;
+	int count;
+
+	if (mac_addr_used >= nvram.mac_addr_count) {
+		printk(KERN_ERR PFX "not enough mac address\n");
+		return -ENODEV;
+	}
+
+	memcpy(mac, nvram.mac_addr_base, ETH_ALEN);
+	p = mac + ETH_ALEN - 1;
+	count = mac_addr_used;
+
+	while (count--) {
+		do {
+			(*p)++;
+			if (*p != 0)
+				break;
+			p--;
+		} while (p != mac);
+	}
+
+	if (p == mac) {
+		printk(KERN_ERR PFX "unable to fetch mac address\n");
+		return -ENODEV;
+	}
+
+	mac_addr_used++;
+	return 0;
+}
+
+/*
  * early init callback, read nvram data from flash and checksum it
  */
 void __init board_prom_init(void)
@@ -694,41 +729,6 @@ void __init board_setup(void)
 const char *board_get_name(void)
 {
 	return board.name;
-}
-
-/*
- * register & return a new board mac address
- */
-static int board_get_mac_address(u8 *mac)
-{
-	u8 *p;
-	int count;
-
-	if (mac_addr_used >= nvram.mac_addr_count) {
-		printk(KERN_ERR PFX "not enough mac address\n");
-		return -ENODEV;
-	}
-
-	memcpy(mac, nvram.mac_addr_base, ETH_ALEN);
-	p = mac + ETH_ALEN - 1;
-	count = mac_addr_used;
-
-	while (count--) {
-		do {
-			(*p)++;
-			if (*p != 0)
-				break;
-			p--;
-		} while (p != mac);
-	}
-
-	if (p == mac) {
-		printk(KERN_ERR PFX "unable to fetch mac address\n");
-		return -ENODEV;
-	}
-
-	mac_addr_used++;
-	return 0;
 }
 
 static struct mtd_partition mtd_partitions[] = {
