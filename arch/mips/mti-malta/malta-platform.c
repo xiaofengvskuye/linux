@@ -137,11 +137,6 @@ static int __init malta_add_devices(void)
 	if (err)
 		return err;
 
-	/*
-	 * Set RTC to BCD mode to support current alarm code.
-	 */
-	CMOS_WRITE(CMOS_READ(RTC_CONTROL) & ~RTC_DM_BINARY, RTC_CONTROL);
-
 	return 0;
 }
 
