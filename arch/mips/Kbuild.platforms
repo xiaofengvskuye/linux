@@ -14,7 +14,6 @@ platforms += jz4740
 platforms += lantiq
 platforms += lasat
 platforms += loongson
-platforms += mipssim
 platforms += mti-malta
 platforms += mti-sead3
 platforms += netlogic
