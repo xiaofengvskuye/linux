@@ -420,8 +420,10 @@ static struct gic_intr_map gic_intr_map[GIC_NUM_INTRS] = {
  */
 int __init gcmp_probe(unsigned long addr, unsigned long size)
 {
-	if (mips_revision_sconid != MIPS_REVISION_SCON_ROCIT) {
+	if ((mips_revision_sconid != MIPS_REVISION_SCON_ROCIT) &&
+	    (mips_revision_sconid != MIPS_REVISION_SCON_GT64120)) {
 		gcmp_present = 0;
+		printk("GCMP NOT present\n");
 		return gcmp_present;
 	}
 
@@ -433,7 +435,7 @@ int __init gcmp_probe(unsigned long addr, unsigned long size)
 	gcmp_present = (GCMPGCB(GCMPB) & GCMP_GCB_GCMPB_GCMPBASE_MSK) == GCMP_BASE_ADDR;
 
 	if (gcmp_present)
-		pr_debug("GCMP present\n");
+		printk("GCMP available\n");
 	return gcmp_present;
 }
 
