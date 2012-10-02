@@ -61,6 +61,60 @@ static inline void r4k_on_each_cpu(void (*func) (void *info), void *info)
 #endif
 
 /*
+ * This variant of smp_call_function is used for index cacheops only.
+ */
+static inline void r4k_indexop_on_each_cpu(void (*func) (void *info), void *info)
+{
+	preempt_disable();
+
+#ifdef CONFIG_SMP
+	if (!cpu_has_safe_index_cacheops) {
+
+		if (smp_num_siblings > 1) {
+			cpumask_t tmp_mask = INIT_CPUMASK;
+			int cpu, this_cpu, n = 0;
+
+			/* If processor hasn't safe index cachops (likely)
+			   then run cache flush on other CPUs.
+			   But I assume that siblings have common L1 cache, so -
+			   - run cache flush only once per sibling group. LY22 */
+
+			this_cpu = smp_processor_id();
+			for_each_online_cpu(cpu) {
+
+				if (cpumask_test_cpu(cpu, (&cpu_sibling_map[this_cpu])))
+					continue;
+
+				if (cpumask_intersects(&tmp_mask, (&cpu_sibling_map[cpu])))
+					continue;
+				cpu_set(cpu, tmp_mask);
+				n++;
+			}
+			if (n)
+				smp_call_function_many(&tmp_mask, func, info, 1);
+		} else
+			smp_call_function(func, info, 1);
+	}
+#endif
+	func(info);
+	preempt_enable();
+}
+
+/*  Define a rough size where address cacheops are still more optimal than
+ *  index cacheops on whole cache (in D/I-cache size terms).
+ *  Value "2" reflects an expense of smp_call_function() on top of
+ *  whole cache flush via index cacheops.
+ */
+#ifndef CACHE_CPU_LATENCY
+#ifdef CONFIG_SMP
+#define CACHE_CPU_LATENCY   (2)
+#else
+#define CACHE_CPU_LATENCY   (1)
+#endif
+#endif
+
+
+/*
  * Must die.
  */
 static unsigned long icache_size __read_mostly;
