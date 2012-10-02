@@ -27,6 +27,8 @@
 #include <asm/spram.h>
 #include <asm/uaccess.h>
 
+#include <asm/pgtable.h>
+#include <asm/bootinfo.h>
 /*
  * Not all of the MIPS CPUs have the "wait" instruction available. Moreover,
  * the implementation of the "wait" feature differs between CPU families. This
@@ -204,6 +206,9 @@ void __init check_wait(void)
 	case CPU_24K:
 	case CPU_34K:
 	case CPU_1004K:
+	case CPU_99K:
+	case CPU_1099K:
+	case CPU_1074K:
 		cpu_wait = r4k_wait;
 		if (read_c0_config7() & MIPS_CONF7_WII)
 			cpu_wait = r4k_wait_irqoff;
@@ -653,6 +658,8 @@ static inline unsigned int decode_config0(struct cpuinfo_mips *c)
 
 	if (((config0 & MIPS_CONF_MT) >> 7) == 1)
 		c->options |= MIPS_CPU_TLB;
+	if (((config0 & MIPS_CONF_MT) >> 7) == 4)
+		c->options |= MIPS_CPU_TLB;
 	isa = (config0 & MIPS_CONF_AT) >> 13;
 	switch (isa) {
 	case 0:
@@ -707,8 +714,11 @@ static inline unsigned int decode_config1(struct cpuinfo_mips *c)
 		c->options |= MIPS_CPU_FPU;
 		c->options |= MIPS_CPU_32FPR;
 	}
-	if (cpu_has_tlb)
+	if (cpu_has_tlb) {
 		c->tlbsize = ((config1 & MIPS_CONF1_TLBS) >> 25) + 1;
+		c->tlbsizevtlb = c->tlbsize;
+		c->tlbsizeftlbsets = 0;
+	}
 
 	return config1 & MIPS_CONF_M;
 }
@@ -756,24 +766,119 @@ static inline unsigned int decode_config3(struct cpuinfo_mips *c)
 	return config3 & MIPS_CONF_M;
 }
 
-static inline unsigned int decode_config4(struct cpuinfo_mips *c)
+static unsigned int cpu_capability = 0;
+
+static inline unsigned int decode_config4(struct cpuinfo_mips *c, int pass,
+					  int conf6available)
 {
 	unsigned int config4;
+	unsigned int newcf4;
+	unsigned int config6;
 
 	config4 = read_c0_config4();
 
-	if ((config4 & MIPS_CONF4_MMUEXTDEF) == MIPS_CONF4_MMUEXTDEF_MMUSIZEEXT
-	    && cpu_has_tlb)
-		c->tlbsize += (config4 & MIPS_CONF4_MMUSIZEEXT) * 0x40;
+	if (pass && cpu_has_tlb) {
+		if (config4 & MIPS_CONF4_IE) {
+			if (config4 & MIPS_CONF4_TLBINV) {
+				c->options |= MIPS_CPU_TLBINV;
+				printk("TLBINV/F supported, config4=0x%0x\n",config4);
+			}
+			/* TBW: page walker support starts here */
+		}
+		switch (config4 & MIPS_CONF4_MMUEXTDEF) {
+		case MIPS_CONF4_MMUEXTDEF_MMUSIZEEXT:
+			c->tlbsize =
+			    ((((config4 & MIPS_CONF4_MMUSIZEEXT) >>
+			       MIPS_CONF4_MMUSIZEEXT_SHIFT) <<
+			      MIPS_CONF1_TLBS_SIZE) |
+				(c->tlbsize - 1)) + 1;
+			c->tlbsizevtlb = c->tlbsize;
+			printk("MMUSizeExt found, total TLB=%d\n",c->tlbsize);
+			break;
+		case MIPS_CONF4_MMUEXTDEF_VTLBSIZEEXT:
+			c->tlbsizevtlb = ((c->tlbsizevtlb - 1) |
+				(((config4 & MIPS_CONF4_VTLBSIZEEXT) >>
+				  MIPS_CONF4_VTLBSIZEEXT_SHIFT) <<
+				 MIPS_CONF1_TLBS_SIZE)) + 1;
+			c->tlbsize = c->tlbsizevtlb;
+			/* fall through */
+		case MIPS_CONF4_MMUEXTDEF_FTLBSIZEEXT:
+			newcf4 = (config4 & ~MIPS_CONF4_FTLBPAGESIZE) |
+				((((fls(PAGE_SIZE >> BASIC_PAGE_SHIFT)-1)/2)+1) <<
+				 MIPS_CONF4_FTLBPAGESIZE_SHIFT);
+			write_c0_config4(newcf4);
+			back_to_back_c0_hazard();
+			config4 = read_c0_config4();
+			if (config4 != newcf4) {
+				printk(KERN_ERR "PAGE_SIZE 0x%0lx is not supported by FTLB (config4=0x%0x)\n",
+					PAGE_SIZE, config4);
+				if (conf6available && (cpu_capability & MIPS_FTLB_CAPABLE)) {
+					printk("Switching FTLB OFF\n");
+					config6 = read_c0_config6();
+					write_c0_config6(config6 & ~MIPS_CONF6_FTLBEN);
+				}
+				printk("Total TLB(VTLB) inuse: %d\n",c->tlbsizevtlb);
+				break;
+			}
+			c->tlbsizeftlbsets = 1 <<
+				((config4 & MIPS_CONF4_FTLBSETS) >>
+				 MIPS_CONF4_FTLBSETS_SHIFT);
+			c->tlbsizeftlbways = ((config4 & MIPS_CONF4_FTLBWAYS) >>
+					      MIPS_CONF4_FTLBWAYS_SHIFT) + 2;
+			c->tlbsize += (c->tlbsizeftlbways *
+				       c->tlbsizeftlbsets);
+			printk("V/FTLB found: VTLB=%d, FTLB sets=%d, ways=%d total TLB=%d\n",
+				c->tlbsizevtlb, c->tlbsizeftlbsets, c->tlbsizeftlbways, c->tlbsize);
+			break;
+		}
+	}
 
 	c->kscratch_mask = (config4 >> 16) & 0xff;
 
 	return config4 & MIPS_CONF_M;
 }
 
+static inline unsigned int decode_config5(struct cpuinfo_mips *c)
+{
+	unsigned int config5;
+
+	config5 = read_c0_config5();
+
+	if (config5 & MIPS_CONF5_EVA)
+		c->options |= MIPS_CPU_EVA;
+
+	return config5 & MIPS_CONF_M;
+}
+
+static inline unsigned int decode_config6_ftlb(struct cpuinfo_mips *c)
+{
+	unsigned int config6;
+
+	if (cpu_capability & MIPS_FTLB_CAPABLE) {
+
+		/*
+		 * Can't rely on mips_ftlb_disabled since kernel command line
+		 * hasn't been processed yet.  Need to peek at the raw command
+		 * line for "noftlb".
+		 */
+		if (strstr(arcs_cmdline, "noftlb") == NULL) {
+			config6 = read_c0_config6();
+
+			printk("Enable FTLB attempt\n");
+			write_c0_config6(config6 | MIPS_CONF6_FTLBEN);
+			back_to_back_c0_hazard();
+
+			return(1);
+		}
+	}
+
+	return(0);
+}
+
+
 static void __cpuinit decode_configs(struct cpuinfo_mips *c)
 {
-	int ok;
+	int ok, ok3 = 0, ok6 = 0;
 
 	/* MIPS32 or MIPS64 compliant CPU.  */
 	c->options = MIPS_CPU_4KEX | MIPS_CPU_4K_CACHE | MIPS_CPU_COUNTER |
@@ -788,9 +893,16 @@ static void __cpuinit decode_configs(struct cpuinfo_mips *c)
 	if (ok)
 		ok = decode_config2(c);
 	if (ok)
-		ok = decode_config3(c);
+		ok3 = decode_config3(c);
+	if (ok3)
+		ok = decode_config4(c,0,0);   /* first pass - just return Mbit */
 	if (ok)
-		ok = decode_config4(c);
+		ok = decode_config5(c);
+	if (cpu_capability & MIPS_FTLB_CAPABLE)
+		ok6 = decode_config6_ftlb(c);
+
+	if (ok3)
+		ok = decode_config4(c,1,ok6); /* real parse pass, thanks HW team :-/ */
 
 	mips_probe_watch_registers(c);
 
@@ -800,7 +912,6 @@ static void __cpuinit decode_configs(struct cpuinfo_mips *c)
 
 static inline void cpu_probe_mips(struct cpuinfo_mips *c, unsigned int cpu)
 {
-	decode_configs(c);
 	switch (c->processor_id & 0xff00) {
 	case PRID_IMP_4KC:
 		c->cputype = CPU_4KC;
@@ -858,10 +969,21 @@ static inline void cpu_probe_mips(struct cpuinfo_mips *c, unsigned int cpu)
 		__cpu_name[cpu] = "MIPS 1004Kc";
 		break;
 	case PRID_IMP_1074K:
-		c->cputype = CPU_74K;
+		c->cputype = CPU_1074K;
 		__cpu_name[cpu] = "MIPS 1074Kc";
 		break;
+	case PRID_IMP_99K:
+		c->cputype = CPU_99K;
+		__cpu_name[cpu] = "MIPS 99Kf";
+		cpu_capability = MIPS_FTLB_CAPABLE;
+		break;
+	case PRID_IMP_1099K:
+		c->cputype = CPU_1099K;
+		__cpu_name[cpu] = "MIPS 1099Kf";
+		cpu_capability = MIPS_FTLB_CAPABLE;
+		break;
 	}
+	decode_configs(c);
 
 	spram_config();
 }

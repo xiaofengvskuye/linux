@@ -97,6 +97,8 @@
 #define PRID_IMP_1074K		0x9a00
 #define PRID_IMP_M14KC		0x9c00
 #define PRID_IMP_M14KEC		0x9e00
+#define PRID_IMP_99K            0xa200
+#define PRID_IMP_1099K          0xa300
 
 /*
  * These are the PRID's for when 23:16 == PRID_COMP_SIBYTE
@@ -264,7 +266,7 @@ enum cpu_type_enum {
 	CPU_4KC, CPU_4KEC, CPU_4KSC, CPU_24K, CPU_34K, CPU_1004K, CPU_74K,
 	CPU_ALCHEMY, CPU_PR4450, CPU_BMIPS32, CPU_BMIPS3300, CPU_BMIPS4350,
 	CPU_BMIPS4380, CPU_BMIPS5000, CPU_JZRISC, CPU_LOONGSON1, CPU_M14KC,
-	CPU_M14KEC,
+	CPU_M14KEC, CPU_1074K, CPU_99K, CPU_1099K,
 
 	/*
 	 * MIPS64 class processors
@@ -276,6 +278,7 @@ enum cpu_type_enum {
 	CPU_LAST
 };
 
+#define MIPS_FTLB_CAPABLE   0x1
 
 /*
  * ISA Level encodings
@@ -324,6 +327,9 @@ enum cpu_type_enum {
 #define MIPS_CPU_PCI		0x00400000 /* CPU has Perf Ctr Int indicator */
 #define MIPS_CPU_RIXI		0x00800000 /* CPU has TLB Read/eXec Inhibit */
 #define MIPS_CPU_MICROMIPS	0x01000000 /* CPU has microMIPS capability */
+#define MIPS_CPU_SEGMENTS	0x02000000 /* CPU spports memory segmentation */
+#define MIPS_CPU_EVA		0x04000000 /* CPU spports EVA functionality */
+#define MIPS_CPU_TLBINV         0x08000000 /* CPU supports TLBINV/F */
 
 /*
  * CPU ASE encodings

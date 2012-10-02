@@ -33,6 +33,9 @@
 #define PAGE_SIZE	(_AC(1,UL) << PAGE_SHIFT)
 #define PAGE_MASK       (~((1 << PAGE_SHIFT) - 1))
 
+/* this is used for calculation of real page sizes and should be the same */
+#define BASIC_PAGE_SHIFT    12
+
 #ifdef CONFIG_HUGETLB_PAGE
 #define HPAGE_SHIFT	(PAGE_SHIFT + PAGE_SHIFT - 3)
 #define HPAGE_SIZE	(_AC(1,UL) << HPAGE_SHIFT)

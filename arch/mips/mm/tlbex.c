@@ -562,6 +562,7 @@ static void __cpuinit build_tlb_write_entry(u32 **p, struct uasm_label **l,
 		case CPU_M14KC:
 		case CPU_M14KEC:
 		case CPU_74K:
+		case CPU_1074K:
 			break;
 
 		default:
@@ -2293,6 +2294,21 @@ void __cpuinit build_tlb_refill_handler(void)
 		break;
 
 #endif /* !CONFIG_CPU_MIPS32_R2 */
+	case CPU_99K:
+	case CPU_1099K:
+		if (read_c0_config4() & MIPS_CONF4_AE)
+			setup_asid(0x1, 0x3ff, 0xfc00, ASID_FIRST_VERSION_99K);
+		else
+			setup_asid(0x1, 0xff, 0xff00, ASID_FIRST_VERSION_R4000);
+		build_r4000_tlb_refill_handler();
+		if (!run_once) {
+			build_r4000_tlb_load_handler();
+			build_r4000_tlb_store_handler();
+			build_r4000_tlb_modify_handler();
+			run_once++;
+		}
+		break;
+
 	default:
 		setup_asid(0x1, 0xff, 0xff00, ASID_FIRST_VERSION_R4000);
 		if (!run_once) {

@@ -74,6 +74,7 @@ extern asmlinkage void handle_cpu(void);
 extern asmlinkage void handle_ov(void);
 extern asmlinkage void handle_tr(void);
 extern asmlinkage void handle_fpe(void);
+extern asmlinkage void handle_ftlb(void);
 extern asmlinkage void handle_mdmx(void);
 extern asmlinkage void handle_watch(void);
 extern asmlinkage void handle_mt(void);
@@ -1292,6 +1293,9 @@ static inline void parity_protection_init(void)
 	case CPU_34K:
 	case CPU_74K:
 	case CPU_1004K:
+	case CPU_1074K:
+	case CPU_99K:
+	case CPU_1099K:
 		{
 #define ERRCTL_PE	0x80000000
 #define ERRCTL_L2P	0x00800000
@@ -1372,14 +1376,17 @@ asmlinkage void cache_parity_error(void)
 	unsigned int reg_val;
 
 	/* For the moment, report the problem and hang. */
-	printk("Cache error exception:\n");
+	printk("Cache error exception, cp0_ecc=0x%08x:\n",read_c0_ecc());
 	printk("cp0_errorepc == %0*lx\n", field, read_c0_errorepc());
 	reg_val = read_c0_cacheerr();
 	printk("c0_cacheerr == %08x\n", reg_val);
 
-	printk("Decoded c0_cacheerr: %s cache fault in %s reference.\n",
-	       reg_val & (1<<30) ? "secondary" : "primary",
-	       reg_val & (1<<31) ? "data" : "insn");
+	if ((reg_val & 0xc0000000) == 0xc0000000)
+		printk("Decoded c0_cacheerr: FTLB parity error\n");
+	else
+		printk("Decoded c0_cacheerr: %s cache fault in %s reference.\n",
+		       reg_val & (1<<30) ? "secondary" : "primary",
+		       reg_val & (1<<31) ? "data" : "insn");
 	printk("Error bits: %s%s%s%s%s%s%s\n",
 	       reg_val & (1<<29) ? "ED " : "",
 	       reg_val & (1<<28) ? "ET " : "",
@@ -1399,6 +1406,44 @@ asmlinkage void cache_parity_error(void)
 #endif
 
 	panic("Can't handle the cache error!");
+}
+
+asmlinkage void do_ftlb(void)
+{
+	const int field = 2 * sizeof(unsigned long);
+	unsigned int reg_val;
+
+	/* For the moment, report the problem and hang. */
+	printk("FTLB error exception, cp0_ecc=0x%08x:\n",read_c0_ecc());
+	printk("cp0_errorepc == %0*lx\n", field, read_c0_errorepc());
+	reg_val = read_c0_cacheerr();
+	printk("c0_cacheerr == %08x\n", reg_val);
+
+	if ((reg_val & 0xc0000000) == 0xc0000000)
+		printk("Decoded c0_cacheerr: FTLB parity error\n");
+	else
+		printk("Decoded c0_cacheerr: %s cache fault in %s reference.\n",
+		       reg_val & (1<<30) ? "secondary" : "primary",
+		       reg_val & (1<<31) ? "data" : "insn");
+	printk("Error bits: %s%s%s%s%s%s%s\n",
+	       reg_val & (1<<29) ? "ED " : "",
+	       reg_val & (1<<28) ? "ET " : "",
+	       reg_val & (1<<26) ? "EE " : "",
+	       reg_val & (1<<25) ? "EB " : "",
+	       reg_val & (1<<24) ? "EI " : "",
+	       reg_val & (1<<23) ? "E1 " : "",
+	       reg_val & (1<<22) ? "E0 " : "");
+	printk("IDX: 0x%08x\n", reg_val & ((1<<22)-1));
+
+#if defined(CONFIG_CPU_MIPS32) || defined(CONFIG_CPU_MIPS64)
+	if (reg_val & (1<<22))
+		printk("DErrAddr0: 0x%0*lx\n", field, read_c0_derraddr0());
+
+	if (reg_val & (1<<23))
+		printk("DErrAddr1: 0x%0*lx\n", field, read_c0_derraddr1());
+#endif
+
+	panic("Can't handle the FTLB parity error!");
 }
 
 /*
@@ -1935,6 +1980,7 @@ void __init trap_init(void)
 	if (cpu_has_fpu && !cpu_has_nofpuex)
 		set_except_vector(15, handle_fpe);
 
+	set_except_vector(16, handle_ftlb);
 	set_except_vector(22, handle_mdmx);
 
 	if (cpu_has_mcheck)
