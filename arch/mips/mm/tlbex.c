@@ -2028,6 +2028,11 @@ static void __cpuinit build_r4000_tlb_load_handler(void)
 		uasm_i_nop(&p);
 
 		uasm_i_tlbr(&p);
+#if !defined(CONFIG_CPU_CAVIUM_OCTEON)
+		/* hazard barrier after TLBR but before read EntryLo */
+		if (cpu_has_mips_r2)
+			uasm_i_ehb(&p);
+#endif
 		/* Examine  entrylo 0 or 1 based on ptr. */
 		if (use_bbit_insns()) {
 			uasm_i_bbit0(&p, wr.r2, ilog2(sizeof(pte_t)), 8);
@@ -2082,6 +2087,11 @@ static void __cpuinit build_r4000_tlb_load_handler(void)
 		uasm_i_nop(&p);
 
 		uasm_i_tlbr(&p);
+#if !defined(CONFIG_CPU_CAVIUM_OCTEON)
+		/* hazard barrier after TLBR but before read EntryLo */
+		if (cpu_has_mips_r2)
+			uasm_i_ehb(&p);
+#endif
 		/* Examine  entrylo 0 or 1 based on ptr. */
 		if (use_bbit_insns()) {
 			uasm_i_bbit0(&p, wr.r2, ilog2(sizeof(pte_t)), 8);
