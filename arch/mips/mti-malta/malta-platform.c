@@ -29,6 +29,7 @@
 #include <linux/mtd/partitions.h>
 #include <linux/mtd/physmap.h>
 #include <linux/platform_device.h>
+#include <asm/mips-boards/maltaint.h>
 #include <mtd/mtd-abi.h>
 
 #define SMC_PORT(base, int)						\
