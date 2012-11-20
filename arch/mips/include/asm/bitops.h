@@ -74,7 +74,7 @@ int __mips_test_and_change_bit(unsigned long nr,
 static inline void set_bit(unsigned long nr, volatile unsigned long *addr)
 {
 	unsigned long *m = ((unsigned long *) addr) + (nr >> SZLONG_LOG);
-	unsigned short bit = nr & SZLONG_MASK;
+	int bit = nr & SZLONG_MASK;
 	unsigned long temp;
 
 	if (kernel_uses_llsc && R10000_LLSC_WAR) {
@@ -126,7 +126,7 @@ static inline void set_bit(unsigned long nr, volatile unsigned long *addr)
 static inline void clear_bit(unsigned long nr, volatile unsigned long *addr)
 {
 	unsigned long *m = ((unsigned long *) addr) + (nr >> SZLONG_LOG);
-	unsigned short bit = nr & SZLONG_MASK;
+	int bit = nr & SZLONG_MASK;
 	unsigned long temp;
 
 	if (kernel_uses_llsc && R10000_LLSC_WAR) {
@@ -190,7 +190,7 @@ static inline void clear_bit_unlock(unsigned long nr, volatile unsigned long *ad
  */
 static inline void change_bit(unsigned long nr, volatile unsigned long *addr)
 {
-	unsigned short bit = nr & SZLONG_MASK;
+	int bit = nr & SZLONG_MASK;
 
 	if (kernel_uses_llsc && R10000_LLSC_WAR) {
 		unsigned long *m = ((unsigned long *) addr) + (nr >> SZLONG_LOG);
@@ -234,7 +234,7 @@ static inline void change_bit(unsigned long nr, volatile unsigned long *addr)
 static inline int test_and_set_bit(unsigned long nr,
 	volatile unsigned long *addr)
 {
-	unsigned short bit = nr & SZLONG_MASK;
+	int bit = nr & SZLONG_MASK;
 	unsigned long res;
 
 	smp_mb__before_llsc();
@@ -290,7 +290,7 @@ static inline int test_and_set_bit(unsigned long nr,
 static inline int test_and_set_bit_lock(unsigned long nr,
 	volatile unsigned long *addr)
 {
-	unsigned short bit = nr & SZLONG_MASK;
+	int bit = nr & SZLONG_MASK;
 	unsigned long res;
 
 	if (kernel_uses_llsc && R10000_LLSC_WAR) {
@@ -343,7 +343,7 @@ static inline int test_and_set_bit_lock(unsigned long nr,
 static inline int test_and_clear_bit(unsigned long nr,
 	volatile unsigned long *addr)
 {
-	unsigned short bit = nr & SZLONG_MASK;
+	int bit = nr & SZLONG_MASK;
 	unsigned long res;
 
 	smp_mb__before_llsc();
@@ -417,7 +417,7 @@ static inline int test_and_clear_bit(unsigned long nr,
 static inline int test_and_change_bit(unsigned long nr,
 	volatile unsigned long *addr)
 {
-	unsigned short bit = nr & SZLONG_MASK;
+	int bit = nr & SZLONG_MASK;
 	unsigned long res;
 
 	smp_mb__before_llsc();
