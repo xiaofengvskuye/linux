@@ -84,5 +84,6 @@ extern void mips_pcibios_init(void);
 #endif
 
 extern void mips_scroll_message(void);
+extern void mips_display_message(const char *str);
 
 #endif  /* __ASM_MIPS_BOARDS_GENERIC_H */
