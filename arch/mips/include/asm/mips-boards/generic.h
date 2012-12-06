@@ -83,4 +83,6 @@ extern void mips_pcibios_init(void);
 extern void kgdb_config(void);
 #endif
 
+extern void mips_scroll_message(void);
+
 #endif  /* __ASM_MIPS_BOARDS_GENERIC_H */
