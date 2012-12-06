@@ -83,4 +83,6 @@ extern void mips_pcibios_init(void);
 #define mips_pcibios_init() do { } while (0)
 #endif
 
+extern void mips_scroll_message(void);
+
 #endif  /* __ASM_MIPS_BOARDS_GENERIC_H */
