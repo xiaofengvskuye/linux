@@ -62,50 +62,72 @@ extern unsigned long pgd_current[];
 	TLBMISS_HANDLER_SETUP_PGD(swapper_pg_dir)
 #endif
 #endif /* CONFIG_MIPS_PGD_C0_CONTEXT*/
-#if defined(CONFIG_CPU_R3000) || defined(CONFIG_CPU_TX39XX)
 
-#define ASID_INC	0x40
-#define ASID_MASK	0xfc0
+#ifndef CONFIG_MIPS_MT_SMTC
+#define ASID_INC(asid)						\
+({								\
+	unsigned long __asid = asid;				\
+	__asm__("1:\taddiu\t%0,1\t\t\t\t# patched\n\t"		\
+	".section\t__asid_inc,\"a\"\n\t"			\
+	".word\t1b\n\t"						\
+	".previous"						\
+	:"=r" (__asid)						\
+	:"0" (__asid));						\
+	__asid;							\
+})
+#define ASID_MASK(asid)						\
+({								\
+	unsigned long __asid = asid;				\
+	__asm__("1:\tandi\t%0,%1,0xfc0\t\t\t# patched\n\t"	\
+	".section\t__asid_mask,\"a\"\n\t"			\
+	".word\t1b\n\t"						\
+	".previous"						\
+	:"=r" (__asid)						\
+	:"r" (__asid));						\
+	__asid;							\
+})
+#define ASID_VERSION_MASK					\
+({								\
+	unsigned long __asid;					\
+	__asm__("1:\tli\t%0,0xff00\t\t\t\t# patched\n\t"	\
+	".section\t__asid_version_mask,\"a\"\n\t"		\
+	".word\t1b\n\t"						\
+	".previous"						\
+	:"=r" (__asid));					\
+	__asid;							\
+})
+#define ASID_FIRST_VERSION					\
+({								\
+	unsigned long __asid = asid;				\
+	__asm__("1:\tli\t%0,0x100\t\t\t\t# patched\n\t"		\
+	".section\t__asid_first_version,\"a\"\n\t"		\
+	".word\t1b\n\t"						\
+	".previous"						\
+	:"=r" (__asid));					\
+	__asid;							\
+})
 
-#elif defined(CONFIG_CPU_R8000)
+#define ASID_FIRST_VERSION_R3000	0x1000
+#define ASID_FIRST_VERSION_R4000	0x100
+#define ASID_FIRST_VERSION_R8000	0x1000
+#define ASID_FIRST_VERSION_RM9000	0x1000
+#define ASID_FIRST_VERSION_99K		0x1000
 
-#define ASID_INC	0x10
-#define ASID_MASK	0xff0
-
-#elif defined(CONFIG_CPU_RM9000)
-
-#define ASID_INC	0x1
-#define ASID_MASK	0xfff
-
-/* SMTC/34K debug hack - but maybe we'll keep it */
-#elif defined(CONFIG_MIPS_MT_SMTC)
-
+#else
+/* SMTC/34K debug hack. */
 #define ASID_INC	0x1
 extern unsigned long smtc_asid_mask;
 #define ASID_MASK	(smtc_asid_mask)
 #define	HW_ASID_MASK	0xff
-/* End SMTC/34K debug hack */
-#else /* FIXME: not correct for R6000 */
-
-#define ASID_INC	0x1
-#define ASID_MASK	0xff
-
 #endif
 
 #define cpu_context(cpu, mm)	((mm)->context.asid[cpu])
-#define cpu_asid(cpu, mm)	(cpu_context((cpu), (mm)) & ASID_MASK)
+#define cpu_asid(cpu, mm)	ASID_MASK(cpu_context((cpu), (mm)))
 #define asid_cache(cpu)		(cpu_data[cpu].asid_cache)
 
 static inline void enter_lazy_tlb(struct mm_struct *mm, struct task_struct *tsk)
 {
 }
-
-/*
- *  All unused by hardware upper bits will be considered
- *  as a software asid extension.
- */
-#define ASID_VERSION_MASK  ((unsigned long)~(ASID_MASK|(ASID_MASK-1)))
-#define ASID_FIRST_VERSION ((unsigned long)(~ASID_VERSION_MASK) + 1)
 
 #ifndef CONFIG_MIPS_MT_SMTC
 /* Normal, classic MIPS get_new_mmu_context */
@@ -114,7 +136,7 @@ get_new_mmu_context(struct mm_struct *mm, unsigned long cpu)
 {
 	unsigned long asid = asid_cache(cpu);
 
-	if (! ((asid += ASID_INC) & ASID_MASK) ) {
+	if (!ASID_MASK((asid = ASID_INC(asid)))) {
 		if (cpu_has_vtag_icache)
 			flush_icache_all();
 		local_flush_tlb_all();	/* start new asid cycle */
