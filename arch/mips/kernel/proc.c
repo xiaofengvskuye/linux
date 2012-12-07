@@ -64,6 +64,12 @@ static int show_cpuinfo(struct seq_file *m, void *v)
 				cpu_data[n].watch_reg_masks[i]);
 		seq_printf(m, "]\n");
 	}
+	if (cpu_has_mips_r) {
+		seq_printf(m, "ISA version\t\t:");
+		if (cpu_has_mips_r1)	seq_printf(m, "%s", " r1");
+		if (cpu_has_mips_r2)	seq_printf(m, "%s", " r2");
+		seq_printf(m, "\n");
+	}
 	seq_printf(m, "ASEs implemented\t:");
 	if (cpu_has_mips16)	seq_printf(m, "%s", " mips16");
 	if (cpu_has_mdmx)	seq_printf(m, "%s", " mdmx");
