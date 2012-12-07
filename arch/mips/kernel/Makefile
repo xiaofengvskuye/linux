@@ -115,6 +115,7 @@ obj-$(CONFIG_PERF_EVENTS)	+= perf_event.o
 obj-$(CONFIG_HW_PERF_EVENTS)	+= perf_event_mipsxx.o
 
 obj-$(CONFIG_JUMP_LABEL)	+= jump_label.o
+obj-y				+= sysfs.o
 
 ifeq ($(CONFIG_CPU_MIPS32), y)
 #
