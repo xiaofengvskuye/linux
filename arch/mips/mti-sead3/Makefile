@@ -5,9 +5,11 @@
 # Copyright (C) 2008 Wind River Systems, Inc.
 #   written by Ralf Baechle <ralf@linux-mips.org>
 #
-obj-y				:= sead3-lcd.o sead3-cmdline.o \
-				   sead3-display.o sead3-init.o sead3-int.o \
-				   sead3-mtd.o sead3-net.o \
+# Copyright (C) 2012 MIPS Technoligies, Inc.  All rights reserved.
+# Steven J. Hill <sjhill@mips.com>
+#
+obj-y				:= sead3-lcd.o sead3-display.o sead3-init.o \
+				   sead3-int.o sead3-mtd.o sead3-net.o \
 				   sead3-memory.o sead3-platform.o \
 				   sead3-reset.o sead3-setup.o sead3-time.o
 

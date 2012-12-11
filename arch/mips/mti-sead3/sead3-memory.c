@@ -10,6 +10,7 @@
 #include <asm/bootinfo.h>
 #include <asm/sections.h>
 #include <asm/mips-boards/prom.h>
+#include <asm/fw/fw.h>
 
 enum yamon_memtypes {
 	yamon_dontuse,
@@ -31,7 +32,7 @@ struct prom_pmemblock * __init prom_getmdesc(void)
 	int tmp;
 
 	/* otherwise look in the environment */
-	memsize_str = prom_getenv("memsize");
+	memsize_str = fw_getenv("memsize");
 	if (!memsize_str) {
 		pr_warn("memsize not set in boot prom, set to default 32Mb\n");
 		physical_memsize = 0x02000000;
