@@ -52,7 +52,7 @@ void fpu_emulator_init_fpu(void)
  * with appropriate macros from uaccess.h
  */
 
-int fpu_emulator_save_context(struct sigcontext __user *sc)
+inline int fpu_emulator_save_context(struct sigcontext __user *sc)
 {
 	int i;
 	int err = 0;
@@ -66,7 +66,7 @@ int fpu_emulator_save_context(struct sigcontext __user *sc)
 	return err;
 }
 
-int fpu_emulator_restore_context(struct sigcontext __user *sc)
+inline int fpu_emulator_restore_context(struct sigcontext __user *sc)
 {
 	int i;
 	int err = 0;
@@ -90,6 +90,17 @@ int fpu_emulator_save_context32(struct sigcontext32 __user *sc)
 	int i;
 	int err = 0;
 
+	if (!test_thread_flag(TIF_32BIT_REGS)) {
+		for (i = 0; i < 32; i++) {
+			err |=
+			    __put_user(current->thread.fpu.fpr[i], &sc->sc_fpregs[i]);
+		}
+		err |= __put_user(current->thread.fpu.fcr31, &sc->sc_fpc_csr);
+
+		return err;
+
+	}
+
 	for (i = 0; i < 32; i+=2) {
 		err |=
 		    __put_user(current->thread.fpu.fpr[i], &sc->sc_fpregs[i]);
@@ -103,6 +114,16 @@ int fpu_emulator_restore_context32(struct sigcontext32 __user *sc)
 {
 	int i;
 	int err = 0;
+
+	if (!test_thread_flag(TIF_32BIT_REGS)) {
+		for (i = 0; i < 32; i++) {
+			err |=
+			    __get_user(current->thread.fpu.fpr[i], &sc->sc_fpregs[i]);
+		}
+		err |= __get_user(current->thread.fpu.fcr31, &sc->sc_fpc_csr);
+
+		return err;
+	}
 
 	for (i = 0; i < 32; i+=2) {
 		err |=
