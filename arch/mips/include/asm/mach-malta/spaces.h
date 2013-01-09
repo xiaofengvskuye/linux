@@ -137,13 +137,16 @@
 #define CKUSEG                  0x00000000
 #define CKSEG0                  0x80000000
 #define CKSEG3                  0xa0000000
-#define CKSEG2                  0xc0000000
+#define CKSEG2                  _AC(0xc0000000, UL)
 #define CKSEG1                  0xe0000000
 
 #define MAP_BASE                CKSEG2
 #define VMALLOC_END             (MAP_BASE + _AC(0x20000000, UL) - 2*PAGE_SIZE)
 
 #endif  /* CONFIG_EVA_3GB */
+
+#define IO_SIZE                 _AC(0x10000000, UL)
+#define IO_SHIFT                _AC(0x10000000, UL)
 
 #endif  /* CONFIG_EVA */
 
