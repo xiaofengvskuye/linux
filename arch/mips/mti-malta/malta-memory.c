@@ -213,13 +213,19 @@ static inline fw_memblock_t * __init prom_getevamdesc(void)
 		mdesc[5].type = fw_free;
 		mdesc[5].base = mdesc[0].base + 0x20000000;
 		mdesc[5].size = memsize - 0x20000000;
-	} else
-#endif
-	{
+	} else {
+		/* limit to 256MB, exclude I/O hole */
+		memsize = (memsize > 0x10000000)? 0x10000000 : memsize;
+
 		mdesc[4].type = fw_free;
 		mdesc[4].base = mdesc[0].base + CPHYSADDR(PFN_ALIGN(&_end));
 		mdesc[4].size = memsize - CPHYSADDR(mdesc[4].base);
 	}
+#else
+	mdesc[4].type = fw_free;
+	mdesc[4].base = mdesc[0].base + CPHYSADDR(PFN_ALIGN(&_end));
+	mdesc[4].size = memsize - CPHYSADDR(mdesc[4].base);
+#endif
 	return &mdesc[0];
 }
 #endif /* CONFIG_EVA */
