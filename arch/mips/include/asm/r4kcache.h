@@ -370,23 +370,23 @@ static inline void invalidate_tcache_page(unsigned long addr)
 	__asm__ __volatile__(						\
 	"	.set push					\n"	\
 	"	.set noreorder					\n"	\
-	"	.set mips3					\n"	\
-	"	cache %1, 0x000(%0); cache %1, 0x010(%0)	\n"	\
-	"	cache %1, 0x020(%0); cache %1, 0x030(%0)	\n"	\
-	"	cache %1, 0x040(%0); cache %1, 0x050(%0)	\n"	\
-	"	cache %1, 0x060(%0); cache %1, 0x070(%0)	\n"	\
-	"	cache %1, 0x080(%0); cache %1, 0x090(%0)	\n"	\
-	"	cache %1, 0x0a0(%0); cache %1, 0x0b0(%0)	\n"	\
-	"	cache %1, 0x0c0(%0); cache %1, 0x0d0(%0)	\n"	\
-	"	cache %1, 0x0e0(%0); cache %1, 0x0f0(%0)	\n"	\
-	"	cache %1, 0x100(%0); cache %1, 0x110(%0)	\n"	\
-	"	cache %1, 0x120(%0); cache %1, 0x130(%0)	\n"	\
-	"	cache %1, 0x140(%0); cache %1, 0x150(%0)	\n"	\
-	"	cache %1, 0x160(%0); cache %1, 0x170(%0)	\n"	\
-	"	cache %1, 0x180(%0); cache %1, 0x190(%0)	\n"	\
-	"	cache %1, 0x1a0(%0); cache %1, 0x1b0(%0)	\n"	\
-	"	cache %1, 0x1c0(%0); cache %1, 0x1d0(%0)	\n"	\
-	"	cache %1, 0x1e0(%0); cache %1, 0x1f0(%0)	\n"	\
+	"       .set eva                                        \n"     \
+	"       cachee %1, 0x000(%0); cachee %1, 0x010(%0)      \n"     \
+	"       cachee %1, 0x020(%0); cachee %1, 0x030(%0)      \n"     \
+	"       cachee %1, 0x040(%0); cachee %1, 0x050(%0)      \n"     \
+	"       cachee %1, 0x060(%0); cachee %1, 0x070(%0)      \n"     \
+	"       cachee %1, 0x080(%0); cachee %1, 0x090(%0)      \n"     \
+	"       cachee %1, 0x0a0(%0); cachee %1, 0x0b0(%0)      \n"     \
+	"       cachee %1, 0x0c0(%0); cachee %1, 0x0d0(%0)      \n"     \
+	"       cachee %1, 0x0e0(%0); cachee %1, 0x0f0(%0)      \n"     \
+	"       cachee %1, 0x100(%0); cachee %1, 0x110(%0)      \n"     \
+	"       cachee %1, 0x120(%0); cachee %1, 0x130(%0)      \n"     \
+	"       cachee %1, 0x140(%0); cachee %1, 0x150(%0)      \n"     \
+	"       cachee %1, 0x160(%0); cachee %1, 0x170(%0)      \n"     \
+	"       cachee %1, 0x180(%0); cachee %1, 0x190(%0)      \n"     \
+	"       cachee %1, 0x1a0(%0); cachee %1, 0x1b0(%0)      \n"     \
+	"       cachee %1, 0x1c0(%0); cachee %1, 0x1d0(%0)      \n"     \
+	"       cachee %1, 0x1e0(%0); cachee %1, 0x1f0(%0)      \n"     \
 	"	.set pop					\n"	\
 		:							\
 		: "r" (base),						\
