@@ -1086,14 +1086,16 @@ static void __cpuinit build_adjust_context(u32 **p, unsigned int ctx)
 
 static void __cpuinit build_get_ptep(u32 **p, unsigned int tmp, unsigned int ptr)
 {
+#ifndef CONFIG_64BIT
 	if (cpu_has_mips_r2) {
-		/* PTE ptr offset is obtained from BadVAddr */
+		/* For MIPS32R2, PTE ptr offset is obtained from BadVAddr */
 		UASM_i_MFC0(p, tmp, C0_BADVADDR);
 		UASM_i_LW(p, ptr, 0, ptr);
 		uasm_i_ext(p, tmp, tmp, PAGE_SHIFT+1, PGDIR_SHIFT-PAGE_SHIFT-1);
 		uasm_i_ins(p, ptr, tmp, PTE_T_LOG2+1, PGDIR_SHIFT-PAGE_SHIFT-1);
 		return;
 	}
+#endif /* CONFIG_64BIT */
 
 	/*
 	 * Bug workaround for the Nevada. It seems as if under certain
