@@ -893,8 +893,8 @@ static void __cpuinit decode_configs(struct cpuinfo_mips *c)
 	if (ok)
 		ok = decode_config2(c);
 	if (ok)
-		ok3 = decode_config3(c);
-	if (ok3)
+		ok = ok3 = decode_config3(c);
+	if (ok)
 		ok = decode_config4(c,0,0);   /* first pass - just return Mbit */
 	if (ok)
 		ok = decode_config5(c);
