@@ -103,8 +103,9 @@ static u32 unaligned_action;
 #define unaligned_action UNALIGNED_ACTION_QUIET
 #endif
 extern void show_registers(struct pt_regs *regs);
+asmlinkage void do_cpu(struct pt_regs *regs);
 
-#if 0
+#ifdef CONFIG_EVA
 /* EVA variant */
 
 #ifdef __BIG_ENDIAN
@@ -678,6 +679,9 @@ static void emulate_load_store_insn(struct pt_regs *regs,
 	unsigned long origpc;
 	unsigned long orig31;
 	void __user *fault_addr = NULL;
+#ifdef CONFIG_EVA
+	mm_segment_t seg;
+#endif
 
 	origpc = (unsigned long)pc;
 	orig31 = regs->regs[31];
@@ -723,6 +727,98 @@ static void emulate_load_store_insn(struct pt_regs *regs,
 		 * The remaining opcodes are the ones that are really of
 		 * interest.
 		 */
+#ifdef CONFIG_EVA
+	case spec3_op:
+
+		/* we can land here only from kernel accessing USER,
+		   so - set user space, temporary for verification */
+		seg = get_fs();
+		set_fs(USER_DS);
+
+		switch (insn.spec3_format.ls_func) {
+
+		case lhe_op:
+			if (!access_ok(VERIFY_READ, addr, 2)) {
+				set_fs(seg);
+				goto sigbus;
+			}
+
+			LoadHW(addr, value, res);
+			if (res) {
+				set_fs(seg);
+				goto fault;
+			}
+			compute_return_epc(regs);
+			regs->regs[insn.spec3_format.rt] = value;
+			break;
+
+		case lwe_op:
+			if (!access_ok(VERIFY_READ, addr, 4)) {
+				set_fs(seg);
+				goto sigbus;
+			}
+
+			LoadW(addr, value, res);
+			if (res) {
+				set_fs(seg);
+				goto fault;
+			}
+			compute_return_epc(regs);
+			regs->regs[insn.spec3_format.rt] = value;
+			break;
+
+		case lhue_op:
+			if (!access_ok(VERIFY_READ, addr, 2)) {
+				set_fs(seg);
+				goto sigbus;
+			}
+
+			LoadHWU(addr, value, res);
+			if (res) {
+				set_fs(seg);
+				goto fault;
+			}
+			compute_return_epc(regs);
+			regs->regs[insn.spec3_format.rt] = value;
+			break;
+
+		case she_op:
+			if (!access_ok(VERIFY_WRITE, addr, 2)) {
+				set_fs(seg);
+				goto sigbus;
+			}
+
+			compute_return_epc(regs);
+			value = regs->regs[insn.spec3_format.rt];
+			StoreHW(addr, value, res);
+			if (res) {
+				set_fs(seg);
+				goto fault;
+			}
+			break;
+
+		case swe_op:
+			if (!access_ok(VERIFY_WRITE, addr, 4)) {
+				set_fs(seg);
+				goto sigbus;
+			}
+
+			compute_return_epc(regs);
+			value = regs->regs[insn.spec3_format.rt];
+			StoreW(addr, value, res);
+			if (res) {
+				set_fs(seg);
+				goto fault;
+			}
+			break;
+
+		default:
+			set_fs(seg);
+			goto sigill;
+		}
+		set_fs(seg);
+		break;
+#endif
 	case lh_op:
 		if (!access_ok(VERIFY_READ, addr, 2))
 			goto sigbus;
@@ -851,6 +947,13 @@ static void emulate_load_store_insn(struct pt_regs *regs,
 	case ldc1_op:
 	case swc1_op:
 	case sdc1_op:
+#ifdef CONFIG_EVA
+		/* temporary fix for mixing AdEL and CpU exceptions in Impresa */
+		if (!(regs->cp0_status & ST0_CU1)) {
+			do_cpu(regs);
+			return;
+		}
+#endif
 		die_if_kernel("Unaligned FP access in kernel code", regs);
 		BUG_ON(!used_math());
 		BUG_ON(!is_fpu_owner());
@@ -1552,6 +1655,9 @@ sigill:
 	    ("Unhandled kernel unaligned access or invalid instruction", regs);
 	force_sig(SIGILL, current);
 }
+
+/*  recode table from MIPS16e register notation to GPR */
+const int mips16e_reg2gpr[] = { 16, 17, 2, 3, 4, 5, 6, 7 };
 
 static void emulate_load_store_MIPS16e(struct pt_regs *regs, void __user * addr)
 {
