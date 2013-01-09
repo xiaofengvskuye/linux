@@ -50,11 +50,11 @@ FEXPORT(__strncpy_from_user_nocheck_asm)
 	bltz		v0, .Lfault
 	 nop
 	jr		ra			# return n
-	move		v0, t0
+	 move            v0, t0
 	END(__strncpy_from_user_asm)
 
-.Lfault:	li		v0, -EFAULT
-	jr		ra
+.Lfault: jr             ra
+	  li              v0, -EFAULT
 
 	.section	__ex_table,"a"
 	PTR		1b, .Lfault
