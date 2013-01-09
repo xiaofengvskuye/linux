@@ -108,8 +108,8 @@ static inline fw_memblock_t * __init prom_getevamdesc(void)
 {
 	char *memsize_str;
 	char *ememsize_str;
-	unsigned int memsize = 0;
-	unsigned int ememsize = 0;
+	unsigned long memsize = 0;
+	unsigned long ememsize = 0;
 	char *ptr;
 	static char cmdline[COMMAND_LINE_SIZE] __initdata;
 
@@ -143,6 +143,7 @@ static inline fw_memblock_t * __init prom_getevamdesc(void)
 	physical_memsize -= PAGE_SIZE;
 #endif
 
+	memsize = 0;
 	/* Check the command line for a memsize directive that overrides
 	   the physical/default amount */
 	strcpy(cmdline, arcs_cmdline);
