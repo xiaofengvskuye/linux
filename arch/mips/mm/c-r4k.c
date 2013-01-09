@@ -819,7 +819,7 @@ static inline void local_r4k_flush_icache_range(unsigned long start, unsigned lo
 			r4k_blast_dcache();
 		} else {
 			R4600_HIT_CACHEOP_WAR_IMPL;
-			protected_blast_dcache_range(start, end);
+			blast_dcache_range(start, end);
 		}
 
 		wmb();
@@ -828,7 +828,7 @@ static inline void local_r4k_flush_icache_range(unsigned long start, unsigned lo
 	if (end - start > icache_size)
 		r4k_blast_icache();
 	else
-		protected_blast_icache_range(start, end);
+		blast_icache_range(start, end);
 }
 
 /* this function can be called for kernel OR user addresses,
@@ -1755,6 +1755,13 @@ void __cpuinit r4k_cache_init(void)
 	/* We want to run CMP kernels on core(s) with and without coherent caches */
 	/* Therefore can't use CONFIG_MIPS_CMP to decide to flush cache */
 	local_r4k___flush_cache_all(NULL);
+#ifdef CONFIG_EVA
+	/* this is done just in case if some address aliasing does exist in
+	   board like old Malta memory map. Doesn't hurt anyway. LY22 */
+	smp_wmb();
+	r4k_blast_scache();
+	smp_wmb();
+#endif
 
 	coherency_setup();
 }
