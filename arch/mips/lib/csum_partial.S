@@ -54,6 +54,8 @@
 #define ADD    daddu
 #define NBYTES 8
 
+#define LOADK  ld
+
 #else
 
 #define LOAD   lw
@@ -61,9 +63,9 @@
 #define ADD    addu
 #define NBYTES 4
 
-#endif /* USE_DOUBLE */
+#define LOADK  lw
 
-#define LOADK  LOAD
+#endif /* USE_DOUBLE */
 
 #define UNIT(unit)  ((unit)*NBYTES)
 

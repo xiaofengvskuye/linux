@@ -117,6 +117,8 @@
 #define NBYTES 8
 #define LOG_NBYTES 3
 
+#define LOADK  ld
+
 /*
  * As we are sharing code base with the mips32 tree (which use the o32 ABI
  * register definitions). We need to redefine the register definitions from
@@ -151,9 +153,9 @@
 #define NBYTES 4
 #define LOG_NBYTES 2
 
-#endif /* USE_DOUBLE */
+#define LOADK  lw
 
-#define LOADK   LOAD
+#endif /* USE_DOUBLE */
 
 #ifdef CONFIG_CPU_LITTLE_ENDIAN
 #define LDFIRST LOADR
