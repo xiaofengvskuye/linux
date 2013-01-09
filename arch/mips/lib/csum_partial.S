@@ -9,6 +9,17 @@
  * Copyright (C) 1999 Silicon Graphics, Inc.
  * Copyright (C) 2007  Maciej W. Rozycki
  */
+/*
+ * Hack to resolve longstanding prefetch issue
+ *
+ * Prefetching may be fatal on some systems if we're prefetching beyond the
+ * end of memory on some systems.  It's also a seriously bad idea on non
+ * dma-coherent systems.
+ */
+#if defined(CONFIG_DMA_NONCOHERENT) || defined(CONFIG_MIPS_MALTA)
+#undef CONFIG_CPU_HAS_PREFETCH
+#endif
+
 #include <linux/errno.h>
 #include <asm/asm.h>
 #include <asm/asm-offsets.h>
@@ -51,6 +62,8 @@
 #define NBYTES 4
 
 #endif /* USE_DOUBLE */
+
+#define LOADK  LOAD
 
 #define UNIT(unit)  ((unit)*NBYTES)
 
@@ -417,12 +430,18 @@ FEXPORT(csum_partial_copy_nocheck)
 	 *
 	 * If len < NBYTES use byte operations.
 	 */
-	sltu	t2, len, NBYTES
+	PREF(   0, 0(src) )
+	PREF(   1, 0(dst) )
+	sltu    t2, len, NBYTES
 	and	t1, dst, ADDRMASK
-	bnez	t2, .Lcopy_bytes_checklen
+	PREF(   0, 1*32(src) )
+	PREF(   1, 1*32(dst) )
+	bnez    t2, .Lcopy_bytes_checklen
 	 and	t0, src, ADDRMASK
 	andi	odd, dst, 0x1			/* odd buffer? */
-	bnez	t1, .Ldst_unaligned
+	PREF(   0, 2*32(src) )
+	PREF(   1, 2*32(dst) )
+	bnez    t1, .Ldst_unaligned
 	 nop
 	bnez	t0, .Lsrc_unaligned_dst_aligned
 	/*
@@ -434,7 +453,9 @@ FEXPORT(csum_partial_copy_nocheck)
 	beqz	t0, .Lcleanup_both_aligned # len < 8*NBYTES
 	 nop
 	SUB	len, 8*NBYTES		# subtract here for bgez loop
-	.align	4
+	PREF(   0, 3*32(src) )
+	PREF(   1, 3*32(dst) )
+	.align  4
 1:
 EXC(	LOAD	t0, UNIT(0)(src),	.Ll_exc)
 EXC(	LOAD	t1, UNIT(1)(src),	.Ll_exc_copy)
@@ -462,8 +483,10 @@ EXC(	STORE	t6, UNIT(6)(dst),	.Ls_exc)
 	ADDC(sum, t6)
 EXC(	STORE	t7, UNIT(7)(dst),	.Ls_exc)
 	ADDC(sum, t7)
-	.set	reorder				/* DADDI_WAR */
+	.set    reorder                         /* DADDI_WAR */
 	ADD	dst, dst, 8*NBYTES
+	PREF(   0, 8*32(src) )
+	PREF(   1, 8*32(dst) )
 	bgez	len, 1b
 	.set	noreorder
 	ADD	len, 8*NBYTES		# revert len (see above)
@@ -568,9 +591,11 @@ EXC(	STFIRST t3, FIRST(0)(dst),	.Ls_exc)
 	 ADD	src, src, t2
 
 .Lsrc_unaligned_dst_aligned:
-	SRL	t0, len, LOG_NBYTES+2    # +2 for 4 units/iter
+	SRL     t0, len, LOG_NBYTES+2    # +2 for 4 units/iter
+	PREF(   0, 3*32(src) )
 	beqz	t0, .Lcleanup_src_unaligned
-	 and	rem, len, (4*NBYTES-1)   # rem = len % 4*NBYTES
+	 and    rem, len, (4*NBYTES-1)   # rem = len % 4*NBYTES
+	PREF(   1, 3*32(dst) )
 1:
 /*
  * Avoid consecutive LD*'s to the same register since some mips
@@ -587,7 +612,8 @@ EXC(	LDFIRST	t2, FIRST(2)(src),	.Ll_exc_copy)
 EXC(	LDFIRST	t3, FIRST(3)(src),	.Ll_exc_copy)
 EXC(	LDREST	t2, REST(2)(src),	.Ll_exc_copy)
 EXC(	LDREST	t3, REST(3)(src),	.Ll_exc_copy)
-	ADD	src, src, 4*NBYTES
+	PREF(   0, 9*32(src) )          # 0 is PREF_LOAD  (not streamed)
+	ADD     src, src, 4*NBYTES
 #ifdef CONFIG_CPU_SB1
 	nop				# improves slotting
 #endif
@@ -600,7 +626,8 @@ EXC(	STORE	t2, UNIT(2)(dst),	.Ls_exc)
 EXC(	STORE	t3, UNIT(3)(dst),	.Ls_exc)
 	ADDC(sum, t3)
 	.set	reorder				/* DADDI_WAR */
-	ADD	dst, dst, 4*NBYTES
+	PREF(   1, 9*32(dst) )          # 1 is PREF_STORE (not streamed)
+	ADD     dst, dst, 4*NBYTES
 	bne	len, rem, 1b
 	.set	noreorder
 
@@ -700,9 +727,9 @@ EXC(	sb	t0, NBYTES-2(dst), .Ls_exc)
 	 *
 	 * Assumes src < THREAD_BUADDR($28)
 	 */
-	LOAD	t0, TI_TASK($28)
+	LOADK   t0, TI_TASK($28)
 	 li	t2, SHIFT_START
-	LOAD	t0, THREAD_BUADDR(t0)
+	LOADK   t0, THREAD_BUADDR(t0)
 1:
 EXC(	lbu	t1, 0(src),	.Ll_exc)
 	ADD	src, src, 1
@@ -715,9 +742,9 @@ EXC(	lbu	t1, 0(src),	.Ll_exc)
 	bne	src, t0, 1b
 	.set	noreorder
 .Ll_exc:
-	LOAD	t0, TI_TASK($28)
+	LOADK   t0, TI_TASK($28)
 	 nop
-	LOAD	t0, THREAD_BUADDR(t0)	# t0 is just past last good address
+	LOADK   t0, THREAD_BUADDR(t0)   # t0 is just past last good address
 	 nop
 	SUB	len, AT, t0		# len number of uncopied bytes
 	/*
@@ -759,6 +786,8 @@ EXC(	lbu	t1, 0(src),	.Ll_exc)
 	.set	pop
 	END(__csum_partial_copy_user)
 
+
+#ifdef CONFIG_EVA
 
 	.set    eva
 
@@ -813,11 +842,17 @@ LEAF(__csum_partial_copy_fromuser)
 	 *
 	 * If len < NBYTES use byte operations.
 	 */
-	sltu	t2, len, NBYTES
+	PREFE(  0, 0(src) )
+	PREF(   1, 0(dst) )
+	sltu    t2, len, NBYTES
 	and	t1, dst, ADDRMASK
+	PREFE(  0, 1*32(src) )
+	PREF(   1, 1*32(dst) )
 	bnez    t2, .LFcopy_bytes_checklen
 	 and	t0, src, ADDRMASK
 	andi	odd, dst, 0x1			/* odd buffer? */
+	PREFE(  0, 2*32(src) )
+	PREF(   1, 2*32(dst) )
 	bnez    t1, .LFdst_unaligned
 	 nop
 	bnez    t0, .LFsrc_unaligned_dst_aligned
@@ -830,7 +865,9 @@ LEAF(__csum_partial_copy_fromuser)
 	beqz    t0, .LFcleanup_both_aligned # len < 8*NBYTES
 	 nop
 	SUB	len, 8*NBYTES		# subtract here for bgez loop
-	.align	4
+	PREFE(  0, 3*32(src) )
+	PREF(   1, 3*32(dst) )
+	.align  4
 1:
 EXC(    LOAD    t0, UNIT(0)(src),       .LFl_exc)
 EXC(    LOAD    t1, UNIT(1)(src),       .LFl_exc_copy)
@@ -860,7 +897,9 @@ EXC(    LOAD    t7, UNIT(7)(src),       .LFl_exc_copy)
 	ADDC(sum, t7)
 	.set	reorder				/* DADDI_WAR */
 	ADD	dst, dst, 8*NBYTES
-	bgez	len, 1b
+	PREFE(  0, 8*32(src) )
+	PREF(   1, 8*32(dst) )
+	bgez    len, 1b
 	.set	noreorder
 	ADD	len, 8*NBYTES		# revert len (see above)
 
@@ -962,8 +1001,10 @@ EXC(    LDREST  t3, REST(0)(src),       .LFl_exc_copy)
 
 .LFsrc_unaligned_dst_aligned:
 	SRL	t0, len, LOG_NBYTES+2    # +2 for 4 units/iter
+	PREFE(  0, 3*32(src) )
 	beqz    t0, .LFcleanup_src_unaligned
 	 and	rem, len, (4*NBYTES-1)   # rem = len % 4*NBYTES
+	PREF(   1, 3*32(dst) )
 1:
 /*
  * Avoid consecutive LD*'s to the same register since some mips
@@ -980,7 +1021,8 @@ EXC(    LDFIRST t2, FIRST(2)(src),      .LFl_exc_copy)
 EXC(    LDFIRST t3, FIRST(3)(src),      .LFl_exc_copy)
 EXC(    LDREST  t2, REST(2)(src),       .LFl_exc_copy)
 EXC(    LDREST  t3, REST(3)(src),       .LFl_exc_copy)
-	ADD	src, src, 4*NBYTES
+	PREFE(  0, 9*32(src) )          # 0 is PREF_LOAD  (not streamed)
+	ADD     src, src, 4*NBYTES
 #ifdef CONFIG_CPU_SB1
 	nop				# improves slotting
 #endif
@@ -992,7 +1034,8 @@ EXC(    LDREST  t3, REST(3)(src),       .LFl_exc_copy)
 	ADDC(sum, t2)
 	STORE   t3, UNIT(3)(dst)
 	ADDC(sum, t3)
-	.set	reorder				/* DADDI_WAR */
+	PREF(   1, 9*32(dst) )          # 1 is PREF_STORE (not streamed)
+	.set    reorder                         /* DADDI_WAR */
 	ADD	dst, dst, 4*NBYTES
 	bne	len, rem, 1b
 	.set	noreorder
@@ -1022,7 +1065,7 @@ EXC(    LDREST  t0, REST(0)(src),       .LFl_exc_copy)
 	move	t2, zero	# partial word
 	li	t3, SHIFT_START	# shift
 /* use .Ll_exc_copy here to return correct sum on fault */
-#define COPY_BYTEF(N)                    \
+#define COPY_BYTE(N)                    \
 EXC(    lbue    t0, N(src), .LFl_exc_copy);      \
 	SUB	len, len, 1;		\
 	sb      t0, N(dst);   \
@@ -1031,13 +1074,13 @@ EXC(    lbue    t0, N(src), .LFl_exc_copy);      \
 	beqz    len, .LFcopy_bytes_done; \
 	 or	t2, t0
 
-	COPY_BYTEF(0)
-	COPY_BYTEF(1)
+	COPY_BYTE(0)
+	COPY_BYTE(1)
 #ifdef USE_DOUBLE
-	COPY_BYTEF(2)
-	COPY_BYTEF(3)
-	COPY_BYTEF(4)
-	COPY_BYTEF(5)
+	COPY_BYTE(2)
+	COPY_BYTE(3)
+	COPY_BYTE(4)
+	COPY_BYTE(5)
 #endif
 EXC(    lbue    t0, NBYTES-2(src), .LFl_exc_copy)
 	SUB	len, len, 1
@@ -1086,10 +1129,10 @@ EXC(    lbue    t0, NBYTES-2(src), .LFl_exc_copy)
 	 *
 	 * Assumes src < THREAD_BUADDR($28)
 	 */
-	LOAD    t0, TI_TASK($28)
-	 li     t2, SHIFT_START
+	LOADK   t0, TI_TASK($28)
+	 li	t2, SHIFT_START
 	addi    t0, t0, THREAD_BUADDR
-	LOAD    t0, 0(t0)
+	LOADK   t0, 0(t0)
 1:
 EXC(    lbue     t1, 0(src),     .LFl_exc)
 	ADD	src, src, 1
@@ -1102,9 +1145,9 @@ EXC(    lbue     t1, 0(src),     .LFl_exc)
 	bne	src, t0, 1b
 	.set	noreorder
 .LFl_exc:
-	LOAD	t0, TI_TASK($28)
+	LOADK   t0, TI_TASK($28)
 	addi    t0, t0, THREAD_BUADDR
-	LOAD    t0, 0(t0)
+	LOADK   t0, 0(t0)               # t0 is just past last good address
 	SUB	len, AT, t0		# len number of uncopied bytes
 	/*
 	 * Here's where we rely on src and dst being incremented in tandem,
@@ -1152,7 +1195,7 @@ EXC(    lbue     t1, 0(src),     .LFl_exc)
 #undef  LDREST
 #undef  STFIRST
 #undef  STREST
-#undef  COPY_BYTEF
+#undef  COPY_BYTE
 
 #define LOAD   lw
 #define LOADL  lwl
@@ -1193,11 +1236,17 @@ LEAF(__csum_partial_copy_touser)
 	 *
 	 * If len < NBYTES use byte operations.
 	 */
-	sltu	t2, len, NBYTES
+	PREF(   0, 0(src) )
+	PREFE(  1, 0(dst) )
+	sltu    t2, len, NBYTES
 	and	t1, dst, ADDRMASK
+	PREF(   0, 1*32(src) )
+	PREFE(  1, 1*32(dst) )
 	bnez    t2, .LTcopy_bytes_checklen
 	 and	t0, src, ADDRMASK
 	andi	odd, dst, 0x1			/* odd buffer? */
+	PREF(   0, 2*32(src) )
+	PREFE(  1, 2*32(dst) )
 	bnez    t1, .LTdst_unaligned
 	 nop
 	bnez    t0, .LTsrc_unaligned_dst_aligned
@@ -1210,7 +1259,9 @@ LEAF(__csum_partial_copy_touser)
 	beqz    t0, .LTcleanup_both_aligned # len < 8*NBYTES
 	 nop
 	SUB	len, 8*NBYTES		# subtract here for bgez loop
-	.align	4
+	PREF(   0, 3*32(src) )
+	PREFE(  1, 3*32(dst) )
+	.align  4
 1:
 	LOAD    t0, UNIT(0)(src)
 	LOAD    t1, UNIT(1)(src)
@@ -1240,7 +1291,9 @@ EXC(    STORE   t7, UNIT(7)(dst),       .LTs_exc)
 	ADDC(sum, t7)
 	.set	reorder				/* DADDI_WAR */
 	ADD	dst, dst, 8*NBYTES
-	bgez	len, 1b
+	PREF(   0, 8*32(src) )
+	PREFE(  1, 8*32(dst) )
+	bgez    len, 1b
 	.set	noreorder
 	ADD	len, 8*NBYTES		# revert len (see above)
 
@@ -1342,8 +1395,10 @@ EXC(    STFIRST t3, FIRST(0)(dst),      .LTs_exc)
 
 .LTsrc_unaligned_dst_aligned:
 	SRL	t0, len, LOG_NBYTES+2    # +2 for 4 units/iter
+	PREF(   0, 3*32(src) )
 	beqz    t0, .LTcleanup_src_unaligned
 	 and	rem, len, (4*NBYTES-1)   # rem = len % 4*NBYTES
+	PREFE(  1, 3*32(dst) )
 1:
 /*
  * Avoid consecutive LD*'s to the same register since some mips
@@ -1360,7 +1415,8 @@ EXC(    STFIRST t3, FIRST(0)(dst),      .LTs_exc)
 	LDFIRST t3, FIRST(3)(src)
 	LDREST  t2, REST(2)(src)
 	LDREST  t3, REST(3)(src)
-	ADD	src, src, 4*NBYTES
+	PREF(   0, 9*32(src) )          # 0 is PREF_LOAD  (not streamed)
+	ADD     src, src, 4*NBYTES
 #ifdef CONFIG_CPU_SB1
 	nop				# improves slotting
 #endif
@@ -1372,7 +1428,8 @@ EXC(    STORE   t2, UNIT(2)(dst),       .LTs_exc)
 	ADDC(sum, t2)
 EXC(    STORE   t3, UNIT(3)(dst),       .LTs_exc)
 	ADDC(sum, t3)
-	.set	reorder				/* DADDI_WAR */
+	PREFE(  1, 9*32(dst) )          # 1 is PREF_STORE (not streamed)
+	.set    reorder                         /* DADDI_WAR */
 	ADD	dst, dst, 4*NBYTES
 	bne	len, rem, 1b
 	.set	noreorder
@@ -1402,7 +1459,7 @@ EXC(    STORE   t0, 0(dst),             .LTs_exc)
 	move	t2, zero	# partial word
 	li	t3, SHIFT_START	# shift
 /* use .Ll_exc_copy here to return correct sum on fault */
-#define COPY_BYTET(N)                    \
+#define COPY_BYTE(N)                    \
 	lbu     t0, N(src);     \
 	SUB	len, len, 1;		\
 EXC(    sbe      t0, N(dst), .LTs_exc);   \
@@ -1411,13 +1468,13 @@ EXC(    sbe      t0, N(dst), .LTs_exc);   \
 	beqz    len, .LTcopy_bytes_done; \
 	 or	t2, t0
 
-	COPY_BYTET(0)
-	COPY_BYTET(1)
+	COPY_BYTE(0)
+	COPY_BYTE(1)
 #ifdef USE_DOUBLE
-	COPY_BYTET(2)
-	COPY_BYTET(3)
-	COPY_BYTET(4)
-	COPY_BYTET(5)
+	COPY_BYTE(2)
+	COPY_BYTE(3)
+	COPY_BYTE(4)
+	COPY_BYTE(5)
 #endif
 	lbu     t0, NBYTES-2(src)
 	SUB	len, len, 1
@@ -1462,4 +1519,4 @@ EXC(    sbe     t0, NBYTES-2(dst), .LTs_exc)
 	 sw	v1, (errptr)
 	END(__csum_partial_copy_touser)
 
-
+#endif  /* CONFIG_EVA */

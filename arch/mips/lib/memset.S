@@ -234,46 +234,45 @@ FEXPORT(__bzero)
 /*  EVA stuff */
 /*  ++++++++  */
 
-LEAF(__bzero_user)
 	.set            eva
+
+#undef  LONG_S_L
+#undef  LONG_S_R
+
+#define LONG_S_L swle
+#define LONG_S_R swre
+
+LEAF(__bzero_user)
 	sltiu		t0, a2, STORSIZE	/* very small region? */
 	bnez            t0, .LEsmall_memset
 	 andi		t0, a0, STORMASK	/* aligned? */
 
+#ifdef CONFIG_CPU_MICROMIPS
+	move		t8, a1
+	move		t9, a1
+#endif
+#ifndef CONFIG_CPU_DADDI_WORKAROUNDS
 	beqz		t0, 1f
 	 PTR_SUBU	t0, STORSIZE		/* alignment in bytes */
-#if 0
+#else
+	.set		noat
+	li		AT, STORSIZE
+	beqz		t0, 1f
+	 PTR_SUBU	t0, AT			/* alignment in bytes */
+	.set		at
+#endif
+
+	R10KCBARRIER(0(ra))
 #ifdef __MIPSEB__
-	EX(LONG_S_L, a1, (a0), .Lfirst_fixup)	/* make word/dword aligned */
+	EX(LONG_S_L, a1, (a0), .LEfirst_fixup)  /* make word/dword aligned */
 #endif
 #ifdef __MIPSEL__
-	EX(LONG_S_R, a1, (a0), .Lfirst_fixup)	/* make word/dword aligned */
+	EX(LONG_S_R, a1, (a0), .LEfirst_fixup)  /* make word/dword aligned */
 #endif
+	PTR_SUBU	a0, t0			/* long align ptr */
+	PTR_ADDU	a2, t0			/* correct size */
 
-	PTR_SUBU        a0, t0                  /* long align ptr */
-	PTR_ADDU        a2, t0                  /* correct size */
-#else
-	PTR_ADDIU       t1, t0, 1 - STORSIZE
-	/* EXE(0x7c85001c,  .LEfirst_fixup) */   /* sbe  a1, 0(a0) */
-	EX(sbe, a1, 0(a0), .LEfirst_fixup)
-	beqz            t1, 1f
-	  PTR_ADDIU       t1, 1
-
-	/* EXE(0x7c85009c,  .LEfirst_fixup) */   /* sbe  a1, 1(a0) */
-	EX(sbe, a1, 1(a0), .LEfirst_fixup)
-	beqz            t1, 1f
-	  nop
-
-	/* EXE(0x7c85011c,  .LEfirst_fixup) */   /* sbe  a1, 2(a0) */
-	EX(sbe, a1, 2(a0), .LEfirst_fixup)
-
-	PTR_SUBU        a0, t0                  /* long align ptr */
-	PTR_ADDU        a2, t0                  /* correct size */
-
-#endif
-
-1:
-	ori             t1, a2, 0x3f            /* # of full blocks */
+1:	ori		t1, a2, 0x3f		/* # of full blocks */
 	xori		t1, 0x3f
 	beqz            t1, .LEmemset_partial    /* no block to fill */
 	 andi		t0, a2, 0x40-STORSIZE
@@ -281,62 +280,69 @@ LEAF(__bzero_user)
 	PTR_ADDU	t1, a0			/* end address */
 	.set		reorder
 1:	PTR_ADDIU	a0, 64
-
-	/* f_fill64e a0, -64, a1, .LEfwd_fixup:  */
+	R10KCBARRIER(0(ra))
 	f_fill64eva a0, -64, a1, .LEfwd_fixup
-	bne             t1, a0, 1b
+	bne		t1, a0, 1b
 	.set		noreorder
 
 .LEmemset_partial:
+	R10KCBARRIER(0(ra))
 	PTR_LA		t1, 2f			/* where to start */
+#ifdef CONFIG_CPU_MICROMIPS
+	LONG_SRL	t7, t0, 1
+#if LONGSIZE == 4
+	PTR_SUBU	t1, t7
+#else
+	.set		noat
+	LONG_SRL	AT, t7, 1
+	PTR_SUBU	t1, AT
+	.set		at
+#endif
+#else
+#if LONGSIZE == 4
 	PTR_SUBU	t1, t0
+#else
+	.set		noat
+	LONG_SRL	AT, t0, 1
+	PTR_SUBU	t1, AT
+	.set		at
+#endif
+#endif
 	jr		t1
 	 PTR_ADDU	a0, t0			/* dest ptr */
 
 	.set		push
 	.set		noreorder
 	.set		nomacro
-	/* f_fill64e a0, -64, a1, .LEpartial_fixup:  ... but first do longs ... */
-	f_fill64eva a0, -64, a1, .LEpartial_fixup
-2:      .set            pop
+	f_fill64eva a0, -64, a1, .LEpartial_fixup   /* ... but first do longs ... */
+2:	.set		pop
 	andi		a2, STORMASK		/* At most one long to go */
 
 	beqz		a2, 1f
-	  nop
-
-	/* EXE(0x7c85001c,  .LElast_fixup)  */  /* sbe  a1, 0(a0) */
-	EX(sbe, a1, 0(a0), .LElast_fixup)
-	PTR_ADDIU       a2, -1
-	beqz            a2, 1f
-	  nop
-
-	/* EXE(0x7c85009c,  .LElast_fixup)  */  /* sbe  a1, 1(a0) */
-	EX(sbe, a1, 1(a0), .LElast_fixup)
-	PTR_ADDIU       a2, -1
-	beqz            a2, 1f
-	  nop
-
-	/* EXE(0x7c85011c,  .LElast_fixup)  */  /* sbe  a1, 2(a0) */
-	EX(sbe, a1, 2(a0), .LElast_fixup)
-
+	 PTR_ADDU	a0, a2			/* What's left */
+	R10KCBARRIER(0(ra))
+#ifdef __MIPSEB__
+	EX(LONG_S_R, a1, -1(a0), .LElast_fixup)
+#endif
+#ifdef __MIPSEL__
+	EX(LONG_S_L, a1, -1(a0), .LElast_fixup)
+#endif
 1:	jr		ra
 	 move		a2, zero
 
 .LEsmall_memset:
 	beqz		a2, 2f
-	 PTR_ADDU       a2, a0, a2
+	 PTR_ADDU	t1, a0, a2
 
 1:	PTR_ADDIU	a0, 1			/* fill bytewise */
-	bne             a2, a0, 1b
-	/* EXE(0x7c85ff9c,  .LEfinal_fixup) */  /* sbe  a1, -1(a0) */
-	 EX(sbe, a1, -1(a0), .LEfinal_fixup)
+	R10KCBARRIER(0(ra))
+	bne		t1, a0, 1b
+	 sb		a1, -1(a0)
 
 2:	jr		ra			/* done */
 	 move		a2, zero
 
 .LEfirst_fixup:
-	PTR_ADDU        a2, t1
-	PTR_SUBU        a2, t0
 	jr	ra
 	 nop
 
@@ -358,11 +364,6 @@ LEAF(__bzero_user)
 
 .LElast_fixup:
 	jr		ra
-	  nop
-
-.LEfinal_fixup:
-	jr              ra
-	  PTR_SUBU        a2, a2, a0
+	 andi		v1, a2, STORMASK
 	END(__bzero_user)
-
 #endif
