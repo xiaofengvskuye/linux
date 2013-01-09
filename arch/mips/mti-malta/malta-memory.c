@@ -104,6 +104,8 @@ static inline fw_memblock_t * __init prom_getmdesc(void)
 
 #else
 
+static unsigned newMapType;
+
 static inline fw_memblock_t * __init prom_getevamdesc(void)
 {
 	char *memsize_str;
@@ -169,7 +171,12 @@ static inline fw_memblock_t * __init prom_getevamdesc(void)
 			printk("YAMON reports memsize=256M but doesn't report ememsize option\n");
 			printk("If you install > 256MB memory, upgrade YAMON or use boot option memsize=XXXM\n");
 		}
+	newMapType = *((unsigned int *)CKSEG1ADDR(0xbf403004));
+	printk("System Controller register = %0x\n",newMapType);
+	newMapType &= 0x100;    /* extract map type bit */
 #ifdef CONFIG_EVA_OLD_MALTA_MAP
+	if (newMapType)
+		panic("Malta board has new memory map layout but kernel is configured for legacy map\n");
 	/* Don't use last 64KB - it is just for macros arithmetics overflow */
 	if (memsize > 0x7fff0000)
 		memsize = 0x7fff0000;
@@ -228,6 +235,18 @@ static inline fw_memblock_t * __init prom_getevamdesc(void)
 #endif
 	return &mdesc[0];
 }
+
+#ifndef CONFIG_EVA_OLD_MALTA_MAP
+void __init prom_mem_check(int niocu)
+{
+	if (!newMapType) {
+		if (niocu && mdesc[5].size) {
+			printk(KERN_WARNING "Malta board has legacy memory map + IOCU, but kernel is configured for new map layout, restrict memsize to 256MB\n");
+			boot_mem_map.nr_map--;
+		}
+	}
+}
+#endif /* !CONFIG_EVA_OLD_MALTA_MAP */
 #endif /* CONFIG_EVA */
 
 static int __init fw_memtype_classify(unsigned int type)
