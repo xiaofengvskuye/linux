@@ -749,6 +749,8 @@ static inline unsigned int decode_config3(struct cpuinfo_mips *c)
 		c->options |= MIPS_CPU_RIXI;
 	if (config3 & MIPS_CONF3_DSP)
 		c->ases |= MIPS_ASE_DSP;
+	if (config3 & MIPS_CONF3_DSP2P)
+		c->ases |= MIPS_ASE_DSP2P;
 	if (config3 & MIPS_CONF3_VINT)
 		c->options |= MIPS_CPU_VINT;
 	if (config3 & MIPS_CONF3_VEIC)
@@ -757,8 +759,12 @@ static inline unsigned int decode_config3(struct cpuinfo_mips *c)
 		c->ases |= MIPS_ASE_MIPSMT;
 	if (config3 & MIPS_CONF3_ULRI)
 		c->options |= MIPS_CPU_ULRI;
+	if (config3 & MIPS_CONF3_CTXTC)
+		c->options |= MIPS_CPU_CTXTC;
 	if (config3 & MIPS_CONF3_ISA)
 		c->options |= MIPS_CPU_MICROMIPS;
+	if (config3 & MIPS_CONF3_SC)
+		c->options |= MIPS_CPU_SEGMENTS;
 #ifdef CONFIG_CPU_MICROMIPS
 	write_c0_config3(read_c0_config3() | MIPS_CONF3_ISA_OE);
 #endif

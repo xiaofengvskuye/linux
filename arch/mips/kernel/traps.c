@@ -846,6 +846,13 @@ asmlinkage void do_bp(struct pt_regs *regs)
 	unsigned int opcode, bcode;
 	unsigned long epc;
 	u16 instr[2];
+#ifdef CONFIG_EVA
+	mm_segment_t seg;
+
+	seg = get_fs();
+	if (!user_mode(regs))
+		set_fs(KERNEL_DS);
+#endif
 
 	if (regs->cp0_epc & MIPS_ISA_MODE) {
 		/* calc exception pc */
@@ -861,6 +868,9 @@ asmlinkage void do_bp(struct pt_regs *regs)
 				goto out_sigsegv;
 		    bcode = (instr[0] >> 6) & 0x3f;
 		    do_trap_or_bp(regs, bcode, "Break");
+#ifdef CONFIG_EVA
+		    set_fs(seg);
+#endif
 		    return;
 		}
 	} else {
@@ -898,9 +908,15 @@ asmlinkage void do_bp(struct pt_regs *regs)
 	}
 
 	do_trap_or_bp(regs, bcode, "Break");
+#ifdef CONFIG_EVA
+	set_fs(seg);
+#endif
 	return;
 
 out_sigsegv:
+#ifdef CONFIG_EVA
+	set_fs(seg);
+#endif
 	force_sig(SIGSEGV, current);
 }
 
@@ -909,6 +925,13 @@ asmlinkage void do_tr(struct pt_regs *regs)
 	unsigned int opcode, tcode = 0;
 	u16 instr[2];
 	unsigned long epc = exception_epc(regs);
+#ifdef CONFIG_EVA
+	mm_segment_t seg;
+
+	seg = get_fs();
+	if (!user_mode(regs))
+		set_fs(KERNEL_DS);
+#endif
 
 	if ((__get_user(instr[0], (u16 __user *)(epc & ~MIPS_ISA_MODE))) ||
 		(__get_user(instr[1], (u16 __user *)((epc+2) & ~MIPS_ISA_MODE))))
@@ -925,9 +948,15 @@ asmlinkage void do_tr(struct pt_regs *regs)
 	}
 
 	do_trap_or_bp(regs, tcode, "Trap");
+#ifdef CONFIG_EVA
+	set_fs(seg);
+#endif
 	return;
 
 out_sigsegv:
+#ifdef CONFIG_EVA
+	set_fs(seg);
+#endif
 	force_sig(SIGSEGV, current);
 }
 

@@ -327,6 +327,9 @@ enum cpu_type_enum {
 #define MIPS_CPU_PCI		0x00400000 /* CPU has Perf Ctr Int indicator */
 #define MIPS_CPU_RIXI		0x00800000 /* CPU has TLB Read/eXec Inhibit */
 #define MIPS_CPU_MICROMIPS	0x01000000 /* CPU has microMIPS capability */
+#define MIPS_CPU_CTXTC		0x00400000 /* CPU has ContextConfig feature */
+#define MIPS_CPU_PGDC_CC	0x00800000 /* CPU has usable ContextConfig */
+#define MIPS_CPU_MICROMIPS      0x01000000 /* CPU has microMIPS capability */
 #define MIPS_CPU_SEGMENTS	0x02000000 /* CPU spports memory segmentation */
 #define MIPS_CPU_EVA		0x04000000 /* CPU spports EVA functionality */
 #define MIPS_CPU_TLBINV         0x08000000 /* CPU supports TLBINV/F */
