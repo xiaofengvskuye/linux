@@ -751,6 +751,10 @@ static inline int cop1_64bit(struct pt_regs *xcp)
 #define DPFROMREG(dp, x)	DIFROMREG((dp).bits, x)
 #define DPTOREG(dp, x)	DITOREG((dp).bits, x)
 
+#define SIFROMHREG(si, x)   ((si) = (int)(ctx->fpr[x] >> 32))
+#define SITOHREG(si, x)     (ctx->fpr[x] = \
+			    ctx->fpr[x] << 32 >> 32 | (u64)(si) << 32)
+
 /*
  * Emulate the single floating point instruction pointed at by EPC.
  * Two instructions if the instruction is in a branch delay slot.
@@ -922,10 +926,27 @@ static int cop1Emulate(struct pt_regs *xcp, struct mips_fpu_struct *ctx,
 			}
 			break;
 
+#ifdef CONFIG_CPU_MIPSR2
+		case mfhc_op:
+			/* copregister rd -> gpr[rt] */
+			if (MIPSInst_RT(ir) != 0) {
+				SIFROMHREG(xcp->regs[MIPSInst_RT(ir)],
+					MIPSInst_RD(ir));
+			}
+			break;
+#endif
+
 		case mtc_op:
 			/* copregister rd <- rt */
 			SITOREG(xcp->regs[MIPSInst_RT(ir)], MIPSInst_RD(ir));
 			break;
+
+#ifdef CONFIG_CPU_MIPSR2
+		case mthc_op:
+			/* copregister rd <- gpr[rt] */
+			SITOHREG(xcp->regs[MIPSInst_RT(ir)], MIPSInst_RD(ir));
+			break;
+#endif
 
 		case cfc_op:{
 			/* cop control register rd -> gpr[rt] */
