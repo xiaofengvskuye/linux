@@ -89,7 +89,7 @@ extern unsigned long pgd_current[];
 #define ASID_VERSION_MASK					\
 ({								\
 	unsigned long __asid;					\
-	__asm__("1:\tli\t%0,0xff00\t\t\t\t# patched\n\t"	\
+	__asm__("1:\taddiu\t%0,$0,0xff00\t\t\t\t# patched\n\t"        \
 	".section\t__asid_version_mask,\"a\"\n\t"		\
 	".word\t1b\n\t"						\
 	".previous"						\
