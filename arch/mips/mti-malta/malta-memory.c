@@ -21,7 +21,7 @@
 
 static fw_memblock_t mdesc[FW_MAX_MEMBLOCKS];
 
-/* determined physical memory size, not overridden by command line args  */
+/* determined physical memory size, not overridden by command line args	 */
 unsigned long physical_memsize = 0L;
 
 fw_memblock_t * __init fw_getmdesc(void)
@@ -120,7 +120,7 @@ void __init fw_meminit(void)
 		size = p->size;
 
 		add_memory_region(base, size, type);
-                p++;
+		p++;
 	}
 }
 
