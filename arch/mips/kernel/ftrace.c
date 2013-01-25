@@ -95,6 +95,7 @@ static int ftrace_modify_code(unsigned long ip, unsigned int new_code)
 	return 0;
 }
 
+#ifndef CONFIG_64BIT
 static int ftrace_modify_code_2(unsigned long ip, unsigned int new_code1,
 				unsigned int new_code2)
 {
@@ -110,6 +111,7 @@ static int ftrace_modify_code_2(unsigned long ip, unsigned int new_code1,
 	flush_icache_range(ip, ip + 8); /* original ip + 12 */
 	return 0;
 }
+#endif
 
 /*
  * The details about the calling site of mcount on MIPS
