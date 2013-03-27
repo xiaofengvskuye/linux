@@ -1379,19 +1379,24 @@ static void __cpuinit coherency_setup(void)
 	}
 }
 
-#if defined(CONFIG_DMA_NONCOHERENT)
-
-static int __cpuinitdata coherentio;
+int coherentio = 0;	/* User defined DMA coherency from command line. */
+int hw_coherentio = 0;	/* Actual hardware supported DMA coherency setting. */
 
 static int __init setcoherentio(char *str)
 {
 	coherentio = 1;
-
+	pr_info("Hardware DMA cache coherency (command line)\n");
 	return 0;
 }
-
 early_param("coherentio", setcoherentio);
-#endif
+
+static int __init setnocoherentio(char *str)
+{
+	coherentio = 0;
+	pr_info("Software DMA cache coherency (command line)\n");
+	return 0;
+}
+early_param("nocoherentio", setnocoherentio);
 
 static void __cpuinit r4k_cache_error_setup(void)
 {
@@ -1474,9 +1479,14 @@ void __cpuinit r4k_cache_init(void)
 
 	build_clear_page();
 	build_copy_page();
-#if !defined(CONFIG_MIPS_CMP)
+
+	/*
+	 * We want to run CMP kernels on core with and without coherent
+	 * caches. Therefore, do not use CONFIG_MIPS_CMP to decide whether
+	 * or not to flush caches.
+	 */
 	local_r4k___flush_cache_all(NULL);
-#endif
+
 	coherency_setup();
 	board_cache_error_setup = r4k_cache_error_setup;
 }
