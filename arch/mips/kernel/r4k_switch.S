@@ -182,8 +182,6 @@ LEAF(_restore_fp)
  * We initialize fcr31 to rounding to nearest, no exceptions.
  */
 
-#define FPU_DEFAULT  0x00000000
-
 LEAF(_init_fpu)
 #ifdef CONFIG_MIPS_MT_SMTC
 	/* Rather than manipulate per-VPE Status, set per-TC bit in TCStatus */
@@ -200,15 +198,32 @@ LEAF(_init_fpu)
 #endif /* CONFIG_MIPS_MT_SMTC */
 	enable_fpu_hazard
 
-	li	t1, FPU_DEFAULT
-	ctc1	t1, fcr31
+#if defined(CONFIG_CPU_MIPS32) || defined(CONFIG_CPU_MIPS64)
+	li      t2, MIPS_FPIR_HAS2008
+	cfc1    t1, CP1_REVISION
+	and     t2, t2, t1
+	li      t1, FPU_CSR_DEFAULT
+	beq     t2, $0, 3f
+	li      t1, FPU_CSR_DEFAULT|FPU_CSR_MAC2008|FPU_CSR_ABS2008|FPU_CSR_NAN2008
+3:
+#endif
+	ctc1    t1, fcr31
 
-	li	t1, -1				# SNaN
+	li      t1, -1                          # SNaN MIPS, DP or SP or DP+SP
 
 #ifdef CONFIG_64BIT
 	sll     t0, t0, 31 - _ST0_FR
 	bgez	t0, 1f				# 16 / 32 register mode?
 
+#ifdef CONFIG_CPU_MIPSR2
+	enable_fpu_hazard
+	li      t2, FPU_CSR_NAN2008
+	cfc1    t3, fcr31
+	and     t2, t2, t3
+	beq     t2, $0, 2f
+	dli     t1, 0x7ff000007fa00000          # SNaN 2008, DP + SP
+2:
+#endif
 	dmtc1	t1, $f1
 	dmtc1	t1, $f3
 	dmtc1	t1, $f5
@@ -229,6 +244,20 @@ LEAF(_init_fpu)
 #endif /* CONFIG_64BIT */
 
 #ifdef CONFIG_CPU_MIPS32
+#ifdef CONFIG_CPU_MIPS32_R2
+	sll     t0, t0, 31 - _ST0_FR
+	bgez    t0, 2f                          # 16 / 32 register mode?
+
+	enable_fpu_hazard
+	li      t2, FPU_CSR_NAN2008
+	cfc1    t3, fcr31
+	and     t2, t2, t3
+	move    t3, t1                          # SNaN MIPS, DP high word
+	beq     t2, $0, 2f
+	li      t1, 0x7fa00000                  # SNaN 2008, SP
+	li      t3, 0x7ff00000                  # SNaN 2008, DP high word
+2:
+#endif
 	mtc1	t1, $f0
 	mtc1	t1, $f1
 	mtc1	t1, $f2
@@ -263,13 +292,11 @@ LEAF(_init_fpu)
 	mtc1	t1, $f31
 
 #ifdef CONFIG_CPU_MIPS32_R2
+	bgez    t0, 1f                          # 16 / 32 register mode?
+
+	move    t1, t3                          # move SNaN, DP high word
 	.set    push
 	.set    mips64r2
-	.set    noreorder
-	sll     t0, t0, 31 - _ST0_FR
-	bgez    t0, 1f                       # 16 / 32 register mode?
-	 nop
-
 	mthc1   t1, $f0
 	mthc1   t1, $f1
 	mthc1   t1, $f2
