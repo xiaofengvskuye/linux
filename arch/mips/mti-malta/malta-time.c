@@ -166,8 +166,7 @@ void __init plat_time_init(void)
 		pr_debug("GIC frequency %d.%02d MHz\n", freq/1000000,
 		       (freq%1000000)*100/1000000);
 		gic_clocksource_init(gic_frequency);
-	} else
-		init_r4k_clocksource();
+	}
 
 #ifdef CONFIG_I8253
 	/* Only Malta has a PIT. */
