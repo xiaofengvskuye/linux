@@ -1631,11 +1631,11 @@ static void nxp_pr4450_fixup_config(void)
 	NXP_BARRIER();
 }
 
-static int __cpuinitdata cca = -1;
+unsigned int mips_cca = -1;
 
 static int __init cca_setup(char *str)
 {
-	get_option(&str, &cca);
+	get_option(&str, &mips_cca);
 
 	return 0;
 }
@@ -1644,12 +1644,12 @@ early_param("cca", cca_setup);
 
 static void __cpuinit coherency_setup(void)
 {
-	if (cca < 0 || cca > 7)
-		cca = read_c0_config() & CONF_CM_CMASK;
-	_page_cachable_default = cca << _CACHE_SHIFT;
+	if (mips_cca < 0 || mips_cca > 7)
+		mips_cca = read_c0_config() & CONF_CM_CMASK;
+	_page_cachable_default = mips_cca << _CACHE_SHIFT;
 
-	pr_debug("Using cache attribute %d\n", cca);
-	change_c0_config(CONF_CM_CMASK, cca);
+	pr_debug("Using cache attribute %d\n", mips_cca);
+	change_c0_config(CONF_CM_CMASK, mips_cca);
 
 	/*
 	 * c0_status.cu=0 specifies that updates by the sc instruction use

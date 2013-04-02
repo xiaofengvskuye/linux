@@ -10,31 +10,85 @@
 #ifndef __ASM_MACH_MIPS_KERNEL_ENTRY_INIT_H
 #define __ASM_MACH_MIPS_KERNEL_ENTRY_INIT_H
 
-	.macro  eva_entry
+	.macro  eva_entry   t1  t2  t0
+	andi    \t1, 0x7    /* Config.K0 == CCA */
+	move    \t2, \t1
+	ins     \t2, \t1, 16, 3
 #ifdef CONFIG_EVA_3GB
-	li      t0, ((MIPS_SEGCFG_UK << MIPS_SEGCFG_AM_SHIFT) |             \
+	li      \t0, ((MIPS_SEGCFG_UK << MIPS_SEGCFG_AM_SHIFT) |            \
 		(0 << MIPS_SEGCFG_PA_SHIFT) | (2 << MIPS_SEGCFG_C_SHIFT) |  \
 		(1 << MIPS_SEGCFG_EU_SHIFT)) |                              \
 		(((MIPS_SEGCFG_MK << MIPS_SEGCFG_AM_SHIFT) |                \
-		(0 << MIPS_SEGCFG_PA_SHIFT) | (3 << MIPS_SEGCFG_C_SHIFT) |  \
+		(0 << MIPS_SEGCFG_PA_SHIFT) |                               \
 		(1 << MIPS_SEGCFG_EU_SHIFT)) << 16)
-	mtc0    t0, $5, 2
-	li      t0, ((MIPS_SEGCFG_MUSK << MIPS_SEGCFG_AM_SHIFT) |             \
-		(0 << MIPS_SEGCFG_PA_SHIFT) | (3 << MIPS_SEGCFG_C_SHIFT) |  \
+	ins     \t0, \t1, 16, 3
+	mtc0    \t0, $5, 2
+#ifdef CONFIG_SMP
+	li      \t0, ((MIPS_SEGCFG_MUSK << MIPS_SEGCFG_AM_SHIFT) |          \
+		(0 << MIPS_SEGCFG_PA_SHIFT) |                               \
 		(1 << MIPS_SEGCFG_EU_SHIFT)) |                              \
-		(((MIPS_SEGCFG_MUSUK << MIPS_SEGCFG_AM_SHIFT) |                \
-		(4 << MIPS_SEGCFG_PA_SHIFT) | (3 << MIPS_SEGCFG_C_SHIFT) |  \
+		(((MIPS_SEGCFG_MUSUK << MIPS_SEGCFG_AM_SHIFT) |             \
+		(0 << MIPS_SEGCFG_PA_SHIFT) |                               \
 		(1 << MIPS_SEGCFG_EU_SHIFT)) << 16)
-	mtc0    t0, $5, 3
 #else
-	li      t0, ((MIPS_SEGCFG_UK << MIPS_SEGCFG_AM_SHIFT) |             \
+	li      \t0, ((MIPS_SEGCFG_MUSK << MIPS_SEGCFG_AM_SHIFT) |          \
+		(0 << MIPS_SEGCFG_PA_SHIFT) |                               \
+		(1 << MIPS_SEGCFG_EU_SHIFT)) |                              \
+		(((MIPS_SEGCFG_MUSUK << MIPS_SEGCFG_AM_SHIFT) |             \
+		(4 << MIPS_SEGCFG_PA_SHIFT) |                               \
+		(1 << MIPS_SEGCFG_EU_SHIFT)) << 16)
+#endif
+	or      \t0, \t2
+	mtc0    \t0, $5, 3
+	li      \t0, ((MIPS_SEGCFG_MUSUK << MIPS_SEGCFG_AM_SHIFT) |         \
+		(6 << MIPS_SEGCFG_PA_SHIFT) |                               \
+		(1 << MIPS_SEGCFG_EU_SHIFT)) |                              \
+		(((MIPS_SEGCFG_MUSUK << MIPS_SEGCFG_AM_SHIFT) |             \
+		(4 << MIPS_SEGCFG_PA_SHIFT) |                               \
+		(1 << MIPS_SEGCFG_EU_SHIFT)) << 16)
+	or      \t0, \t2
+	mtc0    \t0, $5, 4
+#else
+	li      \t0, ((MIPS_SEGCFG_MK << MIPS_SEGCFG_AM_SHIFT) |            \
+		(0 << MIPS_SEGCFG_PA_SHIFT) |                               \
+		(1 << MIPS_SEGCFG_EU_SHIFT)) |                              \
+		(((MIPS_SEGCFG_MK << MIPS_SEGCFG_AM_SHIFT) |                \
+		(0 << MIPS_SEGCFG_PA_SHIFT) |                               \
+		(1 << MIPS_SEGCFG_EU_SHIFT)) << 16)
+	or      \t0, \t2
+	mtc0    \t0, $5, 2
+#ifdef CONFIG_SMP
+	li      \t0, ((MIPS_SEGCFG_UK << MIPS_SEGCFG_AM_SHIFT) |            \
 		(0 << MIPS_SEGCFG_PA_SHIFT) | (2 << MIPS_SEGCFG_C_SHIFT) |  \
 		(1 << MIPS_SEGCFG_EU_SHIFT)) |                              \
 		(((MIPS_SEGCFG_UK << MIPS_SEGCFG_AM_SHIFT) |                \
-		(4 << MIPS_SEGCFG_PA_SHIFT) | (3 << MIPS_SEGCFG_C_SHIFT) |  \
+		(0 << MIPS_SEGCFG_PA_SHIFT) |                               \
 		(1 << MIPS_SEGCFG_EU_SHIFT)) << 16)
-	mtc0    t0, $5, 3
+#else
+	li      \t0, ((MIPS_SEGCFG_UK << MIPS_SEGCFG_AM_SHIFT) |            \
+		(0 << MIPS_SEGCFG_PA_SHIFT) | (2 << MIPS_SEGCFG_C_SHIFT) |  \
+		(1 << MIPS_SEGCFG_EU_SHIFT)) |                              \
+		(((MIPS_SEGCFG_UK << MIPS_SEGCFG_AM_SHIFT) |                \
+		(4 << MIPS_SEGCFG_PA_SHIFT) |                               \
+		(1 << MIPS_SEGCFG_EU_SHIFT)) << 16)
 #endif
+	ins     \t0, \t1, 16, 3
+	mtc0    \t0, $5, 3
+	li      \t0, ((MIPS_SEGCFG_MUSUK << MIPS_SEGCFG_AM_SHIFT) |         \
+		(6 << MIPS_SEGCFG_PA_SHIFT) |                               \
+		(1 << MIPS_SEGCFG_EU_SHIFT)) |                              \
+		(((MIPS_SEGCFG_MUSUK << MIPS_SEGCFG_AM_SHIFT) |             \
+		(4 << MIPS_SEGCFG_PA_SHIFT) |                               \
+		(1 << MIPS_SEGCFG_EU_SHIFT)) << 16)
+	or      \t0, \t2
+	mtc0    \t0, $5, 4
+#endif
+	jal     mips_ihb
+	mfc0    \t0, $16, 5
+	li      \t2, 0x40000000      /* K bit */
+	or      \t0, \t0, \t2
+	mtc0    \t0, $16, 5
+	sync
 	jal	mips_ihb
 	.endm
 
@@ -76,8 +130,8 @@ nonmt_processor:
 	sync
 	ehb
 
-	mfc0    t0, CP0_CONFIG
-	bgez	t0, 9f
+	mfc0    t1, CP0_CONFIG
+	bgez    t1, 9f
 	mfc0	t0, CP0_CONFIG, 1
 	bgez	t0, 9f
 	mfc0	t0, CP0_CONFIG, 2
@@ -86,7 +140,9 @@ nonmt_processor:
 	sll     t0, t0, 6   /* SC bit */
 	bgez    t0, 9f
 
-	eva_entry
+	eva_entry t1 t2 t0
+	PTR_LA  t0, mips_cca
+	sw      t1, 0(t0)
 	b       0f
 
 9:
@@ -123,7 +179,8 @@ nonsc_processor:
 
 	sync
 	ehb
-	eva_entry
+	mfc0    t1, CP0_CONFIG
+	eva_entry   t1 t2 t0
 #endif
 
 	.endm
