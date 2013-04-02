@@ -1797,6 +1797,10 @@ void __cpuinit per_cpu_trap_init(bool is_boot_cpu)
 
 	if (cpu_has_veic || cpu_has_vint) {
 		unsigned long sr = set_c0_status(ST0_BEV);
+#ifdef CONFIG_EVA
+		write_c0_ebase(ebase|MIPS_EBASE_WG);
+		back_to_back_c0_hazard();
+#endif
 		write_c0_ebase(ebase);
 		write_c0_status(sr);
 		/* Setting vector spacing enables EI/VI mode  */
