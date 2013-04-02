@@ -90,10 +90,10 @@ static inline void r4k_indexop_on_each_cpu(void (*func) (void *info), void *info
 			this_cpu = smp_processor_id();
 			for_each_online_cpu(cpu) {
 
-				if (cpumask_test_cpu(cpu, (&cpu_sibling_map[this_cpu])))
+				if (cpumask_test_cpu(cpu, (&per_cpu(cpu_sibling_map, this_cpu))))
 					continue;
 
-				if (cpumask_intersects(&tmp_mask, (&cpu_sibling_map[cpu])))
+				if (cpumask_intersects(&tmp_mask, (&per_cpu(cpu_sibling_map, cpu))))
 					continue;
 				cpu_set(cpu, tmp_mask);
 				n++;
@@ -105,6 +105,7 @@ static inline void r4k_indexop_on_each_cpu(void (*func) (void *info), void *info
 	}
 #endif
 	func(info);
+
 	preempt_enable();
 }
 
@@ -1334,6 +1335,7 @@ static void __cpuinit probe_pcache(void)
 	case CPU_74K:
 	case CPU_1004K:
 	case CPU_1074K:
+	case CPU_interAptiv:
 	case CPU_99K:
 	case CPU_1099K:
 		if ((c->cputype == CPU_74K)||(c->cputype == CPU_1074K))

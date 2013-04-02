@@ -206,6 +206,7 @@ void __init check_wait(void)
 	case CPU_M14KEC:
 	case CPU_24K:
 	case CPU_34K:
+	case CPU_interAptiv:
 	case CPU_1004K:
 	case CPU_99K:
 	case CPU_1099K:
@@ -1013,6 +1014,10 @@ static inline void cpu_probe_mips(struct cpuinfo_mips *c, unsigned int cpu)
 	case PRID_IMP_M14KEC:
 		c->cputype = CPU_M14KEC;
 		__cpu_name[cpu] = "MIPS M14KEc";
+		break;
+	case PRID_IMP_interAptiv:
+		c->cputype = CPU_interAptiv;
+		__cpu_name[cpu] = "MIPS interAptiv";
 		break;
 	case PRID_IMP_1004K:
 		c->cputype = CPU_1004K;
