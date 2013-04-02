@@ -16,6 +16,9 @@
 
 /* Classic (old) Malta board EVA memory map with system controller RocIt2-1.418
 
+   This memory map is traditional but IOCU works only with mirroring 256MB memory
+   and effectively can't be used with EVA.
+
    Phys memory - 80000000 to ffffffff - 2GB (last 64KB reserved for
 		 correct HIGHMEM macros arithmetics)
    KV memory   - 0 - 7fffffff (2GB) or even higher
@@ -29,6 +32,13 @@
    CAC_ADDR      ... it used to revert effect of UNCAC_ADDR
    VMALLOC is cut to C0000000 to E0000000 (KSEG2)
    PKMAP/kmap_coherent should be not used - no HIGHMEM
+
+   PCI bus:
+   PCI devices are located in 256MB-512MB of PCI space,
+   phys memory window is located in 2GB-4GB of PCI space.
+
+   Note: CONFIG_EVA_3GB actually gives only 2GB but it shifts IO space up to KSEG3
+	 It is done as a preparation work for non-Malta boards.
  */
 
 #define PAGE_OFFSET             _AC(0x0, UL)
@@ -48,10 +58,13 @@
 
 /* New Malta board EVA memory map basic's:
 
+   This map is designed for work with IOCU on Malta.
+   IOCU on Malta can't support mirroring of first 256MB in old memory map.
+
    Phys memory - 00000000 to ffffffff - up to 4GB
 		 (last 64KB reserved for correct HIGHMEM macros arithmetics,
 		  memory hole 256M-512M is for I/O registers and PCI)
-		 For EVA_3G the first 512MB are not used, let's use 4GB memory.
+		 For EVA_3GB the first 512MB are not used, let's use 4GB memory.
    KV memory   - 0 - 7fffffff (2GB) or even higher,
    Kernel code is located in the same place (80000000) just for keeping
 		 the same YAMON and other stuff, at least for now.
@@ -60,11 +73,18 @@
    CAC_ADDR      ... it used to revert effect of UNCAC_ADDR
    VMALLOC is cut to C0000000 to E0000000 (KSEG2)
    PKMAP/kmap_coherent should be not used - no HIGHMEM
+
+   PCI bus:
+   PCI devices are located in 2GB + (256MB-512MB) of PCI space (non-transparent)
+   phys memory window is located in 0GB-2GB of PCI space.
+
+   Note: 3GB configuration doesn't work until PCI bridges loop problem is fixed
+	 and that code is not finished yet (loop was discovered after work done)
  */
 
 #define PAGE_OFFSET             _AC(0x0, UL)
 
-#ifdef CONFIG_EVA_3G
+#ifdef CONFIG_EVA_3GB
 /* skip first 512MB */
 #define PHYS_OFFSET             _AC(0x20000000, UL)
 #else
