@@ -95,9 +95,7 @@ static void cmp_init_secondary(void)
 	change_c0_status(ST0_IM, STATUSF_IP3 | STATUSF_IP4 | STATUSF_IP6 |
 				 STATUSF_IP7);
 
-	/* Enable per-cpu interrupts: platform specific */
-
-	c->core = (read_c0_ebase() >> 1) & 0x1ff;
+	c->core = (read_c0_ebase() & 0x3ff) >> (fls(smp_num_siblings)-1);
 #if defined(CONFIG_MIPS_MT_SMP) || defined(CONFIG_MIPS_MT_SMTC)
 	if (cpu_has_mipsmt)
 		c->vpe_id = (read_c0_tcbind() >> TCBIND_CURVPE_SHIFT) &
