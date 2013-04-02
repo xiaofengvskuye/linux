@@ -956,12 +956,12 @@ static inline void alias_74k_erratum(struct cpuinfo_mips *c)
 	 * aliases. In this case it is better to treat the cache as always
 	 * having aliases.
 	 */
-	if ((c->processor_id & 0xff) <= PRID_REV_ENCODE_332(2, 4, 0))
-		c->dcache.flags |= MIPS_CACHE_VTAG;
-	if ((c->processor_id & 0xff) == PRID_REV_ENCODE_332(2, 4, 0))
-		write_c0_config6(read_c0_config6() | MIPS_CONF6_SYND);
-	if (((c->processor_id & 0xff00) == PRID_IMP_1074K) &&
-	    ((c->processor_id & 0xff) <= PRID_REV_ENCODE_332(1, 1, 0))) {
+	if ((c->processor_id & 0xff00) != PRID_IMP_1074K) {
+		if ((c->processor_id & 0xff) <= PRID_REV_ENCODE_332(2, 4, 0))
+			c->dcache.flags |= MIPS_CACHE_VTAG;
+		if ((c->processor_id & 0xff) == PRID_REV_ENCODE_332(2, 4, 0))
+			write_c0_config6(read_c0_config6() | MIPS_CONF6_SYND);
+	} else if ((c->processor_id & 0xff) <= PRID_REV_ENCODE_332(1, 1, 0)) {
 		c->dcache.flags |= MIPS_CACHE_VTAG;
 		write_c0_config6(read_c0_config6() | MIPS_CONF6_SYND);
 	}
