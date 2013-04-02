@@ -92,10 +92,10 @@ static inline void r4k_indexop_on_each_cpu(void (*func) (void *info), void *info
 			this_cpu = smp_processor_id();
 			for_each_online_cpu(cpu) {
 
-				if (cpumask_test_cpu(cpu, (&cpu_sibling_map[this_cpu])))
+				if (cpumask_test_cpu(cpu, (&per_cpu(cpu_sibling_map, this_cpu))))
 					continue;
 
-				if (cpumask_intersects(&tmp_mask, (&cpu_sibling_map[cpu])))
+				if (cpumask_intersects(&tmp_mask, (&per_cpu(cpu_sibling_map, cpu))))
 					continue;
 				cpu_set(cpu, tmp_mask);
 				n++;
@@ -1352,6 +1352,7 @@ static void __cpuinit probe_pcache(void)
 	case CPU_74K:
 	case CPU_1004K:
 	case CPU_PROAPTIV:
+	case CPU_INTERAPTIV:
 		if (c->cputype == CPU_74K)
 			alias_74k_erratum(c);
 		if (!(read_c0_config7() & MIPS_CONF7_IAR)) {
