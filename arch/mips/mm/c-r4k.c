@@ -6,6 +6,7 @@
  * Copyright (C) 1996 David S. Miller (davem@davemloft.net)
  * Copyright (C) 1997, 1998, 1999, 2000, 2001, 2002 Ralf Baechle (ralf@gnu.org)
  * Copyright (C) 1999, 2000 Silicon Graphics, Inc.
+ * Copyright (C) 2012, MIPS Technology, Leonid Yegoshin (yegoshin@mips.com)
  */
 #include <linux/hardirq.h>
 #include <linux/init.h>
@@ -46,6 +47,11 @@
  *  o doesn't disable interrupts on the local CPU
  *
  *  Note: this function is used now for address cacheops only
+ *
+ *  Note2: It is unsafe to use address cacheops via SMP call, other CPU may not
+ *         have this process address map (ASID) loaded into EntryHI and
+ *         it usualy requires some tricks, which are absent from this file.
+ *         Cross-CPU address cacheops are much easy and safely.
  */
 static inline void r4k_on_each_cpu(void (*func) (void *info), void *info)
 {
@@ -178,6 +184,28 @@ static void __cpuinit r4k_blast_dcache_page_setup(void)
 		r4k_blast_dcache_page = r4k_blast_dcache_page_dc64;
 }
 
+#ifndef CONFIG_EVA
+#define r4k_blast_dcache_user_page  r4k_blast_dcache_page
+#else
+
+static void (*r4k_blast_dcache_user_page)(unsigned long addr);
+
+static void __cpuinit r4k_blast_dcache_user_page_setup(void)
+{
+	unsigned long  dc_lsize = cpu_dcache_line_size();
+
+	if (dc_lsize == 0)
+		r4k_blast_dcache_user_page = (void *)cache_noop;
+	else if (dc_lsize == 16)
+		r4k_blast_dcache_user_page = blast_dcache16_user_page;
+	else if (dc_lsize == 32)
+		r4k_blast_dcache_user_page = blast_dcache32_user_page;
+	else if (dc_lsize == 64)
+		r4k_blast_dcache_user_page = blast_dcache64_user_page;
+}
+
+#endif
+
 static void (* r4k_blast_dcache_page_indexed)(unsigned long addr);
 
 static void __cpuinit r4k_blast_dcache_page_indexed_setup(void)
@@ -298,6 +326,27 @@ static void __cpuinit r4k_blast_icache_page_setup(void)
 		r4k_blast_icache_page = blast_icache64_page;
 }
 
+#ifndef CONFIG_EVA
+#define r4k_blast_icache_user_page  r4k_blast_icache_page
+#else
+
+static void (* r4k_blast_icache_user_page)(unsigned long addr);
+
+static void __cpuinit r4k_blast_icache_user_page_setup(void)
+{
+	unsigned long ic_lsize = cpu_icache_line_size();
+
+	if (ic_lsize == 0)
+		r4k_blast_icache_user_page = (void *)cache_noop;
+	else if (ic_lsize == 16)
+		r4k_blast_icache_user_page = blast_icache16_user_page;
+	else if (ic_lsize == 32)
+		r4k_blast_icache_user_page = blast_icache32_user_page;
+	else if (ic_lsize == 64)
+		r4k_blast_icache_user_page = blast_icache64_user_page;
+}
+
+#endif
 
 static void (* r4k_blast_icache_page_indexed)(unsigned long addr);
 
@@ -526,12 +575,10 @@ static inline void local_r4k_flush_cache_range(void * args)
 static void r4k_flush_cache_range(struct vm_area_struct *vma,
 	unsigned long start, unsigned long end)
 {
-#ifndef CONFIG_EVA
 	int exec = vma->vm_flags & VM_EXEC;
 
 	if (cpu_has_dc_aliases || (exec && !cpu_has_ic_fills_f_dc))
 		r4k_indexop_on_each_cpu(local_r4k_flush_cache_range, vma);
-#endif
 }
 
 static inline void local_r4k_flush_cache_mm(void * args)
@@ -612,9 +659,17 @@ static inline void local_r4k_flush_cache_page(void *args)
 	if ((!exec) && !cpu_has_dc_aliases)
 		return;
 
-	if ((mm == current->active_mm) && (pte_val(*ptep) & _PAGE_VALID))
-		vaddr = NULL;
-	else {
+	if ((mm == current->active_mm) && (pte_val(*ptep) & _PAGE_VALID)) {
+		if (cpu_has_dc_aliases || (exec && !cpu_has_ic_fills_f_dc)) {
+			r4k_blast_dcache_user_page(addr);
+			if (exec && !cpu_has_ic_fills_f_dc)
+				wmb();
+			if (exec && !cpu_icache_snoops_remote_store)
+				r4k_blast_scache_page(addr);
+		}
+		if (exec)
+			r4k_blast_icache_user_page(addr);
+	} else {
 		/*
 		 * Use kmap_coherent or kmap_atomic to do flushes for
 		 * another ASID than the current one.
@@ -626,47 +681,37 @@ static inline void local_r4k_flush_cache_page(void *args)
 		else
 			vaddr = kmap_atomic(page);
 		addr = (unsigned long)vaddr;
-	}
 
-	if (cpu_has_dc_aliases || (exec && !cpu_has_ic_fills_f_dc)) {
-		r4k_blast_dcache_page(addr);
-		if (exec && !cpu_has_ic_fills_f_dc)
-			wmb();
-		if (exec && !cpu_icache_snoops_remote_store)
-			r4k_blast_scache_page(addr);
-	}
-	if (exec) {
-		if (vaddr && cpu_has_vtag_icache && mm == current->active_mm) {
-			int cpu = smp_processor_id();
+		if (cpu_has_dc_aliases || (exec && !cpu_has_ic_fills_f_dc)) {
+			r4k_blast_dcache_page(addr);
+			if (exec && !cpu_has_ic_fills_f_dc)
+				wmb();
+			if (exec && !cpu_icache_snoops_remote_store)
+				r4k_blast_scache_page(addr);
+		}
+		if (exec) {
+			if (cpu_has_vtag_icache && mm == current->active_mm) {
+				int cpu = smp_processor_id();
 
-			if (cpu_context(cpu, mm) != 0)
-				drop_mmu_context(mm, cpu);
-			dontflash = 1;
-		} else
-			if (map_coherent || !cpu_has_ic_aliases)
-#ifndef CONFIG_EVA
-				r4k_blast_icache_page(addr);
-#else
-				r4k_blast_icache();
-#endif
-	}
+				if (cpu_context(cpu, mm) != 0)
+					drop_mmu_context(mm, cpu);
+				dontflash = 1;
+			} else
+				if (map_coherent || !cpu_has_ic_aliases)
+					r4k_blast_icache_page(addr);
+		}
 
-	if (vaddr) {
 		if (map_coherent)
 			kunmap_coherent();
 		else
 			kunmap_atomic(vaddr);
-	}
 
-	/*  in case of I-cache aliasing - blast it via coherent page */
-	if (exec && cpu_has_ic_aliases && (!dontflash) && !map_coherent) {
-		vaddr = kmap_coherent(page, addr);
-#ifndef CONFIG_EVA
-		r4k_blast_icache_page((unsigned long)vaddr);
-#else
-		r4k_blast_icache();
-#endif
-		kunmap_coherent();
+		/*  in case of I-cache aliasing - blast it via coherent page */
+		if (exec && cpu_has_ic_aliases && (!dontflash) && !map_coherent) {
+			vaddr = kmap_coherent(page, addr);
+			r4k_blast_icache_page((unsigned long)vaddr);
+			kunmap_coherent();
+		}
 	}
 }
 
@@ -698,6 +743,45 @@ static void r4k_flush_data_cache_page(unsigned long addr)
 }
 
 
+struct mips_flush_data_cache_range_args {
+	struct vm_area_struct *vma;
+	unsigned long start;
+	unsigned long end;
+};
+
+static inline void local_r4k_mips_flush_data_cache_range(void *args)
+{
+	struct mips_flush_data_cache_range_args *f_args = args;
+	unsigned long start = f_args->start;
+	unsigned long end = f_args->end;
+	struct vm_area_struct * vma = f_args->vma;
+
+	blast_dcache_range(start, end);
+
+	if ((vma->vm_flags & VM_EXEC) && !cpu_has_ic_fills_f_dc) {
+		wmb();
+
+		/* vma is given for exec check only, mmap is current,
+		   so - no non-current vma page flush, just user or kernel */
+		protected_blast_icache_range(start, end);
+	}
+}
+
+/* flush dirty kernel data and a corresponding user instructions (if needed).
+   used in copy_to_user_page() */
+static void r4k_mips_flush_data_cache_range(struct vm_area_struct *vma,
+	struct page *page, unsigned long start, unsigned long len)
+{
+	struct mips_flush_data_cache_range_args args;
+
+	args.vma = vma;
+	args.start = start;
+	args.end = start + len;
+
+	r4k_on_each_cpu(local_r4k_mips_flush_data_cache_range, (void *)&args);
+}
+
+
 struct flush_icache_range_args {
 	unsigned long start;
 	unsigned long end;
@@ -705,10 +789,11 @@ struct flush_icache_range_args {
 
 static inline void local_r4k_flush_icache(void *args)
 {
-	if (!cpu_has_ic_fills_f_dc)
-			r4k_blast_dcache();
+	if (!cpu_has_ic_fills_f_dc) {
+		r4k_blast_dcache();
 
-	wmb();
+		wmb();
+	}
 
 	r4k_blast_icache();
 }
@@ -722,9 +807,9 @@ static inline void local_r4k_flush_icache_range_ipi(void *args)
 	if (!cpu_has_ic_fills_f_dc) {
 		R4600_HIT_CACHEOP_WAR_IMPL;
 		protected_blast_dcache_range(start, end);
-	}
 
-	wmb();
+		wmb();
+	}
 
 	protected_blast_icache_range(start, end);
 
@@ -738,22 +823,21 @@ static inline void local_r4k_flush_icache_range(unsigned long start, unsigned lo
 			r4k_blast_dcache();
 		} else {
 			R4600_HIT_CACHEOP_WAR_IMPL;
-			protected_blast_dcache_range(start, end);
+			blast_dcache_range(start, end);
 		}
+
+		wmb();
 	}
 
-	wmb();
-
-#ifndef CONFIG_EVA
 	if (end - start > icache_size)
 		r4k_blast_icache();
 	else
-		protected_blast_icache_range(start, end);
-#else
-	r4k_blast_icache();
-#endif
+		blast_icache_range(start, end);
 }
 
+/* this function can be called for kernel OR user addresses,
+ * kernel is for module, *gdb*. User is for binfmt_a.out/flat
+ * So - take care, check get_fs() */
 static void r4k_flush_icache_range(unsigned long start, unsigned long end)
 {
 	struct flush_icache_range_args args;
@@ -857,9 +941,6 @@ static void r4k_dma_cache_inv(unsigned long addr, unsigned long size)
  */
 static void local_r4k_flush_cache_sigtramp(void * arg)
 {
-#ifdef CONFIG_EVA
-	__flush_cache_all();
-#else
 	unsigned long ic_lsize = cpu_icache_line_size();
 	unsigned long dc_lsize = cpu_dcache_line_size();
 	unsigned long sc_lsize = cpu_scache_line_size();
@@ -890,7 +971,6 @@ static void local_r4k_flush_cache_sigtramp(void * arg)
 			:
 			: "i" (Hit_Invalidate_I));
 	}
-#endif
 	if (MIPS_CACHE_SYNC_WAR)
 		__asm__ __volatile__ ("sync");
 }
@@ -902,9 +982,7 @@ static void r4k_flush_cache_sigtramp(unsigned long addr)
 
 static void r4k_flush_icache_all(void)
 {
-#ifndef CONFIG_EVA
 	if (cpu_has_vtag_icache)
-#endif
 		r4k_blast_icache();
 }
 
@@ -1639,6 +1717,10 @@ void __cpuinit r4k_cache_init(void)
 	r4k_blast_scache_page_setup();
 	r4k_blast_scache_page_indexed_setup();
 	r4k_blast_scache_setup();
+#ifdef CONFIG_EVA
+	r4k_blast_dcache_user_page_setup();
+	r4k_blast_icache_user_page_setup();
+#endif
 
 	/*
 	 * Some MIPS32 and MIPS64 processors have physically indexed caches.
@@ -1667,6 +1749,7 @@ void __cpuinit r4k_cache_init(void)
 	flush_icache_all	= r4k_flush_icache_all;
 	local_flush_data_cache_page	= local_r4k_flush_data_cache_page;
 	flush_data_cache_page	= r4k_flush_data_cache_page;
+	mips_flush_data_cache_range = r4k_mips_flush_data_cache_range;
 	flush_icache_range	= r4k_flush_icache_range;
 	local_flush_icache_range	= local_r4k_flush_icache_range;
 
@@ -1691,6 +1774,13 @@ void __cpuinit r4k_cache_init(void)
 	 * or not to flush caches.
 	 */
 	local_r4k___flush_cache_all(NULL);
+#ifdef CONFIG_EVA
+	/* this is done just in case if some address aliasing does exist in
+	   board like old Malta memory map. Doesn't hurt anyway. LY22 */
+	smp_wmb();
+	r4k_blast_scache();
+	smp_wmb();
+#endif
 
 	coherency_setup();
 	board_cache_error_setup = r4k_cache_error_setup;

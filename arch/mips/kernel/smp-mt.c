@@ -213,8 +213,8 @@ static void __cpuinit vsmp_boot_secondary(int cpu, struct task_struct *idle)
 	/* global pointer */
 	write_tc_gpr_gp((unsigned long)gp);
 
-	flush_icache_range((unsigned long)gp,
-			   (unsigned long)(gp + sizeof(struct thread_info)));
+	local_flush_icache_range((unsigned long)gp,
+			(unsigned long)(gp + sizeof(struct thread_info)));
 
 	/* finally out of configuration and into chaos */
 	clear_c0_mvpcontrol(MVPCONTROL_VPC);

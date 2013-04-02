@@ -147,7 +147,7 @@ static void cmp_boot_secondary(int cpu, struct task_struct *idle)
 
 #if 0
 	/* Needed? */
-	flush_icache_range((unsigned long)gp,
+	local_flush_icache_range((unsigned long)gp,
 			   (unsigned long)(gp + sizeof(struct thread_info)));
 #endif
 

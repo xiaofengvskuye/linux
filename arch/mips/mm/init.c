@@ -237,11 +237,12 @@ void copy_to_user_page(struct vm_area_struct *vma,
 	struct page *page, unsigned long vaddr, void *dst, const void *src,
 	unsigned long len)
 {
+	void *vto = NULL;
+
 	if (cpu_has_dc_aliases &&
 	    page_mapped(page) && !Page_dcache_dirty(page)) {
-		void *vto = kmap_coherent(page, vaddr) + (vaddr & ~PAGE_MASK);
+		vto = kmap_coherent(page, vaddr) + (vaddr & ~PAGE_MASK);
 		memcpy(vto, src, len);
-		kunmap_coherent();
 	} else {
 		memcpy(dst, src, len);
 		if (cpu_has_dc_aliases)
@@ -251,10 +252,18 @@ void copy_to_user_page(struct vm_area_struct *vma,
 	    (Page_dcache_dirty(page) &&
 	     pages_do_alias((unsigned long)dst & PAGE_MASK,
 			    vaddr & PAGE_MASK))) {
-		flush_cache_page(vma, vaddr, page_to_pfn(page));
+		if (vto)
+			mips_flush_data_cache_range(vma, page,
+						    (unsigned long)vto, len);
+		else
+			mips_flush_data_cache_range(vma, page,
+						    (unsigned long)dst, len);
+
 		if (cpu_has_dc_aliases)
 			ClearPageDcacheDirty(page);
 	}
+	if (vto)
+		kunmap_coherent();
 }
 
 void copy_from_user_page(struct vm_area_struct *vma,
