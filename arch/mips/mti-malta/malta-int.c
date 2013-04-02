@@ -48,7 +48,7 @@
 
 int gcmp_present = -1;
 static unsigned long _msc01_biu_base;
-static unsigned long _gcmp_base;
+unsigned long _gcmp_base;
 static unsigned int ipi_map[NR_CPUS];
 
 static DEFINE_RAW_SPINLOCK(mips_irq_lock);
