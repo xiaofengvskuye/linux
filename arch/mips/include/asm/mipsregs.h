@@ -1284,6 +1284,7 @@ do {									\
 	unsigned int __dspctl;						\
 									\
 	__asm__ __volatile__(						\
+	"       .set    dsp                                     \n"     \
 	"	rddsp	%0, %x1					\n"	\
 	: "=r" (__dspctl)						\
 	: "i" (mask));							\
@@ -1293,30 +1294,31 @@ do {									\
 #define wrdsp(val, mask)						\
 do {									\
 	__asm__ __volatile__(						\
+	"       .set    dsp                                     \n"     \
 	"	wrdsp	%0, %x1					\n"	\
 	:								\
 	: "r" (val), "i" (mask));					\
 } while (0)
 
-#define mflo0() ({ long mflo0; __asm__("mflo %0, $ac0" : "=r" (mflo0)); mflo0;})
-#define mflo1() ({ long mflo1; __asm__("mflo %0, $ac1" : "=r" (mflo1)); mflo1;})
-#define mflo2() ({ long mflo2; __asm__("mflo %0, $ac2" : "=r" (mflo2)); mflo2;})
-#define mflo3() ({ long mflo3; __asm__("mflo %0, $ac3" : "=r" (mflo3)); mflo3;})
+#define mflo0() ({ long mflo0; __asm__(".set    dsp\nmflo %0, $ac0" : "=r" (mflo0)); mflo0;})
+#define mflo1() ({ long mflo1; __asm__(".set    dsp\nmflo %0, $ac1" : "=r" (mflo1)); mflo1;})
+#define mflo2() ({ long mflo2; __asm__(".set    dsp\nmflo %0, $ac2" : "=r" (mflo2)); mflo2;})
+#define mflo3() ({ long mflo3; __asm__(".set    dsp\nmflo %0, $ac3" : "=r" (mflo3)); mflo3;})
 
-#define mfhi0() ({ long mfhi0; __asm__("mfhi %0, $ac0" : "=r" (mfhi0)); mfhi0;})
-#define mfhi1() ({ long mfhi1; __asm__("mfhi %0, $ac1" : "=r" (mfhi1)); mfhi1;})
-#define mfhi2() ({ long mfhi2; __asm__("mfhi %0, $ac2" : "=r" (mfhi2)); mfhi2;})
-#define mfhi3() ({ long mfhi3; __asm__("mfhi %0, $ac3" : "=r" (mfhi3)); mfhi3;})
+#define mfhi0() ({ long mfhi0; __asm__(".set    dsp\nmfhi %0, $ac0" : "=r" (mfhi0)); mfhi0;})
+#define mfhi1() ({ long mfhi1; __asm__(".set    dsp\nmfhi %0, $ac1" : "=r" (mfhi1)); mfhi1;})
+#define mfhi2() ({ long mfhi2; __asm__(".set    dsp\nmfhi %0, $ac2" : "=r" (mfhi2)); mfhi2;})
+#define mfhi3() ({ long mfhi3; __asm__(".set    dsp\nmfhi %0, $ac3" : "=r" (mfhi3)); mfhi3;})
 
-#define mtlo0(x) __asm__("mtlo %0, $ac0" ::"r" (x))
-#define mtlo1(x) __asm__("mtlo %0, $ac1" ::"r" (x))
-#define mtlo2(x) __asm__("mtlo %0, $ac2" ::"r" (x))
-#define mtlo3(x) __asm__("mtlo %0, $ac3" ::"r" (x))
+#define mtlo0(x) __asm__(".set    dsp\nmtlo %0, $ac0" ::"r" (x))
+#define mtlo1(x) __asm__(".set    dsp\nmtlo %0, $ac1" ::"r" (x))
+#define mtlo2(x) __asm__(".set    dsp\nmtlo %0, $ac2" ::"r" (x))
+#define mtlo3(x) __asm__(".set    dsp\nmtlo %0, $ac3" ::"r" (x))
 
-#define mthi0(x) __asm__("mthi %0, $ac0" ::"r" (x))
-#define mthi1(x) __asm__("mthi %0, $ac1" ::"r" (x))
-#define mthi2(x) __asm__("mthi %0, $ac2" ::"r" (x))
-#define mthi3(x) __asm__("mthi %0, $ac3" ::"r" (x))
+#define mthi0(x) __asm__(".set    dsp\nmthi %0, $ac0" ::"r" (x))
+#define mthi1(x) __asm__(".set    dsp\nmthi %0, $ac1" ::"r" (x))
+#define mthi2(x) __asm__(".set    dsp\nmthi %0, $ac2" ::"r" (x))
+#define mthi3(x) __asm__(".set    dsp\nmthi %0, $ac3" ::"r" (x))
 
 #else
 
