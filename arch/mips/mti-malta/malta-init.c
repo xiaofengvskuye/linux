@@ -112,6 +112,7 @@ static void __init mips_ejtag_setup(void)
 	local_flush_icache_range((unsigned long)base, (unsigned long)base + 0x80);
 }
 
+void __init prom_mem_check(int niocu);
 extern struct plat_smp_ops msmtc_smp_ops;
 
 void __init prom_init(void)
@@ -306,9 +307,13 @@ mips_pci_controller:
 	console_config();
 #endif
 	/* Early detection of CMP support */
-	if (gcmp_probe(GCMP_BASE_ADDR, GCMP_ADDRSPACE_SZ))
+	if (gcmp_probe(GCMP_BASE_ADDR, GCMP_ADDRSPACE_SZ)) {
+#if defined(CONFIG_EVA) && !defined(CONFIG_EVA_OLD_MALTA_MAP)
+		prom_mem_check(gcmp_niocu());
+#endif
 		if (!register_cmp_smp_ops())
 			return;
+	}
 
 	if (!register_vsmp_smp_ops())
 		return;
