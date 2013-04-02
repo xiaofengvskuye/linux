@@ -1807,7 +1807,6 @@ void __cpuinit per_cpu_trap_init(bool is_boot_cpu)
 
 	asid = ASID_FIRST_VERSION;
 	cpu_data[cpu].asid_cache = asid;
-	TLBMISS_HANDLER_SETUP();
 
 	atomic_inc(&init_mm.mm_count);
 	current->active_mm = &init_mm;

@@ -29,7 +29,7 @@
 #include <linux/init.h>
 #include <linux/cache.h>
 
-#include <asm/mmu_context.h>
+#include <asm/mmu.h>
 #include <asm/cacheflush.h>
 #include <asm/pgtable.h>
 #include <asm/war.h>
@@ -351,7 +351,7 @@ static void __cpuinit setup_asid(unsigned int inc, unsigned int mask,
 				 unsigned int first_version)
 {
 	extern asmlinkage void handle_ri_rdhwr_vivt(void);
-	unsigned long *vivt_exc;
+	unsigned int *vivt_exc;
 
 #ifdef CONFIG_CPU_MICROMIPS
 	/*
@@ -367,9 +367,9 @@ static void __cpuinit setup_asid(unsigned int inc, unsigned int mask,
 	asid_insn_fixup(__asid_first_version, first_version);
 
 	/* Patch up the 'handle_ri_rdhwr_vivt' handler. */
-	vivt_exc = (unsigned long *) &handle_ri_rdhwr_vivt;
+	vivt_exc = (unsigned int *) &handle_ri_rdhwr_vivt;
 #ifdef CONFIG_CPU_MICROMIPS
-	vivt_exc = (unsigned long *)((unsigned long) vivt_exc - 1);
+	vivt_exc = (unsigned int *)((unsigned long) vivt_exc - 1);
 #endif
 	vivt_exc++;
 	*vivt_exc = (*vivt_exc & ~mask) | mask;
@@ -1604,6 +1604,9 @@ static void __cpuinit build_r4000_setup_pgd(void)
 	dump_handler("tlbmiss_handler",
 		     tlbmiss_handler_setup_pgd,
 		     ARRAY_SIZE(tlbmiss_handler_setup_pgd));
+	local_flush_icache_range((unsigned long)tlbmiss_handler_setup_pgd,
+		     (unsigned long)tlbmiss_handler_setup_pgd +
+		     sizeof(tlbmiss_handler_setup_pgd));
 }
 #endif
 
