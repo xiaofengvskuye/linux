@@ -600,15 +600,20 @@ static void __cpuinit build_tlb_write_entry(u32 **p, struct uasm_label **l,
 		 * but a number of cores do not have the hazard and
 		 * using an ehb causes an expensive pipeline stall.
 		 */
-		switch (current_cpu_type()) {
-		case CPU_M14KC:
-		case CPU_74K:
-		case CPU_1074K:
-			break;
+		if (cpu_has_mips_r2_exec_hazard) {
+			switch (current_cpu_type()) {
+			case CPU_M14KC:
+			case CPU_M14KEC:
+			case CPU_74K:
+			case CPU_1074K:
+			case CPU_99K:
+			case CPU_1099K:
+				break;
 
-		default:
-			uasm_i_ehb(p);
-			break;
+			default:
+				uasm_i_ehb(p);
+				break;
+			}
 		}
 		tlbw(p);
 		return;
