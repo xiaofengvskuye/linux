@@ -367,10 +367,6 @@ static int __init mipsxx_init(void)
 		op_model_mipsxx_ops.cpu_type = "mips/25K";
 		break;
 
-	case CPU_interAptiv:
-		op_model_mipsxx_ops.cpu_type = "mips/interAptiv";
-		break;
-
 	case CPU_1004K:
 	case CPU_34K:
 		op_model_mipsxx_ops.cpu_type = "mips/34K";
@@ -381,8 +377,11 @@ static int __init mipsxx_init(void)
 		op_model_mipsxx_ops.cpu_type = "mips/74K";
 		break;
 
-	case CPU_1099K:
-	case CPU_99K:
+	case CPU_INTERAPTIV:
+		op_model_mipsxx_ops.cpu_type = "mips/interAptiv";
+		break;
+
+	case CPU_PROAPTIV:
 		op_model_mipsxx_ops.cpu_type = "mips/proAptiv";
 		break;
 

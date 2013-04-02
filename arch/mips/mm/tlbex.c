@@ -606,8 +606,7 @@ static void __cpuinit build_tlb_write_entry(u32 **p, struct uasm_label **l,
 			case CPU_M14KEC:
 			case CPU_74K:
 			case CPU_1074K:
-			case CPU_99K:
-			case CPU_1099K:
+			case CPU_PROAPTIV:
 				break;
 
 			default:
@@ -2322,8 +2321,7 @@ void __cpuinit build_tlb_refill_handler(void)
 		panic("No R8000 TLB refill handler yet");
 		break;
 
-	case CPU_99K:
-	case CPU_1099K:
+	case CPU_PROAPTIV:
 		if (read_c0_config4() & MIPS_CONF4_AE)
 			setup_asid(0x1, 0x3ff, 0xfc00, ASID_FIRST_VERSION_99K);
 		else

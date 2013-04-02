@@ -206,10 +206,9 @@ void __init check_wait(void)
 	case CPU_M14KEC:
 	case CPU_24K:
 	case CPU_34K:
-	case CPU_interAptiv:
 	case CPU_1004K:
-	case CPU_99K:
-	case CPU_1099K:
+	case CPU_INTERAPTIV:
+	case CPU_PROAPTIV:
 	case CPU_1074K:
 		cpu_wait = r4k_wait;
 		if (read_c0_config7() & MIPS_CONF7_WII)
@@ -1031,10 +1030,6 @@ static inline void cpu_probe_mips(struct cpuinfo_mips *c, unsigned int cpu)
 		c->cputype = CPU_M14KEC;
 		__cpu_name[cpu] = "MIPS M14KEc";
 		break;
-	case PRID_IMP_interAptiv:
-		c->cputype = CPU_interAptiv;
-		__cpu_name[cpu] = "MIPS interAptiv";
-		break;
 	case PRID_IMP_1004K:
 		c->cputype = CPU_1004K;
 		__cpu_name[cpu] = "MIPS 1004Kc";
@@ -1043,14 +1038,18 @@ static inline void cpu_probe_mips(struct cpuinfo_mips *c, unsigned int cpu)
 		c->cputype = CPU_1074K;
 		__cpu_name[cpu] = "MIPS 1074Kc";
 		break;
-	case PRID_IMP_99K:
-		c->cputype = CPU_99K;
-		__cpu_name[cpu] = "MIPS 99Kf";
+	case PRID_IMP_INTERAPTIV:
+		c->cputype = CPU_INTERAPTIV;
+		__cpu_name[cpu] = "MIPS interAptiv";
+		break;
+	case PRID_IMP_PROAPTIV_UP:
+		c->cputype = CPU_PROAPTIV;
+		__cpu_name[cpu] = "MIPS proAptiv";
 		cpu_capability = MIPS_FTLB_CAPABLE;
 		break;
-	case PRID_IMP_1099K:
-		c->cputype = CPU_1099K;
-		__cpu_name[cpu] = "MIPS 1099Kf";
+	case PRID_IMP_PROAPTIV_MP:
+		c->cputype = CPU_PROAPTIV;
+		__cpu_name[cpu] = "MIPS proAptiv (multi)";
 		cpu_capability = MIPS_FTLB_CAPABLE;
 		break;
 	}
