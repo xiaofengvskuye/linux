@@ -1513,7 +1513,7 @@ config EVA_OLD_MALTA_MAP
 	help
 	  Choose this option to build EVA kernel for old Malta memory map.
 	  All memory are located above 0x80000000 and first 256M is mirrored
-	  to first 0x80000000. IOCU doesn't work.
+	  to first 0x80000000. IOCU doesn't work with this option.
 	  It is designed for systems with RocIt system controller 1.418/1.424
 	  and it is kept just for MTI testing purposes. (1.424 can be used
 	  with new memory map too).
@@ -1530,8 +1530,9 @@ config EVA_3GB
 	  additional 1GB physical memory. Actually, to minimize changes in
 	  drivers and code the same name (KSEG1) will still be used but it's
 	  address will be changed. The physical I/O address is still the same.
-	  On Malta board with old memory map it doesn't give you 3GB but it
-	  can be used as a start point for development.
+	  On Malta board with old memory map it doesn't give you 3GB
+	  (because of PCI bridges loop) but it can be used as a start point
+	  for development.
 
 if CPU_LOONGSON2F
 config CPU_NOP_WORKAROUNDS

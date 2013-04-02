@@ -260,15 +260,17 @@ mips_pci_controller:
 		MSC_WRITE(MSC01_PCI_P2SCMAPL, mask);
 #else
 		/* New Malta memory map:
-		   Setup the Malta max memory (4G) for PCI DMA in host bridge
+		   Setup the Malta max memory (2G) for PCI DMA in host bridge
 		   in transparent addressing mode, starting from 00000000.
 		   Don't believe in registers content */
-		mask = 0x00000008;
+		mask = 0x80000008;
 		MSC_WRITE(MSC01_PCI_BAR0, mask);
 
 		mask = 0x00000000;
 		MSC_WRITE(MSC01_PCI_HEAD4, mask);
+		mask = 0x80000000;
 		MSC_WRITE(MSC01_PCI_P2SCMSKL, mask);
+		mask = 0x00000000;
 		MSC_WRITE(MSC01_PCI_P2SCMAPL, mask);
 #endif
 #endif
