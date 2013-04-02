@@ -12,7 +12,9 @@
 
 #ifdef CONFIG_EVA
 
-/* Malta board EVA memory map basic's:
+#ifdef CONFIG_EVA_OLD_MALTA_MAP
+
+/* Classic (old) Malta board EVA memory map with system controller RocIt2-1.418
 
    Phys memory - 80000000 to ffffffff - 2GB (last 64KB reserved for
 		 correct HIGHMEM macros arithmetics)
@@ -20,6 +22,9 @@
    Kernel code is located in the same place (80000000) just for keeping
 		 the same YAMON and other stuff, so KSEG0 is used "illegally",
 		 using Malta mirroring of 1st 256MB (see also __pa_symbol below)
+		 for SMP kernel and direct map to 80000000 for non-SMP.
+		 SMP kernel requires that because of way how YAMON starts
+		 secondary cores.
    IO/UNCAC_ADDR ... well, even KSEG1 or KSEG3 but physaddr is 0UL (256MB-512MB)
    CAC_ADDR      ... it used to revert effect of UNCAC_ADDR
    VMALLOC is cut to C0000000 to E0000000 (KSEG2)
@@ -31,11 +36,52 @@
 #define HIGHMEM_START           _AC(0xffff0000, UL)
 
 /* trick definition, just to use kernel symbols from KSEG0 but keep
-   all dynamic memory in EVA's MUSUK KUSEG segment - I am lazy
+   all dynamic memory in EVA's MUSUK KUSEG segment (=0x80000000) - I am lazy
    to move kernel code from 80000000 to zero
    Don't copy it for other boards, it is likely to have a different kernel
    location */
 #define __pa_symbol(x)          (RELOC_HIDE((unsigned long)(x), 0))
+
+#define YAMON_BASE              _AC(0x80000000, UL)
+
+#else /* !CONFIG_EVA_OLD_MALTA_MAP */
+
+/* New Malta board EVA memory map basic's:
+
+   Phys memory - 00000000 to ffffffff - up to 4GB
+		 (last 64KB reserved for correct HIGHMEM macros arithmetics,
+		  memory hole 256M-512M is for I/O registers and PCI)
+		 For EVA_3G the first 512MB are not used, let's use 4GB memory.
+   KV memory   - 0 - 7fffffff (2GB) or even higher,
+   Kernel code is located in the same place (80000000) just for keeping
+		 the same YAMON and other stuff, at least for now.
+		 Need to be copied for 3GB configurations.
+   IO/UNCAC_ADDR ... well, even KSEG1 or KSEG3 but physaddr is 0UL (256MB-512MB)
+   CAC_ADDR      ... it used to revert effect of UNCAC_ADDR
+   VMALLOC is cut to C0000000 to E0000000 (KSEG2)
+   PKMAP/kmap_coherent should be not used - no HIGHMEM
+ */
+
+#define PAGE_OFFSET             _AC(0x0, UL)
+
+#ifdef CONFIG_EVA_3G
+/* skip first 512MB */
+#define PHYS_OFFSET             _AC(0x20000000, UL)
+#else
+#define PHYS_OFFSET             _AC(0x0, UL)
+#define YAMON_BASE              _AC(0x80000000, UL)
+#endif
+
+#define HIGHMEM_START           _AC(0xffff0000, UL)
+
+/* trick definition, just to use kernel symbols from KSEG0 but keep
+   all dynamic memory in EVA's MUSUK KUSEG segment - I am lazy
+   to move kernel code from 80000000 to zero
+   Don't copy it for other boards, it is likely to have a different kernel
+   location */
+#define __pa_symbol(x)          __pa(CPHYSADDR(RELOC_HIDE((unsigned long)(x), 0)))
+
+#endif /* CONFIG_EVA_OLD_MALTA_MAP */
 
 /*  I put INDEX_BASE here to underline the fact that in EVA mode kernel
     may be located somethere and not in CKSEG0, so CKSEG0 may have

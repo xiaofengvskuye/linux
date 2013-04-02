@@ -169,9 +169,11 @@ static inline fw_memblock_t * __init prom_getevamdesc(void)
 			printk("YAMON reports memsize=256M but doesn't report ememsize option\n");
 			printk("If you install > 256MB memory, upgrade YAMON or use boot option memsize=XXXM\n");
 		}
+#ifdef CONFIG_EVA_OLD_MALTA_MAP
 	/* Don't use last 64KB - it is just for macros arithmetics overflow */
 	if (memsize > 0x7fff0000)
 		memsize = 0x7fff0000;
+#endif
 
 	memset(mdesc, 0, sizeof(mdesc));
 
@@ -198,10 +200,32 @@ static inline fw_memblock_t * __init prom_getevamdesc(void)
 	mdesc[3].base = mdesc[0].base + 0x00100000UL;
 	mdesc[3].size = CPHYSADDR(PFN_ALIGN((unsigned long)&_end)) - 0x00100000UL;
 
+#ifndef CONFIG_EVA_OLD_MALTA_MAP
+	if (memsize > 0x20000000) {
+		/* first 256MB */
+		mdesc[4].type = fw_free;
+		mdesc[4].base = mdesc[0].base + CPHYSADDR(PFN_ALIGN(&_end));
+		mdesc[4].size = mdesc[0].base + 0x10000000 - CPHYSADDR(mdesc[4].base);
+
+		/* I/O hole ... */
+
+		/* the rest of memory (256MB behind hole is lost) */
+		mdesc[5].type = fw_free;
+		mdesc[5].base = mdesc[0].base + 0x20000000;
+		mdesc[5].size = memsize - 0x20000000;
+	} else {
+		/* limit to 256MB, exclude I/O hole */
+		memsize = (memsize > 0x10000000)? 0x10000000 : memsize;
+
+		mdesc[4].type = fw_free;
+		mdesc[4].base = mdesc[0].base + CPHYSADDR(PFN_ALIGN(&_end));
+		mdesc[4].size = memsize - CPHYSADDR(mdesc[4].base);
+	}
+#else
 	mdesc[4].type = fw_free;
 	mdesc[4].base = mdesc[0].base + CPHYSADDR(PFN_ALIGN(&_end));
 	mdesc[4].size = memsize - CPHYSADDR(mdesc[4].base);
-
+#endif
 	return &mdesc[0];
 }
 #endif /* CONFIG_EVA */

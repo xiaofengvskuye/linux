@@ -251,6 +251,8 @@ void __init plat_eva_setup(void)
 {
 	unsigned int val;
 
+#ifdef CONFIG_EVA_OLD_MALTA_MAP
+
 #ifdef CONFIG_EVA_3GB
 	val = ((MIPS_SEGCFG_UK << MIPS_SEGCFG_AM_SHIFT) |
 		(0 << MIPS_SEGCFG_PA_SHIFT) | (2 << MIPS_SEGCFG_C_SHIFT) |
@@ -260,19 +262,9 @@ void __init plat_eva_setup(void)
 		(1 << MIPS_SEGCFG_EU_SHIFT)) << 16);
 	write_c0_segctl0(val);
 
-	val = ((MIPS_SEGCFG_MUSK << MIPS_SEGCFG_AM_SHIFT) |
+	val = ((MIPS_SEGCFG_MUSUK << MIPS_SEGCFG_AM_SHIFT) |
 		(0 << MIPS_SEGCFG_PA_SHIFT) | (mips_cca << MIPS_SEGCFG_C_SHIFT) |
 		(1 << MIPS_SEGCFG_EU_SHIFT));
-#ifdef CONFIG_SMP
-	val |=  (((MIPS_SEGCFG_MUSUK << MIPS_SEGCFG_AM_SHIFT) |
-		(0 << MIPS_SEGCFG_PA_SHIFT) | (mips_cca << MIPS_SEGCFG_C_SHIFT) |
-		(1 << MIPS_SEGCFG_EU_SHIFT)) << 16);
-#else
-	val |=  (((MIPS_SEGCFG_MUSUK << MIPS_SEGCFG_AM_SHIFT) |
-		(4 << MIPS_SEGCFG_PA_SHIFT) | (mips_cca << MIPS_SEGCFG_C_SHIFT) |
-		(1 << MIPS_SEGCFG_EU_SHIFT)) << 16);
-#endif
-	write_c0_segctl1(val);
 #else /* !CONFIG_EVA_3G */
 	val = ((MIPS_SEGCFG_MK << MIPS_SEGCFG_AM_SHIFT) |
 		(0 << MIPS_SEGCFG_PA_SHIFT) | (mips_cca << MIPS_SEGCFG_C_SHIFT) |
@@ -282,20 +274,20 @@ void __init plat_eva_setup(void)
 		(1 << MIPS_SEGCFG_EU_SHIFT)) << 16);
 	write_c0_segctl0(val);
 
-	val = ((MIPS_SEGCFG_UK << MIPS_SEGCFG_AM_SHIFT) |
+	val = ((MIPS_SEGCFG_MUSUK << MIPS_SEGCFG_AM_SHIFT) |
 		(0 << MIPS_SEGCFG_PA_SHIFT) | (2 << MIPS_SEGCFG_C_SHIFT) |
 		(1 << MIPS_SEGCFG_EU_SHIFT));
+#endif /* CONFIG_EVA_3G */
 #ifdef CONFIG_SMP
-	val |= (((MIPS_SEGCFG_UK << MIPS_SEGCFG_AM_SHIFT) |
+	val |= (((MIPS_SEGCFG_MUSUK << MIPS_SEGCFG_AM_SHIFT) |
 		(0 << MIPS_SEGCFG_PA_SHIFT) | (mips_cca << MIPS_SEGCFG_C_SHIFT) |
 		(1 << MIPS_SEGCFG_EU_SHIFT)) << 16);
 #else
-	val |= (((MIPS_SEGCFG_UK << MIPS_SEGCFG_AM_SHIFT) |
+	val |= (((MIPS_SEGCFG_MUSUK << MIPS_SEGCFG_AM_SHIFT) |
 		(4 << MIPS_SEGCFG_PA_SHIFT) | (mips_cca << MIPS_SEGCFG_C_SHIFT) |
 		(1 << MIPS_SEGCFG_EU_SHIFT)) << 16);
 #endif
 	write_c0_segctl1(val);
-#endif /* CONFIG_EVA_3G */
 
 	val = ((MIPS_SEGCFG_MUSUK << MIPS_SEGCFG_AM_SHIFT) |
 		(6 << MIPS_SEGCFG_PA_SHIFT) | (mips_cca << MIPS_SEGCFG_C_SHIFT) |
@@ -303,6 +295,59 @@ void __init plat_eva_setup(void)
 	val |= (((MIPS_SEGCFG_MUSUK << MIPS_SEGCFG_AM_SHIFT) |
 		(4 << MIPS_SEGCFG_PA_SHIFT) | (mips_cca << MIPS_SEGCFG_C_SHIFT) |
 		(1 << MIPS_SEGCFG_EU_SHIFT)) << 16);
+
+#else /* !CONFIG_EVA_OLD_MALTA_MAP */
+
+#ifdef CONFIG_EVA_3GB
+	val = ((MIPS_SEGCFG_UK << MIPS_SEGCFG_AM_SHIFT) |
+		(0 << MIPS_SEGCFG_PA_SHIFT) | (2 << MIPS_SEGCFG_C_SHIFT) |
+		(1 << MIPS_SEGCFG_EU_SHIFT));
+	val |= (((MIPS_SEGCFG_MK << MIPS_SEGCFG_AM_SHIFT) |
+		(0 << MIPS_SEGCFG_PA_SHIFT) | (mips_cca << MIPS_SEGCFG_C_SHIFT) |
+		(1 << MIPS_SEGCFG_EU_SHIFT)) << 16);
+	write_c0_segctl0(val);
+
+	val = ((MIPS_SEGCFG_MUSUK << MIPS_SEGCFG_AM_SHIFT) |
+		(6 << MIPS_SEGCFG_PA_SHIFT) | (mips_cca << MIPS_SEGCFG_C_SHIFT) |
+		(1 << MIPS_SEGCFG_EU_SHIFT));
+	val |= (((MIPS_SEGCFG_MUSUK << MIPS_SEGCFG_AM_SHIFT) |
+		(5 << MIPS_SEGCFG_PA_SHIFT) | (mips_cca << MIPS_SEGCFG_C_SHIFT) |
+		(1 << MIPS_SEGCFG_EU_SHIFT)) << 16);
+	write_c0_segctl1(val);
+
+	val = ((MIPS_SEGCFG_MUSUK << MIPS_SEGCFG_AM_SHIFT) |
+		(3 << MIPS_SEGCFG_PA_SHIFT) | (mips_cca << MIPS_SEGCFG_C_SHIFT) |
+		(1 << MIPS_SEGCFG_EU_SHIFT));
+	val |= (((MIPS_SEGCFG_MUSUK << MIPS_SEGCFG_AM_SHIFT) |
+		(1 << MIPS_SEGCFG_PA_SHIFT) | (mips_cca << MIPS_SEGCFG_C_SHIFT) |
+		(1 << MIPS_SEGCFG_EU_SHIFT)) << 16);
+#else /* !CONFIG_EVA_3G */
+	val = ((MIPS_SEGCFG_MK << MIPS_SEGCFG_AM_SHIFT) |
+		(0 << MIPS_SEGCFG_PA_SHIFT) | (mips_cca << MIPS_SEGCFG_C_SHIFT) |
+		(1 << MIPS_SEGCFG_EU_SHIFT));
+	val |= (((MIPS_SEGCFG_MK << MIPS_SEGCFG_AM_SHIFT) |
+		(0 << MIPS_SEGCFG_PA_SHIFT) | (mips_cca << MIPS_SEGCFG_C_SHIFT) |
+		(1 << MIPS_SEGCFG_EU_SHIFT)) << 16);
+	write_c0_segctl0(val);
+
+	val = ((MIPS_SEGCFG_MUSUK << MIPS_SEGCFG_AM_SHIFT) |
+		(0 << MIPS_SEGCFG_PA_SHIFT) | (2 << MIPS_SEGCFG_C_SHIFT) |
+		(1 << MIPS_SEGCFG_EU_SHIFT));
+	val |= (((MIPS_SEGCFG_MUSUK << MIPS_SEGCFG_AM_SHIFT) |
+		(0 << MIPS_SEGCFG_PA_SHIFT) | (mips_cca << MIPS_SEGCFG_C_SHIFT) |
+		(1 << MIPS_SEGCFG_EU_SHIFT)) << 16);
+	write_c0_segctl1(val);
+
+	val = ((MIPS_SEGCFG_MUSUK << MIPS_SEGCFG_AM_SHIFT) |
+		(2 << MIPS_SEGCFG_PA_SHIFT) | (mips_cca << MIPS_SEGCFG_C_SHIFT) |
+		(1 << MIPS_SEGCFG_EU_SHIFT));
+	val |= (((MIPS_SEGCFG_MUSUK << MIPS_SEGCFG_AM_SHIFT) |
+		(0 << MIPS_SEGCFG_PA_SHIFT) | (mips_cca << MIPS_SEGCFG_C_SHIFT) |
+		(1 << MIPS_SEGCFG_EU_SHIFT)) << 16);
+#endif /* CONFIG_EVA_3G */
+
+#endif /* CONFIG_EVA_OLD_MALTA_MAP */
+
 	write_c0_segctl2(val);
 	back_to_back_c0_hazard();
 
