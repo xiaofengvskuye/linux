@@ -84,8 +84,13 @@ static void __init mips_nmi_setup(void)
 	extern char except_vec_nmi;
 
 	base = cpu_has_veic ?
+#ifndef CONFIG_EVA
 		(void *)(CAC_BASE + 0xa80) :
 		(void *)(CAC_BASE + 0x380);
+#else
+		(void *)(YAMON_BASE + 0xa80) :
+		(void *)(YAMON_BASE + 0x380);
+#endif
 	memcpy(base, &except_vec_nmi, 0x80);
 	local_flush_icache_range((unsigned long)base, (unsigned long)base + 0x80);
 }
@@ -96,8 +101,13 @@ static void __init mips_ejtag_setup(void)
 	extern char except_vec_ejtag_debug;
 
 	base = cpu_has_veic ?
+#ifndef CONFIG_EVA
 		(void *)(CAC_BASE + 0xa00) :
 		(void *)(CAC_BASE + 0x300);
+#else
+		(void *)(YAMON_BASE + 0xa00) :
+		(void *)(YAMON_BASE + 0x300);
+#endif
 	memcpy(base, &except_vec_ejtag_debug, 0x80);
 	local_flush_icache_range((unsigned long)base, (unsigned long)base + 0x80);
 }
@@ -235,7 +245,9 @@ mips_pci_controller:
 		MSC_READ(MSC01_PCI_BAR0, mask);
 		MSC_WRITE(MSC01_PCI_P2SCMSKL, mask & MSC01_PCI_BAR0_SIZE_MSK);
 #else
-		/* Setup the Malta max (2GB) memory for PCI DMA in host bridge
+#ifdef CONFIG_EVA_OLD_MALTA_MAP
+		/* Classic (old) Malta memory map:
+		   Setup the Malta max (2GB) memory for PCI DMA in host bridge
 		   in transparent addressing mode, starting from 80000000.
 		   Don't believe in registers content */
 		mask = 0x80000008;
@@ -245,6 +257,19 @@ mips_pci_controller:
 		MSC_WRITE(MSC01_PCI_HEAD4, mask);
 		MSC_WRITE(MSC01_PCI_P2SCMSKL, mask);
 		MSC_WRITE(MSC01_PCI_P2SCMAPL, mask);
+#else
+		/* New Malta memory map:
+		   Setup the Malta max memory (4G) for PCI DMA in host bridge
+		   in transparent addressing mode, starting from 00000000.
+		   Don't believe in registers content */
+		mask = 0x00000008;
+		MSC_WRITE(MSC01_PCI_BAR0, mask);
+
+		mask = 0x00000000;
+		MSC_WRITE(MSC01_PCI_HEAD4, mask);
+		MSC_WRITE(MSC01_PCI_P2SCMSKL, mask);
+		MSC_WRITE(MSC01_PCI_P2SCMAPL, mask);
+#endif
 #endif
 
 		/* Don't handle target retries indefinitely.  */

@@ -14,6 +14,9 @@
 	andi    \t1, 0x7    /* Config.K0 == CCA */
 	move    \t2, \t1
 	ins     \t2, \t1, 16, 3
+
+#ifdef CONFIG_EVA_OLD_MALTA_MAP
+
 #ifdef CONFIG_EVA_3GB
 	li      \t0, ((MIPS_SEGCFG_UK << MIPS_SEGCFG_AM_SHIFT) |            \
 		(0 << MIPS_SEGCFG_PA_SHIFT) | (2 << MIPS_SEGCFG_C_SHIFT) |  \
@@ -24,31 +27,23 @@
 	ins     \t0, \t1, 16, 3
 	mtc0    \t0, $5, 2
 #ifdef CONFIG_SMP
-	li      \t0, ((MIPS_SEGCFG_MUSK << MIPS_SEGCFG_AM_SHIFT) |          \
+	li      \t0, ((MIPS_SEGCFG_MUSUK << MIPS_SEGCFG_AM_SHIFT) |         \
 		(0 << MIPS_SEGCFG_PA_SHIFT) |                               \
 		(1 << MIPS_SEGCFG_EU_SHIFT)) |                              \
 		(((MIPS_SEGCFG_MUSUK << MIPS_SEGCFG_AM_SHIFT) |             \
 		(0 << MIPS_SEGCFG_PA_SHIFT) |                               \
 		(1 << MIPS_SEGCFG_EU_SHIFT)) << 16)
 #else
-	li      \t0, ((MIPS_SEGCFG_MUSK << MIPS_SEGCFG_AM_SHIFT) |          \
+	li      \t0, ((MIPS_SEGCFG_MUSUK << MIPS_SEGCFG_AM_SHIFT) |         \
 		(0 << MIPS_SEGCFG_PA_SHIFT) |                               \
 		(1 << MIPS_SEGCFG_EU_SHIFT)) |                              \
 		(((MIPS_SEGCFG_MUSUK << MIPS_SEGCFG_AM_SHIFT) |             \
 		(4 << MIPS_SEGCFG_PA_SHIFT) |                               \
 		(1 << MIPS_SEGCFG_EU_SHIFT)) << 16)
-#endif
+#endif /* CONFIG_SMP */
 	or      \t0, \t2
 	mtc0    \t0, $5, 3
-	li      \t0, ((MIPS_SEGCFG_MUSUK << MIPS_SEGCFG_AM_SHIFT) |         \
-		(6 << MIPS_SEGCFG_PA_SHIFT) |                               \
-		(1 << MIPS_SEGCFG_EU_SHIFT)) |                              \
-		(((MIPS_SEGCFG_MUSUK << MIPS_SEGCFG_AM_SHIFT) |             \
-		(4 << MIPS_SEGCFG_PA_SHIFT) |                               \
-		(1 << MIPS_SEGCFG_EU_SHIFT)) << 16)
-	or      \t0, \t2
-	mtc0    \t0, $5, 4
-#else
+#else /* !CONFIG_EVA_3GB */
 	li      \t0, ((MIPS_SEGCFG_MK << MIPS_SEGCFG_AM_SHIFT) |            \
 		(0 << MIPS_SEGCFG_PA_SHIFT) |                               \
 		(1 << MIPS_SEGCFG_EU_SHIFT)) |                              \
@@ -58,32 +53,86 @@
 	or      \t0, \t2
 	mtc0    \t0, $5, 2
 #ifdef CONFIG_SMP
-	li      \t0, ((MIPS_SEGCFG_UK << MIPS_SEGCFG_AM_SHIFT) |            \
+	li      \t0, ((MIPS_SEGCFG_MUSUK << MIPS_SEGCFG_AM_SHIFT) |         \
 		(0 << MIPS_SEGCFG_PA_SHIFT) | (2 << MIPS_SEGCFG_C_SHIFT) |  \
 		(1 << MIPS_SEGCFG_EU_SHIFT)) |                              \
-		(((MIPS_SEGCFG_UK << MIPS_SEGCFG_AM_SHIFT) |                \
+		(((MIPS_SEGCFG_MUSUK << MIPS_SEGCFG_AM_SHIFT) |             \
 		(0 << MIPS_SEGCFG_PA_SHIFT) |                               \
 		(1 << MIPS_SEGCFG_EU_SHIFT)) << 16)
 #else
-	li      \t0, ((MIPS_SEGCFG_UK << MIPS_SEGCFG_AM_SHIFT) |            \
+	li      \t0, ((MIPS_SEGCFG_MUSUK << MIPS_SEGCFG_AM_SHIFT) |         \
 		(0 << MIPS_SEGCFG_PA_SHIFT) | (2 << MIPS_SEGCFG_C_SHIFT) |  \
 		(1 << MIPS_SEGCFG_EU_SHIFT)) |                              \
-		(((MIPS_SEGCFG_UK << MIPS_SEGCFG_AM_SHIFT) |                \
+		(((MIPS_SEGCFG_MUSUK << MIPS_SEGCFG_AM_SHIFT) |             \
 		(4 << MIPS_SEGCFG_PA_SHIFT) |                               \
 		(1 << MIPS_SEGCFG_EU_SHIFT)) << 16)
-#endif
+#endif /* CONFIG_SMP */
 	ins     \t0, \t1, 16, 3
 	mtc0    \t0, $5, 3
+#endif /* CONFIG_EVA_3GB */
 	li      \t0, ((MIPS_SEGCFG_MUSUK << MIPS_SEGCFG_AM_SHIFT) |         \
 		(6 << MIPS_SEGCFG_PA_SHIFT) |                               \
 		(1 << MIPS_SEGCFG_EU_SHIFT)) |                              \
 		(((MIPS_SEGCFG_MUSUK << MIPS_SEGCFG_AM_SHIFT) |             \
 		(4 << MIPS_SEGCFG_PA_SHIFT) |                               \
 		(1 << MIPS_SEGCFG_EU_SHIFT)) << 16)
+
+#else /* !CONFIG_EVA_OLD_MALTA_MAP */
+
+#ifdef CONFIG_EVA_3GB
+	li      \t0, ((MIPS_SEGCFG_UK << MIPS_SEGCFG_AM_SHIFT) |            \
+		(0 << MIPS_SEGCFG_PA_SHIFT) | (2 << MIPS_SEGCFG_C_SHIFT) |  \
+		(1 << MIPS_SEGCFG_EU_SHIFT)) |                              \
+		(((MIPS_SEGCFG_MK << MIPS_SEGCFG_AM_SHIFT) |                \
+		(0 << MIPS_SEGCFG_PA_SHIFT) |                               \
+		(1 << MIPS_SEGCFG_EU_SHIFT)) << 16)
+	ins     \t0, \t1, 16, 3
+	mtc0    \t0, $5, 2
+	li      \t0, ((MIPS_SEGCFG_MUSUK << MIPS_SEGCFG_AM_SHIFT) |          \
+		(6 << MIPS_SEGCFG_PA_SHIFT) |                               \
+		(1 << MIPS_SEGCFG_EU_SHIFT)) |                              \
+		(((MIPS_SEGCFG_MUSUK << MIPS_SEGCFG_AM_SHIFT) |             \
+		(5 << MIPS_SEGCFG_PA_SHIFT) |                               \
+		(1 << MIPS_SEGCFG_EU_SHIFT)) << 16)
+	or      \t0, \t2
+	mtc0    \t0, $5, 3
+	li      \t0, ((MIPS_SEGCFG_MUSUK << MIPS_SEGCFG_AM_SHIFT) |         \
+		(3 << MIPS_SEGCFG_PA_SHIFT) |                               \
+		(1 << MIPS_SEGCFG_EU_SHIFT)) |                              \
+		(((MIPS_SEGCFG_MUSUK << MIPS_SEGCFG_AM_SHIFT) |             \
+		(1 << MIPS_SEGCFG_PA_SHIFT) |                               \
+		(1 << MIPS_SEGCFG_EU_SHIFT)) << 16)
+#else /* !CONFIG_EVA_3GB */
+	li      \t0, ((MIPS_SEGCFG_MK << MIPS_SEGCFG_AM_SHIFT) |            \
+		(0 << MIPS_SEGCFG_PA_SHIFT) |                               \
+		(1 << MIPS_SEGCFG_EU_SHIFT)) |                              \
+		(((MIPS_SEGCFG_MK << MIPS_SEGCFG_AM_SHIFT) |                \
+		(0 << MIPS_SEGCFG_PA_SHIFT) |                               \
+		(1 << MIPS_SEGCFG_EU_SHIFT)) << 16)
+	or      \t0, \t2
+	mtc0    \t0, $5, 2
+	li      \t0, ((MIPS_SEGCFG_UK << MIPS_SEGCFG_AM_SHIFT) |            \
+		(0 << MIPS_SEGCFG_PA_SHIFT) | (2 << MIPS_SEGCFG_C_SHIFT) |  \
+		(1 << MIPS_SEGCFG_EU_SHIFT)) |                              \
+		(((MIPS_SEGCFG_UK << MIPS_SEGCFG_AM_SHIFT) |                \
+		(0 << MIPS_SEGCFG_PA_SHIFT) |                               \
+		(1 << MIPS_SEGCFG_EU_SHIFT)) << 16)
+	ins     \t0, \t1, 16, 3
+	mtc0    \t0, $5, 3
+	li      \t0, ((MIPS_SEGCFG_MUSUK << MIPS_SEGCFG_AM_SHIFT) |         \
+		(2 << MIPS_SEGCFG_PA_SHIFT) |                               \
+		(1 << MIPS_SEGCFG_EU_SHIFT)) |                              \
+		(((MIPS_SEGCFG_MUSUK << MIPS_SEGCFG_AM_SHIFT) |             \
+		(0 << MIPS_SEGCFG_PA_SHIFT) |                               \
+		(1 << MIPS_SEGCFG_EU_SHIFT)) << 16)
+#endif /* CONFIG_EVA_3GB */
+
+#endif /* CONFIG_EVA_OLD_MALTA_MAP */
+
 	or      \t0, \t2
 	mtc0    \t0, $5, 4
-#endif
 	jal     mips_ihb
+
 	mfc0    \t0, $16, 5
 	li      \t2, 0x40000000      /* K bit */
 	or      \t0, \t0, \t2
@@ -124,7 +173,7 @@ nonmt_processor:
 	.asciz	"SMTC kernel requires the MT ASE to run\n"
 	__FINIT
 0:
-#endif
+#endif /* CONFIG_MIPS_MT_SMTC */
 
 #ifdef CONFIG_EVA
 	sync
@@ -165,7 +214,7 @@ nonmt_processor:
 nonsc_processor:
 	.asciz  "Kernel requires the Segment/EVA to run\n"
 	__FINIT
-#endif
+#endif /* CONFIG_EVA */
 
 0:
 	.endm
@@ -181,7 +230,7 @@ nonsc_processor:
 	ehb
 	mfc0    t1, CP0_CONFIG
 	eva_entry   t1 t2 t0
-#endif
+#endif /* CONFIG_EVA */
 
 	.endm
 

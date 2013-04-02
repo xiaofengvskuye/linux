@@ -833,6 +833,13 @@ static inline void local_r4k_flush_icache_range(unsigned long start, unsigned lo
 		r4k_blast_icache();
 	else
 		blast_icache_range(start, end);
+#ifdef CONFIG_EVA
+	/* This is here to smooth effect of any kind of address aliasing.
+	   It is used only during boot, so - it doesn't create an impact on
+	   performance. LY22 */
+	bc_wback_inv(start, (end - start));
+	__sync();
+#endif
 }
 
 /* this function can be called for kernel OR user addresses,

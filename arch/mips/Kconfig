@@ -1507,9 +1507,22 @@ config CPU_MIPS32_R2_EVA
 	  otherwise CPU_MIPS32_R1 is a safe bet for any MIPS32 system.
 	  If unsure, select just CPU_MIPS32_R2 or even CPU_MIPS32_R1.
 
+config EVA_OLD_MALTA_MAP
+	bool "Old memory map on Malta (sys controller 1.418)"
+	depends on EVA
+	help
+	  Choose this option to build EVA kernel for old Malta memory map.
+	  All memory are located above 0x80000000 and first 256M is mirrored
+	  to first 0x80000000. IOCU doesn't work.
+	  It is designed for systems with RocIt system controller 1.418/1.424
+	  and it is kept just for MTI testing purposes. (1.424 can be used
+	  with new memory map too).
+	  May or may not work with SMP - address aliasing is crazy for YAMON.
+
 config EVA_3GB
 	bool "EVA support for 3GB memory"
 	depends on EVA
+	depends on EVA_OLD_MALTA_MAP
 	help
 	  Choose this option to build a EVA kernel supporting up to 3GB of
 	  physical memory. This option shifts uncacheble IO registers from KSEG1
@@ -1517,8 +1530,8 @@ config EVA_3GB
 	  additional 1GB physical memory. Actually, to minimize changes in
 	  drivers and code the same name (KSEG1) will still be used but it's
 	  address will be changed. The physical I/O address is still the same.
-	  On Malta board it doesn't give you 3GB but it can be used as a start
-	  point for development.
+	  On Malta board with old memory map it doesn't give you 3GB but it
+	  can be used as a start point for development.
 
 if CPU_LOONGSON2F
 config CPU_NOP_WORKAROUNDS
