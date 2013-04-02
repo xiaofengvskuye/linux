@@ -334,8 +334,8 @@ static void __cpuinit insn_fixup(unsigned int **start, unsigned int **stop,
 			*ip = i_const;
 		}
 #endif
-	}
 	local_flush_icache_range((unsigned long)*p, (unsigned long)((*p) + 1));
+	}
 }
 
 #define asid_insn_fixup(section, const)					\
