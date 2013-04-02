@@ -94,6 +94,8 @@ extern void (*flush_cache_sigtramp)(unsigned long addr);
 extern void (*flush_icache_all)(void);
 extern void (*local_flush_data_cache_page)(void * addr);
 extern void (*flush_data_cache_page)(unsigned long addr);
+extern void (*mips_flush_data_cache_range)(struct vm_area_struct *vma,
+	struct page *page, unsigned long addr, unsigned long size);
 
 /*
  * This flag is used to indicate that the page pointed to by a pte

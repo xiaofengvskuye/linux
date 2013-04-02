@@ -45,10 +45,13 @@ EXPORT_SYMBOL_GPL(__flush_kernel_vmap_range);
 void (*flush_cache_sigtramp)(unsigned long addr);
 void (*local_flush_data_cache_page)(void * addr);
 void (*flush_data_cache_page)(unsigned long addr);
+void (*mips_flush_data_cache_range)(struct vm_area_struct *vma,
+      struct page *page, unsigned long addr, unsigned long size);
 void (*flush_icache_all)(void);
 
 EXPORT_SYMBOL_GPL(local_flush_data_cache_page);
 EXPORT_SYMBOL(flush_data_cache_page);
+EXPORT_SYMBOL(mips_flush_data_cache_range);
 EXPORT_SYMBOL(flush_icache_all);
 
 #ifdef CONFIG_DMA_NONCOHERENT
