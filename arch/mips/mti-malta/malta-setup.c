@@ -357,6 +357,9 @@ void __init plat_eva_setup(void)
 
 	printk("Enhanced Virtual Addressing (EVA) active\n");
 }
+
+extern int gcmp_present;
+void BEV_overlay_segment(void);
 #endif
 
 void __init plat_mem_setup(void)
@@ -364,6 +367,11 @@ void __init plat_mem_setup(void)
 	unsigned int i;
 
 #ifdef CONFIG_EVA
+#ifdef CONFIG_MIPS_CMP
+	if (gcmp_present)
+		BEV_overlay_segment();
+#endif
+
 	if ((cpu_has_segments) && (cpu_has_eva))
 		plat_eva_setup();
 	else {
