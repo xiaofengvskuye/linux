@@ -463,8 +463,13 @@ static void r4k__flush_cache_vmap(unsigned long start, unsigned long end)
 	if (cpu_has_safe_index_cacheops && size >= dcache_size) {
 		r4k_blast_dcache();
 	} else {
+/* Commented out until bug in free_unmap_vmap_area() is fixed - it calls
+   with unmapped page and address cache op does TLB refill exception
 		if (size >= (dcache_size * CACHE_CPU_LATENCY))
+ */
 			r4k_indexop_on_each_cpu(local_r4__flush_dcache, NULL);
+/* Commented out until bug in free_unmap_vmap_area() is fixed - it calls
+   with unmapped page and address cache op does TLB refill exception
 		else {
 			struct vmap_args args;
 
@@ -472,6 +477,7 @@ static void r4k__flush_cache_vmap(unsigned long start, unsigned long end)
 			args.end = end;
 			r4k_on_each_cpu(local_r4__flush_cache_vmap, (void *)&args);
 		}
+ */
 	}
 }
 
@@ -482,8 +488,13 @@ static void r4k__flush_cache_vunmap(unsigned long start, unsigned long end)
 	if (cpu_has_safe_index_cacheops && size >= dcache_size)
 		r4k_blast_dcache();
 	else {
+/* Commented out until bug in free_unmap_vmap_area() is fixed - it calls
+   with unmapped page and address cache op does TLB refill exception
 		if (size >= (dcache_size * CACHE_CPU_LATENCY))
+ */
 			r4k_indexop_on_each_cpu(local_r4__flush_dcache, NULL);
+/* Commented out until bug in free_unmap_vmap_area() is fixed - it calls
+   with unmapped page and address cache op does TLB refill exception
 		else {
 			struct vmap_args args;
 
@@ -491,6 +502,7 @@ static void r4k__flush_cache_vunmap(unsigned long start, unsigned long end)
 			args.end = end;
 			r4k_on_each_cpu(local_r4__flush_cache_vmap, (void *)&args);
 		}
+ */
 	}
 }
 
