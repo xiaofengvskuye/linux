@@ -89,7 +89,7 @@ static void __init mips_nmi_setup(void)
 		(void *)(CAC_BASE + 0xa80) :
 		(void *)(CAC_BASE + 0x380);
 	memcpy(base, &except_vec_nmi, 0x80);
-	flush_icache_range((unsigned long)base, (unsigned long)base + 0x80);
+	local_flush_icache_range((unsigned long)base, (unsigned long)base + 0x80);
 }
 
 static void __init mips_ejtag_setup(void)
@@ -101,7 +101,7 @@ static void __init mips_ejtag_setup(void)
 		(void *)(CAC_BASE + 0xa00) :
 		(void *)(CAC_BASE + 0x300);
 	memcpy(base, &except_vec_ejtag_debug, 0x80);
-	flush_icache_range((unsigned long)base, (unsigned long)base + 0x80);
+	local_flush_icache_range((unsigned long)base, (unsigned long)base + 0x80);
 }
 
 extern struct plat_smp_ops msmtc_smp_ops;

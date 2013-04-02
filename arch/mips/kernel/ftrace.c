@@ -83,6 +83,7 @@ static inline void ftrace_dyn_arch_init_insns(void)
 static int ftrace_modify_code(unsigned long ip, unsigned int new_code)
 {
 	int faulted;
+	mm_segment_t old_fs;
 
 	/* *(unsigned int *)ip = new_code; */
 	safe_store_code(new_code, ip, faulted);
@@ -90,7 +91,10 @@ static int ftrace_modify_code(unsigned long ip, unsigned int new_code)
 	if (unlikely(faulted))
 		return -EFAULT;
 
+	old_fs = get_fs();
+	set_fs(KERNEL_DS);
 	flush_icache_range(ip, ip + 8);
+	set_fs(old_fs);
 
 	return 0;
 }
