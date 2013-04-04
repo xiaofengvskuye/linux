@@ -671,6 +671,20 @@ asmlinkage void do_cpu(struct pt_regs *regs);
 
 #endif
 
+/* During SOAK test the branch in BD slot may cause a wrong EPC
+   in some cores. That is a bad program and it should fail.
+   However, kernel may trigger a false BUG diag below and
+   it disrupts SOAK test verification. Have a bootparam
+   to shut it off. LY22
+ */
+static int BinBDslotfix;
+static int __init BinBDsetup(char *s)
+{
+	BinBDslotfix = 1;
+	return 1;
+}
+__setup("nobdcheck", BinBDsetup);
+
 static void emulate_load_store_insn(struct pt_regs *regs,
 				    void __user *addr,
 				    unsigned int __user *pc)
@@ -949,14 +963,16 @@ static void emulate_load_store_insn(struct pt_regs *regs,
 	case ldc1_op:
 	case swc1_op:
 	case sdc1_op:
-#if 0
-		/* temporary fix for mixing AdEL and CpU exceptions in Impresa */
-		if (!(regs->cp0_status & ST0_CU1)) {
+		die_if_kernel("Unaligned FP access in kernel code", regs);
+
+		if (BinBDslotfix && !(regs->cp0_status & ST0_CU1)) {
 			do_cpu(regs);
 			return;
 		}
-#endif
-		die_if_kernel("Unaligned FP access in kernel code", regs);
+		WARN_ONCE(!(regs->cp0_status & ST0_CU1),
+		    "AdE on FPU load/store with !Status.CU1\n\
+		    If it is CPU test, use nobdcheck bootparam to shut diags\n");
+
 		BUG_ON(!used_math());
 		BUG_ON(!is_fpu_owner());
 
