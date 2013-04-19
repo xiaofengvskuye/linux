@@ -414,6 +414,7 @@
 #define ST0_BEV			0x00400000
 #define ST0_RE			0x02000000
 #define ST0_FR			0x04000000
+#define _ST0_FR                 (26)
 #define ST0_CU			0xf0000000
 #define ST0_CU0			0x10000000
 #define ST0_CU1			0x20000000
