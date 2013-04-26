@@ -133,7 +133,8 @@ void __init prom_init(void)
 	board_nmi_handler_setup = mips_nmi_setup;
 	board_ejtag_handler_setup = mips_ejtag_setup;
 
-	fw_init_cmdline();
+	prom_init_cmdline();
+	prom_meminit();
 #ifdef CONFIG_EARLY_PRINTK
 	if ((strstr(fw_getcmdline(), "console=ttyS0")) != NULL)
 		fw_init_early_console(0);
@@ -145,8 +146,4 @@ void __init prom_init(void)
 		strcat(fw_getcmdline(), " console=ttyS0,38400n8r");
 	console_config();
 #endif
-}
-
-void prom_free_prom_memory(void)
-{
 }
