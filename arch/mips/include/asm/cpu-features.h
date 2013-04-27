@@ -122,6 +122,12 @@
 #ifndef cpu_has_pindexed_dcache
 #define cpu_has_pindexed_dcache (cpu_data[0].dcache.flags & MIPS_CACHE_PINDEX)
 #endif
+#ifndef cpu_has_cm2
+#define cpu_has_cm2             (cpu_data[0].options & MIPS_CPU_CM2)
+#endif
+#ifndef cpu_has_cm2_l2sync
+#define cpu_has_cm2_l2sync      (cpu_data[0].options & MIPS_CPU_CM2_L2SYNC)
+#endif
 
 /*
  * I-Cache snoops remote store.	 This only matters on SMP.  Some multiprocessors
