@@ -662,7 +662,7 @@ static inline void local_r4k_flush_cache_page(void *args)
 	if ((mm == current->active_mm) && (pte_val(*ptep) & _PAGE_VALID)) {
 		if (cpu_has_dc_aliases || (exec && !cpu_has_ic_fills_f_dc)) {
 			r4k_blast_dcache_user_page(addr);
-			if (exec && !cpu_has_ic_fills_f_dc)
+			if (exec && (!cpu_has_cm2) && !cpu_has_ic_fills_f_dc)
 				wmb();
 			if (exec && !cpu_icache_snoops_remote_store)
 				r4k_blast_scache_page(addr);
@@ -684,7 +684,7 @@ static inline void local_r4k_flush_cache_page(void *args)
 
 		if (cpu_has_dc_aliases || (exec && !cpu_has_ic_fills_f_dc)) {
 			r4k_blast_dcache_page(addr);
-			if (exec && !cpu_has_ic_fills_f_dc)
+			if (exec && (!cpu_has_cm2) && !cpu_has_ic_fills_f_dc)
 				wmb();
 			if (exec && !cpu_icache_snoops_remote_store)
 				r4k_blast_scache_page(addr);
@@ -759,7 +759,8 @@ static inline void local_r4k_mips_flush_data_cache_range(void *args)
 	blast_dcache_range(start, end);
 
 	if ((vma->vm_flags & VM_EXEC) && !cpu_has_ic_fills_f_dc) {
-		wmb();
+		if (!cpu_has_cm2)
+			wmb();
 
 		/* vma is given for exec check only, mmap is current,
 		   so - no non-current vma page flush, just user or kernel */
@@ -808,7 +809,8 @@ static inline void local_r4k_flush_icache_range_ipi(void *args)
 		R4600_HIT_CACHEOP_WAR_IMPL;
 		protected_blast_dcache_range(start, end);
 
-		wmb();
+		if (!cpu_has_cm2)
+			wmb();
 	}
 
 	protected_blast_icache_range(start, end);
@@ -901,7 +903,8 @@ static void r4k_dma_cache_wback_inv(unsigned long addr, unsigned long size)
 	preempt_enable();
 
 	bc_wback_inv(addr, size);
-	__sync();
+	if (!cpu_has_cm2_l2sync)
+		__sync();
 }
 
 static void r4k_dma_cache_inv(unsigned long addr, unsigned long size)

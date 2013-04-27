@@ -333,6 +333,8 @@ enum cpu_type_enum {
 #define MIPS_CPU_SEGMENTS       0x02000000 /* CPU supports memory segmentation */
 #define MIPS_CPU_EVA            0x04000000 /* CPU supports EVA functionality */
 #define MIPS_CPU_TLBINV         0x08000000 /* CPU supports TLBINV/F */
+#define MIPS_CPU_CM2            0x10000000 /* CPU has CM2 */
+#define MIPS_CPU_CM2_L2SYNC     0x20000000 /* CPU has CM2 L2-only SYNC feature */
 
 /*
  * CPU ASE encodings

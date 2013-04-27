@@ -422,7 +422,9 @@ static struct gic_intr_map gic_intr_map[GIC_NUM_INTRS] = {
  */
 int __init gcmp_probe(unsigned long addr, unsigned long size)
 {
-	if ((mips_revision_sconid != MIPS_REVISION_SCON_ROCIT)  &&
+	unsigned long confaddr = 0;
+
+	if ((mips_revision_sconid != MIPS_REVISION_SCON_ROCIT) &&
 	    (mips_revision_sconid != MIPS_REVISION_SCON_GT64120)) {
 		gcmp_present = 0;
 		pr_debug("GCMP NOT present\n");
@@ -432,12 +434,50 @@ int __init gcmp_probe(unsigned long addr, unsigned long size)
 	if (gcmp_present >= 0)
 		return gcmp_present;
 
-	_gcmp_base = (unsigned long) ioremap_nocache(GCMP_BASE_ADDR, GCMP_ADDRSPACE_SZ);
-	_msc01_biu_base = (unsigned long) ioremap_nocache(MSC01_BIU_REG_BASE, MSC01_BIU_ADDRSPACE_SZ);
-	gcmp_present = (GCMPGCB(GCMPB) & GCMP_GCB_GCMPB_GCMPBASE_MSK) == GCMP_BASE_ADDR;
+	if (cpu_has_mips_r2 && (read_c0_config3() & MIPS_CONF3_CMGCR)) {
+		/* try CMGCRBase */
+		confaddr = read_c0_cmgcrbase() << 4;
+		_gcmp_base = (unsigned long) ioremap_nocache(confaddr, GCMP_ADDRSPACE_SZ);
+		gcmp_present = (GCMPGCB(GCMPB) & GCMP_GCB_GCMPB_GCMPBASE_MSK) == confaddr;
+		if (gcmp_present) {
+			/* reassign it to 'addr' */
+			if (addr != confaddr)
+				GCMPGCB(GCMPB) = (GCMPGCB(GCMPB) & ~GCMP_GCB_GCMPB_GCMPBASE_MSK) | addr;
+			_gcmp_base = (unsigned long) ioremap_nocache(addr , GCMP_ADDRSPACE_SZ);
+			gcmp_present = (GCMPGCB(GCMPB) & GCMP_GCB_GCMPB_GCMPBASE_MSK) == confaddr;
+			confaddr = addr;
+			if (!gcmp_present) {
+				/* reassignment failed, try CMGCRBase again */
+				confaddr = read_c0_cmgcrbase() << 4;
+				_gcmp_base = (unsigned long) ioremap_nocache(confaddr, GCMP_ADDRSPACE_SZ);
+				gcmp_present = (GCMPGCB(GCMPB) & GCMP_GCB_GCMPB_GCMPBASE_MSK) == confaddr;
+			}
+		}
+	}
+	if (gcmp_present <= 0) {
+		/* try addr */
+		_gcmp_base = (unsigned long) ioremap_nocache(addr, GCMP_ADDRSPACE_SZ);
+		gcmp_present = (GCMPGCB(GCMPB) & GCMP_GCB_GCMPB_GCMPBASE_MSK) == addr;
+		confaddr = addr;
+	}
+	if (gcmp_present <= 0) {
+		/* try GCMP_BASE_ADDR */
+		_gcmp_base = (unsigned long) ioremap_nocache(GCMP_BASE_ADDR, GCMP_ADDRSPACE_SZ);
+		gcmp_present = (GCMPGCB(GCMPB) & GCMP_GCB_GCMPB_GCMPBASE_MSK) == GCMP_BASE_ADDR;
+		confaddr = GCMP_BASE_ADDR;
+	}
+//        _msc01_biu_base = (unsigned long) ioremap_nocache(MSC01_BIU_REG_BASE, MSC01_BIU_ADDRSPACE_SZ);
 
-	if (gcmp_present)
-		pr_debug("GCMP present\n");
+	if (gcmp_present) {
+		printk("GCMP present\n");
+		if (GCMPGCB(GCMPREV) >= 6)
+			cpu_data[0].options |= MIPS_CPU_CM2;
+		if (cpu_has_cm2 && (size > 0x8000)) {
+			GCMPGCB(GCML2S) = (confaddr + 0x8000) | 1;
+			cpu_data[0].options |= MIPS_CPU_CM2_L2SYNC;
+			printk("L2-only SYNC available\n");
+		}
+	}
 	return gcmp_present;
 }
 
@@ -578,8 +618,6 @@ void __init arch_init_irq(void)
 		gic_resched_int_base = gic_call_int_base - NR_CPUS;
 		fill_ipi_map();
 #endif
-		gic_init(GIC_BASE_ADDR, GIC_ADDRSPACE_SZ, gic_intr_map,
-				ARRAY_SIZE(gic_intr_map), MIPS_GIC_IRQ_BASE);
 		if (!gcmp_present) {
 			/* Enable the GIC */
 			i = REG(_msc01_biu_base, MSC01_SC_CFG);
@@ -587,6 +625,8 @@ void __init arch_init_irq(void)
 				(i | (0x1 << MSC01_SC_CFG_GICENA_SHF));
 			pr_debug("GIC Enabled\n");
 		}
+		gic_init(GIC_BASE_ADDR, GIC_ADDRSPACE_SZ, gic_intr_map,
+				ARRAY_SIZE(gic_intr_map), MIPS_GIC_IRQ_BASE);
 #if defined(CONFIG_MIPS_MT_SMP)
 		/* set up ipi interrupts */
 		if (cpu_has_vint) {
