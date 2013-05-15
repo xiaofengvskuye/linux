@@ -130,8 +130,9 @@ static int __init plat_enable_iocoherency(void)
 	} else if (gcmp_niocu() != 0) {
 		/* Nothing special needs to be done to enable coherency */
 		pr_info("CMP IOCU detected\n");
-		if ((*(unsigned int *)0xbf403000 & 0x81) != 0x81) {
-			pr_crit("IOCU OPERATION DISABLED BY SWITCH - DEFAULTING TO SW IO COHERENCY\n");
+		if ((*(unsigned int *)CKSEG1ADDR(0xbf403000) & 0x81) != 0x81) {
+			pr_crit("IOCU OPERATION DISABLED BY SWITCH"
+				" - DEFAULTING TO SW IO COHERENCY\n");
 			return 0;
 		}
 		supported = 1;
@@ -243,10 +244,28 @@ static void __init bonito_quirks_setup(void)
 #endif
 }
 
+#ifdef CONFIG_EVA
 void __init plat_eva_setup(void)
 {
 	unsigned int val;
 
+#ifdef CONFIG_EVA_3GB
+	val = ((MIPS_SEGCFG_UK << MIPS_SEGCFG_AM_SHIFT) |
+		(0 << MIPS_SEGCFG_PA_SHIFT) | (2 << MIPS_SEGCFG_C_SHIFT) |
+		(1 << MIPS_SEGCFG_EU_SHIFT));
+	val |= (((MIPS_SEGCFG_MK << MIPS_SEGCFG_AM_SHIFT) |
+		(0 << MIPS_SEGCFG_PA_SHIFT) | (3 << MIPS_SEGCFG_C_SHIFT) |
+		(1 << MIPS_SEGCFG_EU_SHIFT)) << 16);
+	write_c0_segctl0(val);
+
+	val = ((MIPS_SEGCFG_MUSK << MIPS_SEGCFG_AM_SHIFT) |
+		(0 << MIPS_SEGCFG_PA_SHIFT) | (3 << MIPS_SEGCFG_C_SHIFT) |
+		(1 << MIPS_SEGCFG_EU_SHIFT));
+	val |=  (((MIPS_SEGCFG_MUSUK << MIPS_SEGCFG_AM_SHIFT) |
+		(4 << MIPS_SEGCFG_PA_SHIFT) | (3 << MIPS_SEGCFG_C_SHIFT) |
+		(1 << MIPS_SEGCFG_EU_SHIFT)) << 16);
+	write_c0_segctl1(val);
+#else
 	val = ((MIPS_SEGCFG_MK << MIPS_SEGCFG_AM_SHIFT) |
 		(0 << MIPS_SEGCFG_PA_SHIFT) | (3 << MIPS_SEGCFG_C_SHIFT) |
 		(1 << MIPS_SEGCFG_EU_SHIFT));
@@ -259,32 +278,41 @@ void __init plat_eva_setup(void)
 		(0 << MIPS_SEGCFG_PA_SHIFT) | (2 << MIPS_SEGCFG_C_SHIFT) |
 		(1 << MIPS_SEGCFG_EU_SHIFT));
 	val |= (((MIPS_SEGCFG_UK << MIPS_SEGCFG_AM_SHIFT) |
-		(0 << MIPS_SEGCFG_PA_SHIFT) | (3 << MIPS_SEGCFG_C_SHIFT) |
+		(4 << MIPS_SEGCFG_PA_SHIFT) | (3 << MIPS_SEGCFG_C_SHIFT) |
 		(1 << MIPS_SEGCFG_EU_SHIFT)) << 16);
 	write_c0_segctl1(val);
+#endif
 
-	val = ((MIPS_SEGCFG_MUSK << MIPS_SEGCFG_AM_SHIFT) |
-		(4 << MIPS_SEGCFG_PA_SHIFT) | (3 << MIPS_SEGCFG_C_SHIFT) |
+	val = ((MIPS_SEGCFG_MUSUK << MIPS_SEGCFG_AM_SHIFT) |
+		(6 << MIPS_SEGCFG_PA_SHIFT) | (3 << MIPS_SEGCFG_C_SHIFT) |
 		(1 << MIPS_SEGCFG_EU_SHIFT));
-	val |= (((MIPS_SEGCFG_MUSK << MIPS_SEGCFG_AM_SHIFT) |
-		(0 << MIPS_SEGCFG_PA_SHIFT) | (3 << MIPS_SEGCFG_C_SHIFT) |
+	val |= (((MIPS_SEGCFG_MUSUK << MIPS_SEGCFG_AM_SHIFT) |
+		(4 << MIPS_SEGCFG_PA_SHIFT) | (3 << MIPS_SEGCFG_C_SHIFT) |
 		(1 << MIPS_SEGCFG_EU_SHIFT)) << 16);
 	write_c0_segctl2(val);
 	back_to_back_c0_hazard();
 
 	val = read_c0_config5();
-	write_c0_config5(val|MIPS_CONF5_K);
+	write_c0_config5(val|MIPS_CONF5_K|MIPS_CONF5_CV|MIPS_CONF5_EVA);
 	back_to_back_c0_hazard();
 
 	printk("Enhanced Virtual Addressing (EVA) active\n");
 }
+#endif
 
 void __init plat_mem_setup(void)
 {
 	unsigned int i;
 
+#ifdef CONFIG_EVA
 	if ((cpu_has_segments) && (cpu_has_eva))
 		plat_eva_setup();
+	else {
+	    printk("cpu_has_segments=%ld cpu_has_eva=%ld\n",cpu_has_segments,cpu_has_eva);
+	    printk("Kernel is built for EVA support but EVA or segment control registers are not found\n");
+	    panic("EVA absent");
+	}
+#endif
 
 	mips_pcibios_init();
 

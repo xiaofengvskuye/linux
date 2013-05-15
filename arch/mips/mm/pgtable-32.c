@@ -32,9 +32,11 @@ void pgd_init(unsigned long page)
 
 void __init pagetable_init(void)
 {
+#if defined(CONFIG_HIGHMEM) || defined(FIXADDR_START)
 	unsigned long vaddr;
 	unsigned long vend;
 	pgd_t *pgd_base;
+#endif
 #ifdef CONFIG_HIGHMEM
 	pgd_t *pgd;
 	pud_t *pud;
@@ -47,6 +49,7 @@ void __init pagetable_init(void)
 	pgd_init((unsigned long)swapper_pg_dir
 		 + sizeof(pgd_t) * USER_PTRS_PER_PGD);
 
+#ifdef FIXADDR_START
 	pgd_base = swapper_pg_dir;
 
 	/*
@@ -57,6 +60,7 @@ void __init pagetable_init(void)
 	vend = vaddr + FIXADDR_SIZE;
 	vaddr = vaddr & PMD_MASK;
 	fixrange_init(vaddr, vend, pgd_base);
+#endif
 
 #ifdef CONFIG_HIGHMEM
 	/*
