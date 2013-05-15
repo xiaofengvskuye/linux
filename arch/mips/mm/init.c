@@ -116,6 +116,11 @@ static inline void kmap_coherent_init(void) {}
 
 void *kmap_coherent(struct page *page, unsigned long addr)
 {
+#ifdef CONFIG_EVA
+	dump_stack();
+	panic("kmap_coherent");
+#else
+
 	enum fixed_addresses idx;
 	unsigned long vaddr, flags, entrylo;
 	unsigned long old_ctx;
@@ -123,7 +128,6 @@ void *kmap_coherent(struct page *page, unsigned long addr)
 	int tlbidx;
 
 	/* BUG_ON(Page_dcache_dirty(page)); - removed for I-cache flush */
-
 	inc_preempt_count();
 	idx = (addr >> PAGE_SHIFT) & (FIX_N_COLOURS - 1);
 #ifdef CONFIG_MIPS_MT_SMTC
@@ -169,6 +173,7 @@ void *kmap_coherent(struct page *page, unsigned long addr)
 	EXIT_CRITICAL(flags);
 
 	return (void*) vaddr;
+#endif /* CONFIG_EVA */
 }
 
 #define UNIQUE_ENTRYHI(idx) (cpu_has_tlbinv ? ((CKSEG0 + ((idx) << (PAGE_SHIFT + 1))) | MIPS_EHINV) : \
@@ -450,7 +455,12 @@ void free_initrd_mem(unsigned long start, unsigned long end)
 void __init_refok free_initmem(void)
 {
 	prom_free_prom_memory();
+#ifdef CONFIG_EVA
+	free_init_pages("unused memory", __pa_symbol(&__init_begin),
+		__pa_symbol(&__init_end));
+#else
 	free_initmem_default(POISON_FREE_INITMEM);
+#endif
 }
 
 #ifndef CONFIG_MIPS_PGD_C0_CONTEXT
