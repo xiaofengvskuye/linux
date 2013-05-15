@@ -230,9 +230,22 @@ mips_pci_controller:
 			  MSC01_PCI_SWAP_BYTESWAP << MSC01_PCI_SWAP_MEM_SHF |
 			  MSC01_PCI_SWAP_BYTESWAP << MSC01_PCI_SWAP_BAR0_SHF);
 #endif
-		/* Fix up target memory mapping.  */
+		/* Fix up target memory mapping. */
+#ifndef CONFIG_EVA
 		MSC_READ(MSC01_PCI_BAR0, mask);
 		MSC_WRITE(MSC01_PCI_P2SCMSKL, mask & MSC01_PCI_BAR0_SIZE_MSK);
+#else
+		/* Setup the Malta max (2GB) memory for PCI DMA in host bridge
+		   in transparent addressing mode, starting from 80000000.
+		   Don't believe in registers content */
+		mask = 0x80000008;
+		MSC_WRITE(MSC01_PCI_BAR0, mask);
+
+		mask = 0x80000000;
+		MSC_WRITE(MSC01_PCI_HEAD4, mask);
+		MSC_WRITE(MSC01_PCI_P2SCMSKL, mask);
+		MSC_WRITE(MSC01_PCI_P2SCMAPL, mask);
+#endif
 
 		/* Don't handle target retries indefinitely.  */
 		if ((data & MSC01_PCI_CFG_MAXRTRY_MSK) ==

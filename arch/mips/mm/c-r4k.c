@@ -413,10 +413,12 @@ static inline void local_r4k_flush_cache_range(void * args)
 static void r4k_flush_cache_range(struct vm_area_struct *vma,
 	unsigned long start, unsigned long end)
 {
+#ifndef CONFIG_EVA
 	int exec = vma->vm_flags & VM_EXEC;
 
 	if (cpu_has_dc_aliases || (exec && !cpu_has_ic_fills_f_dc))
 		r4k_on_each_cpu(local_r4k_flush_cache_range, vma);
+#endif
 }
 
 static inline void local_r4k_flush_cache_mm(void * args)
@@ -529,7 +531,11 @@ static inline void local_r4k_flush_cache_page(void *args)
 			dontflash = 1;
 		} else
 			if (map_coherent || !cpu_has_ic_aliases)
+#ifndef CONFIG_EVA
 				r4k_blast_icache_page(addr);
+#else
+				r4k_blast_icache();
+#endif
 	}
 
 	if (vaddr) {
@@ -542,7 +548,11 @@ static inline void local_r4k_flush_cache_page(void *args)
 	/*  in case of I-cache aliasing - blast it via coherent page */
 	if (exec && cpu_has_ic_aliases && (!dontflash) && !map_coherent) {
 		vaddr = kmap_coherent(page, addr);
+#ifndef CONFIG_EVA
 		r4k_blast_icache_page((unsigned long)vaddr);
+#else
+		r4k_blast_icache();
+#endif
 		kunmap_coherent();
 	}
 }
@@ -592,10 +602,14 @@ static inline void local_r4k_flush_icache_range(unsigned long start, unsigned lo
 
 	wmb();
 
+#ifndef CONFIG_EVA
 	if (end - start > icache_size)
 		r4k_blast_icache();
 	else
 		protected_blast_icache_range(start, end);
+#else
+	r4k_blast_icache();
+#endif
 }
 
 static inline void local_r4k_flush_icache_range_ipi(void *args)
@@ -696,6 +710,9 @@ static void r4k_dma_cache_inv(unsigned long addr, unsigned long size)
  */
 static void local_r4k_flush_cache_sigtramp(void * arg)
 {
+#ifdef CONFIG_EVA
+	__flush_cache_all();
+#else
 	unsigned long ic_lsize = cpu_icache_line_size();
 	unsigned long dc_lsize = cpu_dcache_line_size();
 	unsigned long sc_lsize = cpu_scache_line_size();
@@ -726,6 +743,7 @@ static void local_r4k_flush_cache_sigtramp(void * arg)
 			:
 			: "i" (Hit_Invalidate_I));
 	}
+#endif
 	if (MIPS_CACHE_SYNC_WAR)
 		__asm__ __volatile__ ("sync");
 }
@@ -737,7 +755,9 @@ static void r4k_flush_cache_sigtramp(unsigned long addr)
 
 static void r4k_flush_icache_all(void)
 {
+#ifndef CONFIG_EVA
 	if (cpu_has_vtag_icache)
+#endif
 		r4k_blast_icache();
 }
 

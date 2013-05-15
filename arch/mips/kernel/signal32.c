@@ -83,6 +83,7 @@ struct rt_sigframe32 {
 static int protected_save_fp_context32(struct sigcontext32 __user *sc)
 {
 	int err;
+#ifndef CONFIG_EVA
 	while (1) {
 		lock_fpu_owner();
 		err = own_fpu_inatomic(1);
@@ -98,12 +99,17 @@ static int protected_save_fp_context32(struct sigcontext32 __user *sc)
 		if (err)
 			break;	/* really bad sigcontext */
 	}
+#else
+	lose_fpu(1);
+	err = save_fp_context32(sc); /* this might fail */
+#endif
 	return err;
 }
 
 static int protected_restore_fp_context32(struct sigcontext32 __user *sc)
 {
 	int err, tmp __maybe_unused;
+#ifndef CONFIG_EVA
 	while (1) {
 		lock_fpu_owner();
 		err = own_fpu_inatomic(0);
@@ -119,6 +125,10 @@ static int protected_restore_fp_context32(struct sigcontext32 __user *sc)
 		if (err)
 			break;	/* really bad sigcontext */
 	}
+#else
+	lose_fpu(0);
+	err = restore_fp_context32(sc); /* this might fail */
+#endif /* CONFIG_EVA */
 	return err;
 }
 
@@ -578,6 +588,7 @@ static int smp_restore_fp_context32(struct sigcontext32 __user *sc)
 
 static int signal32_init(void)
 {
+#ifndef CONFIG_EVA
 #ifdef CONFIG_SMP
 	/* For now just do the cpu_has_fpu check when the functions are invoked */
 	save_fp_context32 = smp_save_fp_context32;
@@ -590,7 +601,11 @@ static int signal32_init(void)
 		save_fp_context32 = fpu_emulator_save_context32;
 		restore_fp_context32 = fpu_emulator_restore_context32;
 	}
-#endif
+#endif /* CONFIG_SMP */
+#else
+	save_fp_context32 = fpu_emulator_save_context32;
+	restore_fp_context32 = fpu_emulator_restore_context32;
+#endif /* CONFIG_EVA */
 
 	return 0;
 }

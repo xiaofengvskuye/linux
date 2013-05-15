@@ -215,10 +215,6 @@
 #define cpu_has_userlocal	(cpu_data[0].options & MIPS_CPU_ULRI)
 #endif
 
-#ifndef cpu_has_contextconfig
-#define cpu_has_contextconfig	((cpu_data[0].options & MIPS_CPU_CTXTC) || cpu_has_smartmips)
-#endif
-
 #ifndef cpu_has_segments
 #define cpu_has_segments	(cpu_data[0].options & MIPS_CPU_SEGMENTS)
 #endif

@@ -842,6 +842,13 @@ asmlinkage void do_bp(struct pt_regs *regs)
 	unsigned int opcode, bcode;
 	unsigned long epc;
 	u16 instr[2];
+#ifdef CONFIG_EVA
+	mm_segment_t seg;
+
+	seg = get_fs();
+	if (!user_mode(regs))
+		set_fs(KERNEL_DS);
+#endif
 
 	if (get_isa16_mode(regs->cp0_epc)) {
 		/* Calculate EPC. */
@@ -857,6 +864,9 @@ asmlinkage void do_bp(struct pt_regs *regs)
 				goto out_sigsegv;
 		    bcode = (instr[0] >> 6) & 0x3f;
 		    do_trap_or_bp(regs, bcode, "Break");
+#ifdef CONFIG_EVA
+		    set_fs(seg);
+#endif
 		    return;
 		}
 	} else {
@@ -880,23 +890,35 @@ asmlinkage void do_bp(struct pt_regs *regs)
 	 */
 	switch (bcode) {
 	case BRK_KPROBE_BP:
-		if (notify_die(DIE_BREAK, "debug", regs, bcode, regs_to_trapnr(regs), SIGTRAP) == NOTIFY_STOP)
+		if (notify_die(DIE_BREAK, "debug", regs, bcode, regs_to_trapnr(regs), SIGTRAP) == NOTIFY_STOP) {
+#ifdef CONFIG_EVA
+			set_fs(seg);
+#endif
 			return;
-		else
+		} else
 			break;
 	case BRK_KPROBE_SSTEPBP:
-		if (notify_die(DIE_SSTEPBP, "single_step", regs, bcode, regs_to_trapnr(regs), SIGTRAP) == NOTIFY_STOP)
+		if (notify_die(DIE_SSTEPBP, "single_step", regs, bcode, regs_to_trapnr(regs), SIGTRAP) == NOTIFY_STOP) {
+#ifdef CONFIG_EVA
+			set_fs(seg);
+#endif
 			return;
-		else
+		} else
 			break;
 	default:
 		break;
 	}
 
 	do_trap_or_bp(regs, bcode, "Break");
+#ifdef CONFIG_EVA
+	set_fs(seg);
+#endif
 	return;
 
 out_sigsegv:
+#ifdef CONFIG_EVA
+	set_fs(seg);
+#endif
 	force_sig(SIGSEGV, current);
 }
 
@@ -905,6 +927,13 @@ asmlinkage void do_tr(struct pt_regs *regs)
 	u32 opcode, tcode = 0;
 	u16 instr[2];
 	unsigned long epc = msk_isa16_mode(exception_epc(regs));
+#ifdef CONFIG_EVA
+	mm_segment_t seg;
+
+	seg = get_fs();
+	if (!user_mode(regs))
+		set_fs(KERNEL_DS);
+#endif
 
 	if (get_isa16_mode(regs->cp0_epc)) {
 		if (__get_user(instr[0], (u16 __user *)(epc + 0)) ||
