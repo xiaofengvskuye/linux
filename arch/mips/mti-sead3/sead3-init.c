@@ -133,8 +133,8 @@ void __init prom_init(void)
 	board_nmi_handler_setup = mips_nmi_setup;
 	board_ejtag_handler_setup = mips_ejtag_setup;
 
-	prom_init_cmdline();
-	prom_meminit();
+	fw_init_cmdline();
+	fw_meminit();
 #ifdef CONFIG_EARLY_PRINTK
 	if ((strstr(fw_getcmdline(), "console=ttyS0")) != NULL)
 		fw_init_early_console(0);
