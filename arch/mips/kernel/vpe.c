@@ -37,6 +37,7 @@
 #include <linux/vmalloc.h>
 #include <linux/elf.h>
 #include <linux/seq_file.h>
+#include <linux/spinlock.h>
 #include <linux/syscalls.h>
 #include <linux/moduleloader.h>
 #include <linux/interrupt.h>
@@ -49,6 +50,7 @@
 #include <asm/cpu.h>
 #include <asm/mips_mt.h>
 #include <asm/processor.h>
+#include <asm/setup.h>
 #include <asm/vpe.h>
 
 typedef void *vpe_handle;
@@ -168,9 +170,9 @@ struct {
 	spinlock_t tc_list_lock;
 	struct list_head tc_list;	/* Thread contexts */
 } vpecontrol = {
-	.vpe_list_lock	= SPIN_LOCK_UNLOCKED,
+	.vpe_list_lock	= __SPIN_LOCK_UNLOCKED(vpecontrol.vpe_list_lock),
 	.vpe_list	= LIST_HEAD_INIT(vpecontrol.vpe_list),
-	.tc_list_lock	= SPIN_LOCK_UNLOCKED,
+	.tc_list_lock	= __SPIN_LOCK_UNLOCKED(vpecontrol.tc_list_lock),
 	.tc_list	= LIST_HEAD_INIT(vpecontrol.tc_list)
 };
 
@@ -853,7 +855,7 @@ static int vpe_run(struct vpe * v)
 
 			printk(KERN_WARNING
 			       "VPE loader: TC %d is already in use.\n",
-			       v->tc->index);
+			       t->index);
 			return -ENOEXEC;
 		}
 	} else {
@@ -1922,8 +1924,6 @@ char *vpe_getcwd(int index)
 
 EXPORT_SYMBOL(vpe_getcwd);
 
-<<<<<<< current
-=======
 /*
  * RP applications may contain a _vpe_shared_area descriptor
  * array to allow for data sharing with Linux kernel functions
@@ -2024,7 +2024,6 @@ static void kspd_sp_exit( int sp_id)
 }
 #endif
 
->>>>>>> patched
 static ssize_t store_kill(struct device *dev, struct device_attribute *attr,
 			  const char *buf, size_t len)
 {
