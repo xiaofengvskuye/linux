@@ -7,7 +7,7 @@
 #include <linux/mm.h>
 
 #include <asm/mipsregs.h>
-#include <asm/gcmpregs.h>
+//#include <asm/gcmpregs.h>
 #include <asm/bcache.h>
 #include <asm/cacheops.h>
 #include <asm/page.h>
@@ -19,6 +19,7 @@
  * MIPS32/MIPS64 L2 cache handling
  */
 
+#if 0
 /*
  * Writeback and invalidate the secondary cache before DMA.
  */
@@ -30,6 +31,7 @@ static void mips_sc_wback_inv(unsigned long addr, unsigned long size)
 	if (cpu_has_cm2_l2sync)
 		*(unsigned long *)(_gcmp_base + GCMP_L2SYNC_OFFSET) = 0;
 }
+#endif
 
 /*
  * Invalidate the secondary cache before DMA.
@@ -57,7 +59,8 @@ static void mips_sc_disable(void)
 static struct bcache_ops mips_sc_ops = {
 	.bc_enable = mips_sc_enable,
 	.bc_disable = mips_sc_disable,
-	.bc_wback_inv = mips_sc_wback_inv,
+	.bc_wback_inv = mips_sc_inv,
+//	.bc_wback_inv = mips_sc_wback_inv,
 	.bc_inv = mips_sc_inv
 };
 
