@@ -24,6 +24,7 @@
 #include <linux/usb/ohci_pdriver.h>
 
 #include <int.h>
+#include <pci.h>
 #include <usb.h>
 #include <uart.h>
 
