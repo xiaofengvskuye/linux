@@ -1,12 +1,18 @@
 #ifndef __ASM_MMU_H
 #define __ASM_MMU_H
 
-#include    <asm/asm.h>
-
 typedef struct {
 	unsigned long asid[NR_CPUS];
 	void *vdso;
 } mm_context_t;
+
+#if (_MIPS_SZPTR == 32)
+#define PTR	.word
+#endif
+
+#if (_MIPS_SZPTR == 64)
+#define PTR	.dword
+#endif
 
 #define STR(x)  __STR(x)
 #define __STR(x)  #x
