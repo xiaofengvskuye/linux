@@ -34,6 +34,7 @@
 #include <asm/war.h>
 #include <asm/cacheflush.h> /* for run_uncached() */
 #include <asm/traps.h>
+#include <asm/dma-coherence.h>
 
 /*
  * Special Variant of smp_call_function for use by cache functions:
@@ -1677,25 +1678,6 @@ static void __cpuinit coherency_setup(void)
 		break;
 	}
 }
-
-int coherentio = 0;	/* User defined DMA coherency from command line. */
-int hw_coherentio = 0;	/* Actual hardware supported DMA coherency setting. */
-
-static int __init setcoherentio(char *str)
-{
-	coherentio = 1;
-	pr_info("Hardware DMA cache coherency (command line)\n");
-	return 0;
-}
-early_param("coherentio", setcoherentio);
-
-static int __init setnocoherentio(char *str)
-{
-	coherentio = 0;
-	pr_info("Software DMA cache coherency (command line)\n");
-	return 0;
-}
-early_param("nocoherentio", setnocoherentio);
 
 static void __cpuinit r4k_cache_error_setup(void)
 {

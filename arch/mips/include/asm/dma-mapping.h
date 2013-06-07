@@ -2,11 +2,9 @@
 #define _ASM_DMA_MAPPING_H
 
 #include <asm/scatterlist.h>
+#include <asm/dma-coherence.h>
 #include <asm/cache.h>
 #include <asm-generic/dma-coherent.h>
-
-extern int coherentio;
-extern int hw_coherentio;
 
 #ifndef CONFIG_SGI_IP27 /* Kludge to fix 2.6.39 build for IP27 */
 #include <dma-coherence.h>
