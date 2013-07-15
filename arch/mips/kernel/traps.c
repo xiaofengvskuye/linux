@@ -265,7 +265,7 @@ static void __show_regs(const struct pt_regs *regs)
 
 	printk("Status: %08x	", (uint32_t) regs->cp0_status);
 
-	if (current_cpu_data.isa_level == MIPS_CPU_ISA_I) {
+	if (cpu_has_3kex) {
 		if (regs->cp0_status & ST0_KUO)
 			printk("KUo ");
 		if (regs->cp0_status & ST0_IEO)
@@ -278,7 +278,7 @@ static void __show_regs(const struct pt_regs *regs)
 			printk("KUc ");
 		if (regs->cp0_status & ST0_IEC)
 			printk("IEc ");
-	} else {
+	} else if (cpu_has_4kex) {
 		if (regs->cp0_status & ST0_KX)
 			printk("KX ");
 		if (regs->cp0_status & ST0_SX)
@@ -1056,15 +1056,9 @@ static int default_cu2_call(struct notifier_block *nfb, unsigned long action,
 {
 	struct pt_regs *regs = data;
 
-	switch (action) {
-	default:
-		die_if_kernel("Unhandled kernel unaligned access or invalid "
+	die_if_kernel("COP2: Unhandled kernel unaligned access or invalid "
 			      "instruction", regs);
-		/* Fall through	 */
-
-	case CU2_EXCEPTION:
-		force_sig(SIGILL, current);
-	}
+	force_sig(SIGILL, current);
 
 	return NOTIFY_OK;
 }
@@ -1080,9 +1074,10 @@ asmlinkage void do_cpu(struct pt_regs *regs)
 	unsigned long __maybe_unused flags;
 
 	prev_state = exception_enter();
-	die_if_kernel("do_cpu invoked from kernel context!", regs);
-
 	cpid = (regs->cp0_cause >> CAUSEB_CE) & 3;
+
+	if (cpid != 2)
+		die_if_kernel("do_cpu invoked from kernel context!", regs);
 
 	switch (cpid) {
 	case 0:
@@ -1673,7 +1668,6 @@ void *set_vi_handler(int n, vi_handler_t addr)
 }
 
 extern void tlb_init(void);
-extern void flush_tlb_handlers(void);
 
 /*
  * Timer interrupt
@@ -1883,6 +1877,15 @@ void __init trap_init(void)
 			ebase += (read_c0_ebase() & 0x3ffff000);
 	}
 
+	if (cpu_has_mmips) {
+		unsigned int config3 = read_c0_config3();
+
+		if (IS_ENABLED(CONFIG_CPU_MICROMIPS))
+			write_c0_config3(config3 | MIPS_CONF3_ISA_OE);
+		else
+			write_c0_config3(config3 & ~MIPS_CONF3_ISA_OE);
+	}
+
 	if (board_ebase_setup)
 		board_ebase_setup();
 	per_cpu_trap_init(true);
@@ -2002,7 +2005,6 @@ void __init trap_init(void)
 		set_handler(0x080, &except_vec3_generic, 0x80);
 
 	local_flush_icache_range(ebase, ebase + 0x400);
-	flush_tlb_handlers();
 
 	sort_extable(__start___dbe_table, __stop___dbe_table);
 

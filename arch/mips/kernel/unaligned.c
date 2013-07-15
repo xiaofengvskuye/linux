@@ -685,7 +685,8 @@ const int reg16to32[] = { 16, 17, 2, 3, 4, 5, 6, 7 };
 /* Recode table from 16-bit STORE register notation to 32-bit GPR. */
 const int reg16to32st[] = { 0, 17, 2, 3, 4, 5, 6, 7 };
 
-void emulate_load_store_microMIPS(struct pt_regs *regs, void __user * addr)
+static void emulate_load_store_microMIPS(struct pt_regs *regs,
+					 void __user *addr)
 {
 	unsigned long value;
 	unsigned int res;
@@ -1549,6 +1550,7 @@ sigill:
 	    ("Unhandled kernel unaligned access or invalid instruction", regs);
 	force_sig(SIGILL, current);
 }
+
 asmlinkage void do_ade(struct pt_regs *regs)
 {
 	enum ctx_state prev_state;
