@@ -16,8 +16,9 @@ static void proc_build_segment_config(char *str, unsigned int cfg)
 {
 	unsigned int am;
 	int len = 0;
-	static const char *am_str[] =
-		{"UK   ", "MK   ", "MSK  ", "MUSK ", "MUSUK", "USK  ", "UUSK "};
+	static const char * const am_str[] = {
+		"UK  ", "MK  ", "MSK  ", "MUSK  ", "MUSUK  ", "USK  ",
+		"*Reserved*  ", "UUSK  "};
 
 	/* Segment access mode. */
 	am = (cfg & MIPS_SEGCFG_AM) >> MIPS_SEGCFG_AM_SHIFT;
