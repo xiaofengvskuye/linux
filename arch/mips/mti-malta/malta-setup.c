@@ -352,7 +352,7 @@ void __init plat_eva_setup(void)
 	back_to_back_c0_hazard();
 
 	val = read_c0_config5();
-	write_c0_config5(val|MIPS_CONF5_K|MIPS_CONF5_CV|MIPS_CONF5_EVA);
+	write_c0_config5(val|MIPS_CONF5_K|MIPS_CONF5_CV);
 	back_to_back_c0_hazard();
 
 	printk("Enhanced Virtual Addressing (EVA) active\n");
