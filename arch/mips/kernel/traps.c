@@ -1864,7 +1864,7 @@ void __cpuinit per_cpu_trap_init(bool is_boot_cpu)
 }
 
 /* Install CPU exception handler */
-void __cpuinit set_handler(unsigned long offset, void *addr, unsigned long size)
+void set_handler(unsigned long offset, void *addr, unsigned long size)
 {
 #ifdef CONFIG_CPU_MICROMIPS
 	memcpy((void *)(ebase + offset), ((unsigned char *)addr - 1), size);
