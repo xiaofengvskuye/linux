@@ -415,7 +415,7 @@ static inline unsigned int decode_config6_ftlb(struct cpuinfo_mips *c)
 }
 
 
-static void __cpuinit decode_configs(struct cpuinfo_mips *c)
+static void decode_configs(struct cpuinfo_mips *c)
 {
 	int ok, ok3 = 0, ok6 = 0;
 
