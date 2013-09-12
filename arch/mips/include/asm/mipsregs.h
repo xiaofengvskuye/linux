@@ -139,6 +139,12 @@
  * and should be written as zero.
  */
 #define FPU_CSR_RSVD	0x001c0000
+/* ... but FPU2 uses that bits */
+#define FPU_CSR_NAN2008 0x00040000
+#define FPU_CSR_ABS2008 0x00080000
+#define FPU_CSR_MAC2008 0x00100000
+
+#define FPU_CSR_DEFAULT 0x00000000
 
 /*
  * X the exception cause indicator
@@ -621,6 +627,9 @@
 #define MIPS_FPIR_W		(_ULCAST_(1) << 20)
 #define MIPS_FPIR_L		(_ULCAST_(1) << 21)
 #define MIPS_FPIR_F64		(_ULCAST_(1) << 22)
+/* additional bits in MIPS32/64 coprocessor 2 (FPU) */
+#define MIPS_FPIR_HAS2008       (_ULCAST_(1) << 23)
+#define MIPS_FPIR_FC            (_ULCAST_(1) << 24)
 
 #ifndef __ASSEMBLY__
 
@@ -1180,6 +1189,22 @@ do {									\
 	__res;								\
 })
 
+#define write_32bit_cp1_register(dest,value)                            \
+({									\
+	__asm__ __volatile__(						\
+	"	.set	push					\n"	\
+	"	.set	reorder					\n"	\
+	"	# gas fails to assemble cfc1 for some archs,	\n"	\
+	"	# like Octeon.					\n"	\
+	"	.set	mips1					\n"	\
+	"       ctc1    %0,"STR(dest)"                          \n"     \
+	"	.set	pop					\n"	\
+	:: "r" (value));                                                \
+})
+
+/*
+ * Macros to access the DSP ASE registers
+ */
 #ifdef HAVE_AS_DSP
 #define rddsp(mask)							\
 ({									\

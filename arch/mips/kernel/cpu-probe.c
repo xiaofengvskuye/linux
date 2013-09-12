@@ -118,6 +118,22 @@ static inline unsigned long cpu_get_fpu_id(void)
 }
 
 /*
+ * Set and Get the FPU CSR31.
+ */
+static inline unsigned long cpu_test_fpu_csr31(unsigned long fcr31)
+{
+	unsigned long tmp;
+
+	tmp = read_c0_status();
+	__enable_fpu();
+	write_32bit_cp1_register(CP1_STATUS,fcr31);
+	enable_fpu_hazard();
+	fcr31 = read_32bit_cp1_register(CP1_STATUS);
+	write_c0_status(tmp);
+	return fcr31;
+}
+
+/*
  * Check the CPU has an FPU the official way.
  */
 static inline int __cpu_has_fpu(void)
@@ -970,6 +986,8 @@ EXPORT_SYMBOL(__ua_limit);
 
 const char *__cpu_name[NR_CPUS];
 const char *__elf_platform;
+unsigned int fpu_fcr31 __read_mostly = 0;
+unsigned int system_has_fpu __read_mostly = 0;
 
 __cpuinit void cpu_probe(void)
 {
@@ -1031,12 +1049,17 @@ __cpuinit void cpu_probe(void)
 		c->ases &= ~(MIPS_ASE_DSP | MIPS_ASE_DSP2P);
 
 	if (c->options & MIPS_CPU_FPU) {
+		system_has_fpu = 1;
+		fpu_fcr31 = cpu_test_fpu_csr31(FPU_CSR_DEFAULT);
+
 		c->fpu_id = cpu_get_fpu_id();
 
 		if (c->isa_level & (MIPS_CPU_ISA_M32R1 | MIPS_CPU_ISA_M32R2 |
 				    MIPS_CPU_ISA_M64R1 | MIPS_CPU_ISA_M64R2)) {
 			if (c->fpu_id & MIPS_FPIR_3D)
 				c->ases |= MIPS_ASE_MIPS3D;
+			if (c->fpu_id & MIPS_FPIR_HAS2008)
+				fpu_fcr31 = cpu_test_fpu_csr31(FPU_CSR_DEFAULT|FPU_CSR_MAC2008|FPU_CSR_ABS2008|FPU_CSR_NAN2008);
 		}
 	}
 
