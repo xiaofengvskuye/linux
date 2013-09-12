@@ -29,6 +29,7 @@
 #include <linux/init.h>
 #include <linux/cache.h>
 
+#include <asm/mmu_context.h>
 #include <asm/cacheflush.h>
 #include <asm/pgtable.h>
 #include <asm/war.h>
@@ -2200,6 +2201,75 @@ static void __cpuinit build_r4000_tlb_modify_handler(void)
 	dump_handler("r4000_tlb_modify", handle_tlbm, ARRAY_SIZE(handle_tlbm));
 }
 
+/* Fixup an immediate instruction. */
+static void insn_fixup(unsigned long **start, unsigned long **stop,
+		       unsigned long i_const)
+{
+	unsigned long **p;
+
+	for (p = start; p < stop; p++) {
+#ifndef CONFIG_CPU_MICROMIPS
+		u32 *ip = (u32 *)*p;
+
+		*ip = (*ip & 0xffff0000) | i_const;
+#else
+		u16 *ip = ((u16 *)((unsigned long)*p - 1));
+
+		if ((*ip & 0xf000) == 0x4000) {		/* ADDIUS5 */
+			*ip &= 0xfff1;
+			*ip |= (i_const << 1);
+		} else if ((*ip & 0xf000) == 0x6000) {	/* ADDIUR1SP */
+			*ip &= 0xfff1;
+			*ip |= ((i_const >> 2) << 1);
+		} else {
+			ip++;
+			*ip = i_const;
+		}
+#endif
+	}
+}
+
+#define asid_insn_fixup(section, const)					\
+do {									\
+	extern unsigned long *__start_ ## section;			\
+	extern unsigned long *__stop_ ## section;			\
+	insn_fixup(&__start_ ## section, &__stop_ ## section, const);	\
+} while(0)
+
+/* Caller is assumed to flush the caches before first context switch. */
+static void setup_asid(unsigned long inc, unsigned int mask,
+		       unsigned int version_mask,
+		       unsigned int first_version)
+{
+#ifndef CONFIG_MIPS_MT_SMTC
+	extern asmlinkage void handle_ri_rdhwr_vivt(void);
+	unsigned long *vivt_exc;
+
+	/* The microMIPS addiu instruction only has a 3-bit immediate value. */
+	BUG_ON(cpu_has_mmips && (inc > 7));
+
+	/* Patch up one instruction in 'genex.s' that uses ASID_MASK. */
+#ifdef CONFIG_CPU_MICROMIPS
+	vivt_exc = (unsigned long *)((unsigned long) &handle_ri_rdhwr_vivt - 1);
+#else
+	vivt_exc = (unsigned long *) &handle_ri_rdhwr_vivt;
+#endif
+	vivt_exc++;
+	*vivt_exc = (*vivt_exc & 0xffff0000) | mask;
+
+	current_cpu_data.asid_cache = first_version;
+
+	asid_insn_fixup(__asid_mask, mask);
+	asid_insn_fixup(__asid_version_mask, version_mask);
+#else
+	asid_insn_fixup(__asid_mask, smtc_asid_mask);
+	asid_insn_fixup(__asid_version_mask,
+		~(smtc_asid_mask | (smtc_asid_mask - 1)));
+#endif
+	asid_insn_fixup(__asid_inc, inc);
+	asid_insn_fixup(__asid_first_version, first_version);
+}
+
 void __cpuinit build_tlb_refill_handler(void)
 {
 	/*
@@ -2224,6 +2294,7 @@ void __cpuinit build_tlb_refill_handler(void)
 	case CPU_TX3922:
 	case CPU_TX3927:
 #ifndef CONFIG_MIPS_PGD_C0_CONTEXT
+		setup_asid(0x40, 0xfc0, 0xf000, ASID_FIRST_VERSION_R3000);
 		if (cpu_has_local_ebase)
 			build_r3000_tlb_refill_handler();
 		if (!run_once) {
@@ -2249,6 +2320,7 @@ void __cpuinit build_tlb_refill_handler(void)
 		break;
 
 	default:
+		setup_asid(0x1, 0xff, 0xff00, ASID_FIRST_VERSION_R4000);
 		if (!run_once) {
 			scratch_reg = allocate_kscratch();
 #ifdef CONFIG_MIPS_PGD_C0_CONTEXT
