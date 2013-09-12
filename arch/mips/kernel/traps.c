@@ -1118,20 +1118,28 @@ asmlinkage void do_cpu(struct pt_regs *regs)
 		/* Fall through.  */
 
 	case 1:
-		if (used_math())	/* Using the FPU again.	 */
-			own_fpu(1);
-		else {			/* First time FPU user.	 */
-			init_fpu();
+		status = 0;
+		if (used_math())	/* Using the FPU again.  */
+			status = own_fpu(1);
+		else {			/* First time FPU user.  */
+			status = init_fpu();
+#ifndef CONFIG_MIPS_INCOMPATIBLE_FPU_EMULATION
+			if (status) {
+				force_sig(SIGFPE, current);
+				return;
+			}
+#endif
+
 			set_used_math();
 		}
 
-		if (!raw_cpu_has_fpu) {
+		if ((!raw_cpu_has_fpu) || status) {
 			int sig;
 			void __user *fault_addr = NULL;
 			sig = fpu_emulator_cop1Handler(regs,
 						       &current->thread.fpu,
 						       0, &fault_addr);
-			if (!process_fpemu_return(sig, fault_addr))
+			if ((!process_fpemu_return(sig, fault_addr)) && !status)
 				mt_ase_fp_affinity();
 		}
 
@@ -1697,7 +1705,7 @@ void __cpuinit per_cpu_trap_init(bool is_boot_cpu)
 	if (cpu_has_dsp)
 		status_set |= ST0_MX;
 
-	change_c0_status(ST0_CU|ST0_MX|ST0_RE|ST0_FR|ST0_BEV|ST0_TS|ST0_KX|ST0_SX|ST0_UX,
+	change_c0_status(ST0_CU|ST0_MX|ST0_RE|ST0_BEV|ST0_TS|ST0_KX|ST0_SX|ST0_UX,
 			 status_set);
 
 	if (cpu_has_mips_r2)

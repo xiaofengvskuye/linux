@@ -64,10 +64,45 @@
 	and	t0, t0, t1
 	LONG_S	t0, ST_OFF(t3)
 
+	/* Now copy FR from it */
+
+#if defined(CONFIG_CPU_MIPS32_R2) || defined(CONFIG_64BIT)
+#ifdef CONFIG_MIPS_MT_SMTC
+
+	li      t3, ST0_FR
+	mfc0    t2, CP0_TCSTATUS
+	nor     t1, $0, t3
+	and     t0, t0, t3                      # extract FR from prev
+	and     t3, t2, t1
+	or      t0, t0, t3
+	mtc0    t0, CP0_TCSTATUS
+	enable_fpu_hazard
+
+	fpu_save_double a0 t0 t1                # c0_status passed in t0
+						# clobbers t1
+	mtc0    t2, CP0_TCSTATUS
+#else
+	li      t3, ST0_FR
+	mfc0    t2, CP0_STATUS
+	nor     t1, $0, t3
+	and     t0, t0, t3                      # extract FR from prev
+	and     t3, t2, t1
+	or      t0, t0, t3
+	mtc0    t0, CP0_STATUS
+	enable_fpu_hazard
+
+	fpu_save_double a0 t0 t1                # c0_status passed in t0
+						# clobbers t1
+	mtc0    t2, CP0_STATUS
+
+#endif /* CONFIG_MIPS_MT_SMTC */
+#else
+
 	fpu_save_double a0 t0 t1		# c0_status passed in t0
 						# clobbers t1
-1:
+#endif
 
+1:
 	/*
 	 * The order of restoring the registers takes care of the race
 	 * updating $28, $29 and kernelsp without disabling ints.
@@ -107,17 +142,21 @@
 	xori	t1, t1, TCSTATUS_IXMT
 	or	t1, t1, t2
 	mtc0	t1, CP0_TCSTATUS
-	_ehb
 #endif /* CONFIG_MIPS_MT_SMTC */
 	move	v0, a0
-	jr	ra
+#ifdef CPU_MIPSR2
+	jr.hb   ra
+#else
+	_ehb
+	jr      ra
+#endif
 	END(resume)
 
 /*
  * Save a thread's fp context.
  */
 LEAF(_save_fp)
-#ifdef CONFIG_64BIT
+#if defined(CONFIG_CPU_MIPS32_R2) || defined(CONFIG_64BIT)
 	mfc0	t0, CP0_STATUS
 #endif
 	fpu_save_double a0 t0 t1		# clobbers t1
@@ -128,7 +167,7 @@ LEAF(_save_fp)
  * Restore a thread's fp context.
  */
 LEAF(_restore_fp)
-#ifdef CONFIG_64BIT
+#if defined(CONFIG_CPU_MIPS32_R2) || defined(CONFIG_64BIT)
 	mfc0	t0, CP0_STATUS
 #endif
 	fpu_restore_double a0 t0 t1		# clobbers t1
@@ -167,7 +206,7 @@ LEAF(_init_fpu)
 	li	t1, -1				# SNaN
 
 #ifdef CONFIG_64BIT
-	sll	t0, t0, 5
+	sll     t0, t0, 31 - _ST0_FR
 	bgez	t0, 1f				# 16 / 32 register mode?
 
 	dmtc1	t1, $f1
@@ -187,7 +226,7 @@ LEAF(_init_fpu)
 	dmtc1	t1, $f29
 	dmtc1	t1, $f31
 1:
-#endif
+#endif /* CONFIG_64BIT */
 
 #ifdef CONFIG_CPU_MIPS32
 	mtc1	t1, $f0
@@ -222,7 +261,51 @@ LEAF(_init_fpu)
 	mtc1	t1, $f29
 	mtc1	t1, $f30
 	mtc1	t1, $f31
-#else
+
+#ifdef CONFIG_CPU_MIPS32_R2
+	.set    push
+	.set    mips64r2
+	.set    noreorder
+	sll     t0, t0, 31 - _ST0_FR
+	bgez    t0, 1f                       # 16 / 32 register mode?
+	 nop
+
+	mthc1   t1, $f0
+	mthc1   t1, $f1
+	mthc1   t1, $f2
+	mthc1   t1, $f3
+	mthc1   t1, $f4
+	mthc1   t1, $f5
+	mthc1   t1, $f6
+	mthc1   t1, $f7
+	mthc1   t1, $f8
+	mthc1   t1, $f9
+	mthc1   t1, $f10
+	mthc1   t1, $f11
+	mthc1   t1, $f12
+	mthc1   t1, $f13
+	mthc1   t1, $f14
+	mthc1   t1, $f15
+	mthc1   t1, $f16
+	mthc1   t1, $f17
+	mthc1   t1, $f18
+	mthc1   t1, $f19
+	mthc1   t1, $f20
+	mthc1   t1, $f21
+	mthc1   t1, $f22
+	mthc1   t1, $f23
+	mthc1   t1, $f24
+	mthc1   t1, $f25
+	mthc1   t1, $f26
+	mthc1   t1, $f27
+	mthc1   t1, $f28
+	mthc1   t1, $f29
+	mthc1   t1, $f30
+	mthc1   t1, $f31
+	.set    pop
+1:
+#endif /* CONFIG_CPU_MIPS32_R2 */
+#else  /* CONFIG_CPU_MIPS32 */
 	.set	mips3
 	dmtc1	t1, $f0
 	dmtc1	t1, $f2
@@ -240,6 +323,6 @@ LEAF(_init_fpu)
 	dmtc1	t1, $f26
 	dmtc1	t1, $f28
 	dmtc1	t1, $f30
-#endif
+#endif /* CONFIG_CPU_MIPS32 */
 	jr	ra
 	END(_init_fpu)
