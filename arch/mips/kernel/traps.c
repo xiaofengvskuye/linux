@@ -328,6 +328,7 @@ void show_regs(struct pt_regs *regs)
 void show_registers(struct pt_regs *regs)
 {
 	const int field = 2 * sizeof(unsigned long);
+	mm_segment_t old_fs = get_fs();
 
 	__show_regs(regs);
 	print_modules();
@@ -342,9 +343,12 @@ void show_registers(struct pt_regs *regs)
 			printk("*HwTLS: %0*lx\n", field, tls);
 	}
 
+	if (!user_mode(regs))
+		set_fs(KERNEL_DS);
 	show_stacktrace(current, regs);
 	show_code((unsigned int __user *) regs->cp0_epc);
 	printk("\n");
+	set_fs(old_fs);
 }
 
 static int regs_to_trapnr(struct pt_regs *regs)
@@ -1447,10 +1451,16 @@ int register_nmi_notifier(struct notifier_block *nb)
 
 void __noreturn nmi_exception_handler(struct pt_regs *regs)
 {
+	unsigned long epc;
+	char str[100];
+
 	raw_notifier_call_chain(&nmi_chain, 0, regs);
 	bust_spinlocks(1);
-	printk("NMI taken!!!!\n");
-	die("NMI", regs);
+	epc = regs->cp0_epc;
+	snprintf(str, 100, "CPU%d NMI taken, CP0_EPC=%lx (before replacement by CP0_ERROREPC)\n",smp_processor_id(),regs->cp0_epc);
+	regs->cp0_epc = read_c0_errorepc();
+	die(str, regs);
+	regs->cp0_epc = epc;
 }
 
 #define VECTORSPACING 0x100	/* for EI/VI mode */

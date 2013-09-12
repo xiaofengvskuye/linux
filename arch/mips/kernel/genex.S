@@ -374,10 +374,26 @@ NESTED(except_vec_nmi, 0, sp)
 NESTED(nmi_handler, PT_SIZE, sp)
 	.set	push
 	.set	noat
+		/* Clear ERL - restore segment mapping */
+		mfc0	k0, CP0_STATUS
+		ori     k0, k0, ST0_EXL
+		lui     k1, 0xffff & ~(ST0_BEV>>16)
+		ori     k1, k1, 0xffff & ~(ST0_ERL)
+		and     k0, k0, k1
+		mtc0    k0, CP0_STATUS
+		ehb
 	SAVE_ALL
 	move	a0, sp
 	jal	nmi_exception_handler
 	RESTORE_ALL
+		/* Set ERL and clear EXL|NMI */
+		mfc0	k0, CP0_STATUS
+		ori     k0, k0, ST0_ERL
+		lui     k1, 0xffff & ~(ST0_NMI>>16)
+		ori     k1, k1, 0xffff & ~(ST0_EXL)
+		and     k0, k0, k1
+		mtc0    k0, CP0_STATUS
+		ehb
 	.set	mips3
 	eret
 	.set	pop
