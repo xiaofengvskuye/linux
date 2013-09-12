@@ -1379,14 +1379,15 @@ asmlinkage void cache_parity_error(void)
 	printk("Decoded c0_cacheerr: %s cache fault in %s reference.\n",
 	       reg_val & (1<<30) ? "secondary" : "primary",
 	       reg_val & (1<<31) ? "data" : "insn");
-	printk("Error bits: %s%s%s%s%s%s%s\n",
+	printk("Error bits: %s%s%s%s%s%s%s%s\n",
 	       reg_val & (1<<29) ? "ED " : "",
 	       reg_val & (1<<28) ? "ET " : "",
+	       reg_val & (1<<27) ? "ES " : "",
 	       reg_val & (1<<26) ? "EE " : "",
 	       reg_val & (1<<25) ? "EB " : "",
-	       reg_val & (1<<24) ? "EI " : "",
-	       reg_val & (1<<23) ? "E1 " : "",
-	       reg_val & (1<<22) ? "E0 " : "");
+	       reg_val & (1<<24) ? "EI/EF " : "",
+	       reg_val & (1<<23) ? "E1/SP " : "",
+	       reg_val & (1<<22) ? "E0/EW " : "");
 	printk("IDX: 0x%08x\n", reg_val & ((1<<22)-1));
 
 #if defined(CONFIG_CPU_MIPS32) || defined(CONFIG_CPU_MIPS64)
