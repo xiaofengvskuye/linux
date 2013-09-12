@@ -1425,6 +1425,7 @@ do {									\
 									\
 	__asm__ __volatile__(						\
 	"	.set	push					\n"	\
+	"	.set	dsp					\n"	\
 	"	.set	noat					\n"	\
 	"	# rddsp $1, %x1					\n"	\
 	"	.hword	((0x0020067c | (%x1 << 14)) >> 16)	\n"	\
@@ -1440,6 +1441,7 @@ do {									\
 do {									\
 	__asm__ __volatile__(						\
 	"	.set	push					\n"	\
+	"	.set	dsp					\n"	\
 	"	.set	noat					\n"	\
 	"	move	$1, %0					\n"	\
 	"	# wrdsp $1, %x1					\n"	\
@@ -1456,6 +1458,7 @@ do {									\
 									\
 	__asm__ __volatile__(						\
 	"	.set	push					\n"	\
+	"	.set	dsp					\n"	\
 	"	.set	noat					\n"	\
 	"	.hword	0x0001					\n"	\
 	"	.hword	%x1					\n"	\
@@ -1470,6 +1473,7 @@ do {									\
 do {									\
 	__asm__ __volatile__(						\
 	"	.set	push					\n"	\
+	"	.set	dsp					\n"	\
 	"	.set	noat					\n"	\
 	"	move	$1, %0					\n"	\
 	"	.hword	0x0001					\n"	\
@@ -1512,6 +1516,7 @@ do {									\
 									\
 	__asm__ __volatile__(						\
 	"	.set	push				\n"		\
+	"	.set	dsp				\n"		\
 	"	.set	noat				\n"		\
 	"	# rddsp $1, %x1				\n"		\
 	"	.word	0x7c000cb8 | (%x1 << 16)	\n"		\
@@ -1526,6 +1531,7 @@ do {									\
 do {									\
 	__asm__ __volatile__(						\
 	"	.set	push					\n"	\
+	"	.set	dsp					\n"	\
 	"	.set	noat					\n"	\
 	"	move	$1, %0					\n"	\
 	"	# wrdsp $1, %x1					\n"	\
@@ -1541,6 +1547,7 @@ do {									\
 									\
 	__asm__ __volatile__(						\
 	"	.set	push					\n"	\
+	"	.set	dsp					\n"	\
 	"	.set	noat					\n"	\
 	"	.word	(0x00000810 | %1)			\n"	\
 	"	move	%0, $1					\n"	\
@@ -1554,6 +1561,7 @@ do {									\
 do {									\
 	__asm__ __volatile__(						\
 	"	.set	push					\n"	\
+	"	.set	dsp					\n"	\
 	"	.set	noat					\n"	\
 	"	move	$1, %0					\n"	\
 	"	.word	(0x00200011 | %1)			\n"	\
