@@ -98,6 +98,7 @@ static int show_cpuinfo(struct seq_file *m, void *v)
 	if (cpu_has_mipsmt)	seq_printf(m, "%s", " mt");
 	if (cpu_has_mmips)	seq_printf(m, "%s", " micromips");
 	if (cpu_has_vz)		seq_printf(m, "%s", " vz");
+	if (cpu_has_eva)	seq_printf(m, "%s", " eva");
 	seq_printf(m, "\n");
 
 	if (cpu_has_mmips) {
@@ -109,6 +110,14 @@ static int show_cpuinfo(struct seq_file *m, void *v)
 	seq_printf(m, "kscratch registers\t: %d\n",
 		      hweight8(cpu_data[n].kscratch_mask));
 	seq_printf(m, "core\t\t\t: %d\n", cpu_data[n].core);
+#if defined(CONFIG_MIPS_MT_SMP) || defined(CONFIG_MIPS_MT_SMTC)
+	if (cpu_has_mipsmt) {
+		seq_printf(m, "VPE\t\t\t: %d\n", cpu_data[n].vpe_id);
+#if defined(CONFIG_MIPS_MT_SMTC)
+		seq_printf(m, "TC\t\t\t: %d\n", cpu_data[n].tc_id);
+#endif
+	}
+#endif
 
 	sprintf(fmt, "VCE%%c exceptions\t\t: %s\n",
 		      cpu_has_vce ? "%u" : "not available");
