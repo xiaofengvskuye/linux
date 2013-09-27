@@ -521,6 +521,7 @@ static void __cpuinit build_tlb_write_entry(u32 **p, struct uasm_label **l,
 		switch (current_cpu_type()) {
 		case CPU_M14KC:
 		case CPU_74K:
+		case CPU_PROAPTIV:
 			break;
 
 		default:
@@ -2317,6 +2318,20 @@ void __cpuinit build_tlb_refill_handler(void)
 
 	case CPU_R8000:
 		panic("No R8000 TLB refill handler yet");
+		break;
+
+	case CPU_PROAPTIV:
+		if (read_c0_config4() & MIPS_CONF4_AE)
+			setup_asid(0x1, 0x3ff, 0xfc00, ASID_FIRST_VERSION_APTIV);
+		else
+			setup_asid(0x1, 0xff, 0xff00, ASID_FIRST_VERSION_R4000);
+		build_r4000_tlb_refill_handler();
+		if (!run_once) {
+			build_r4000_tlb_load_handler();
+			build_r4000_tlb_store_handler();
+			build_r4000_tlb_modify_handler();
+			run_once++;
+		}
 		break;
 
 	default:

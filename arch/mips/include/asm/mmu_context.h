@@ -125,11 +125,11 @@ extern unsigned long smtc_asid_mask;
 #define HW_ASID_MASK			0xff
 #endif
 
+#define ASID_FIRST_VERSION_APTIV	0x1000
 #define ASID_FIRST_VERSION_R3000	0x1000
 #define ASID_FIRST_VERSION_R4000	0x100
 #define ASID_FIRST_VERSION_R8000	0x1000
 #define ASID_FIRST_VERSION_RM9000	0x1000
-#define ASID_FIRST_VERSION_99K		0x1000
 
 #define cpu_context(cpu, mm)	((mm)->context.asid[cpu])
 #define cpu_asid(cpu, mm)	ASID_MASK(cpu_context((cpu), (mm)))
