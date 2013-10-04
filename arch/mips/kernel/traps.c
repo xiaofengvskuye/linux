@@ -1837,7 +1837,9 @@ void __cpuinit per_cpu_trap_init(bool is_boot_cpu)
 	}
 #endif /* CONFIG_MIPS_MT_SMTC */
 
-	asid_cache(cpu) = ASID_FIRST_VERSION;
+	if (!cpu_data[cpu].asid_cache)
+		cpu_data[cpu].asid_cache = ASID_FIRST_VERSION;
+
 	atomic_inc(&init_mm.mm_count);
 	current->active_mm = &init_mm;
 	BUG_ON(current->mm);

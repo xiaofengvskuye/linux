@@ -525,14 +525,18 @@ kvm_mips_emulate_CP0(uint32_t inst, uint32_t *opc, uint32_t cause,
 				printk("MTCz, cop0->reg[EBASE]: %#lx\n",
 				       kvm_read_c0_guest_ebase(cop0));
 			} else if (rd == MIPS_CP0_TLB_HI && sel == 0) {
-				uint32_t nasid = ASID_MASK(vcpu->arch.gprs[rt]);
+				uint32_t nasid =
+				    vcpu->arch.gprs[rt] & ASID_MASK;
+				if ((KSEGX(vcpu->arch.gprs[rt]) != CKSEG0)
+				    &&
+				    ((kvm_read_c0_guest_entryhi(cop0) &
+				      ASID_MASK) != nasid)) {
 
-				if ((KSEGX(vcpu->arch.gprs[rt]) != CKSEG0) &&
-				    (ASID_MASK(kvm_read_c0_guest_entryhi(cop0))
-				     != nasid)) {
-					kvm_debug("MTCz, change ASID from %#lx to %#lx\n",
-						ASID_MASK(kvm_read_c0_guest_entryhi(cop0)),
-						ASID_MASK(vcpu->arch.gprs[rt]));
+					kvm_debug
+					    ("MTCz, change ASID from %#lx to %#lx\n",
+					     kvm_read_c0_guest_entryhi(cop0) &
+					     ASID_MASK,
+					     vcpu->arch.gprs[rt] & ASID_MASK);
 
 					/* Blow away the shadow host TLBs */
 					kvm_mips_flush_host_tlb(1);
@@ -984,7 +988,8 @@ kvm_mips_emulate_cache(uint32_t inst, uint32_t *opc, uint32_t cause,
 		 * resulting handler will do the right thing
 		 */
 		index = kvm_mips_guest_tlb_lookup(vcpu, (va & VPN2_MASK) |
-				(ASID_MASK(kvm_read_c0_guest_entryhi(cop0))));
+						  (kvm_read_c0_guest_entryhi
+						   (cop0) & ASID_MASK));
 
 		if (index < 0) {
 			vcpu->arch.host_cp0_entryhi = (va & VPN2_MASK);
@@ -1148,8 +1153,8 @@ kvm_mips_emulate_tlbmiss_ld(unsigned long cause, uint32_t *opc,
 	struct mips_coproc *cop0 = vcpu->arch.cop0;
 	struct kvm_vcpu_arch *arch = &vcpu->arch;
 	enum emulation_result er = EMULATE_DONE;
-	unsigned long entryhi = (vcpu->arch.host_cp0_badvaddr & VPN2_MASK) |
-				 ASID_MASK(kvm_read_c0_guest_entryhi(cop0));
+	unsigned long entryhi = (vcpu->arch.  host_cp0_badvaddr & VPN2_MASK) |
+				(kvm_read_c0_guest_entryhi(cop0) & ASID_MASK);
 
 	if ((kvm_read_c0_guest_status(cop0) & ST0_EXL) == 0) {
 		/* save old pc */
@@ -1194,8 +1199,9 @@ kvm_mips_emulate_tlbinv_ld(unsigned long cause, uint32_t *opc,
 	struct mips_coproc *cop0 = vcpu->arch.cop0;
 	struct kvm_vcpu_arch *arch = &vcpu->arch;
 	enum emulation_result er = EMULATE_DONE;
-	unsigned long entryhi = (vcpu->arch.host_cp0_badvaddr & VPN2_MASK) |
-				 ASID_MASK(kvm_read_c0_guest_entryhi(cop0));
+	unsigned long entryhi =
+		(vcpu->arch.host_cp0_badvaddr & VPN2_MASK) |
+		(kvm_read_c0_guest_entryhi(cop0) & ASID_MASK);
 
 	if ((kvm_read_c0_guest_status(cop0) & ST0_EXL) == 0) {
 		/* save old pc */
@@ -1240,7 +1246,7 @@ kvm_mips_emulate_tlbmiss_st(unsigned long cause, uint32_t *opc,
 	struct kvm_vcpu_arch *arch = &vcpu->arch;
 	enum emulation_result er = EMULATE_DONE;
 	unsigned long entryhi = (vcpu->arch.host_cp0_badvaddr & VPN2_MASK) |
-				 ASID_MASK(kvm_read_c0_guest_entryhi(cop0));
+				(kvm_read_c0_guest_entryhi(cop0) & ASID_MASK);
 
 	if ((kvm_read_c0_guest_status(cop0) & ST0_EXL) == 0) {
 		/* save old pc */
@@ -1284,7 +1290,7 @@ kvm_mips_emulate_tlbinv_st(unsigned long cause, uint32_t *opc,
 	struct kvm_vcpu_arch *arch = &vcpu->arch;
 	enum emulation_result er = EMULATE_DONE;
 	unsigned long entryhi = (vcpu->arch.host_cp0_badvaddr & VPN2_MASK) |
-				 ASID_MASK(kvm_read_c0_guest_entryhi(cop0));
+		(kvm_read_c0_guest_entryhi(cop0) & ASID_MASK);
 
 	if ((kvm_read_c0_guest_status(cop0) & ST0_EXL) == 0) {
 		/* save old pc */
@@ -1353,7 +1359,7 @@ kvm_mips_emulate_tlbmod(unsigned long cause, uint32_t *opc,
 {
 	struct mips_coproc *cop0 = vcpu->arch.cop0;
 	unsigned long entryhi = (vcpu->arch.host_cp0_badvaddr & VPN2_MASK) |
-				 ASID_MASK(kvm_read_c0_guest_entryhi(cop0));
+				(kvm_read_c0_guest_entryhi(cop0) & ASID_MASK);
 	struct kvm_vcpu_arch *arch = &vcpu->arch;
 	enum emulation_result er = EMULATE_DONE;
 
@@ -1778,8 +1784,10 @@ kvm_mips_handle_tlbmiss(unsigned long cause, uint32_t *opc,
 	 * exception. The guest exc handler should then inject an entry into the
 	 * guest TLB
 	 */
-	index = kvm_mips_guest_tlb_lookup(vcpu, (va & VPN2_MASK) |
-			ASID_MASK(kvm_read_c0_guest_entryhi(vcpu->arch.cop0)));
+	index = kvm_mips_guest_tlb_lookup(vcpu,
+					  (va & VPN2_MASK) |
+					  (kvm_read_c0_guest_entryhi
+					   (vcpu->arch.cop0) & ASID_MASK));
 	if (index < 0) {
 		if (exccode == T_TLB_LD_MISS) {
 			er = kvm_mips_emulate_tlbmiss_ld(cause, opc, run, vcpu);

@@ -16,7 +16,6 @@
 #include <asm/page.h>
 #include <asm/pgtable.h>
 #include <asm/tlbdebug.h>
-#include <asm/mmu_context.h>
 
 static inline const char *msk2str(unsigned int mask)
 {
@@ -61,7 +60,7 @@ static void dump_tlb(int first, int last)
 	s_pagemask = read_c0_pagemask();
 	s_entryhi = read_c0_entryhi();
 	s_index = read_c0_index();
-	asid = ASID_MASK(s_entryhi);
+	asid = s_entryhi & 0xff;
 
 	for (i = first; i <= last; i++) {
 		write_c0_index(i);
@@ -93,7 +92,7 @@ static void dump_tlb(int first, int last)
 
 			printk("va=%0*lx asid=%02lx:",
 			       width, (entryhi & ~0x1fffUL),
-			       ASID_MASK(entryhi));
+			       entryhi & 0xff);
 			printk("\t[pa=%0*llx c=%d d=%d v=%d g=%d] ",
 			       width,
 			       (entrylo0 << 6) & PAGE_MASK, c0,
