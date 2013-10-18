@@ -2249,16 +2249,6 @@ void __cpuinit build_tlb_refill_handler(void)
 		panic("No R8000 TLB refill handler yet");
 		break;
 
-	case CPU_PROAPTIV:
-		build_r4000_tlb_refill_handler();
-		if (!run_once) {
-			build_r4000_tlb_load_handler();
-			build_r4000_tlb_store_handler();
-			build_r4000_tlb_modify_handler();
-			run_once++;
-		}
-		break;
-
 	default:
 		if (!run_once) {
 			scratch_reg = allocate_kscratch();
