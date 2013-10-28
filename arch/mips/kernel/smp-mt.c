@@ -175,6 +175,14 @@ static void vsmp_send_ipi_mask(const struct cpumask *mask, unsigned int action)
 
 static void __cpuinit vsmp_init_secondary(void)
 {
+	struct cpuinfo_mips *c = &current_cpu_data;
+
+	c->core = (read_c0_ebase() & 0x3ff) >> (fls(smp_num_siblings)-1);
+#if defined(CONFIG_MIPS_MT_SMP) || defined(CONFIG_MIPS_MT_SMTC)
+	if (cpu_has_mipsmt)
+		c->vpe_id = (read_c0_tcbind() >> TCBIND_CURVPE_SHIFT) & TCBIND_CURVPE;
+#endif
+
 #ifdef CONFIG_IRQ_GIC
 	/* This is Malta specific: IPI,performance and timer interrupts */
 	if (gic_present)
