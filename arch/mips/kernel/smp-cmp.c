@@ -96,8 +96,7 @@ static unsigned long bev_location = -1;
 
 static int rd_bev_location(char *p)
 {
-	if ((strlen(p) > 19) && (*(p + 18) == '=')) {
-		p += 19;
+	if (p && strlen(p)) {
 		bev_location = memparse(p, &p);
 	} else
 		bev_location = 0xbfc00000;
