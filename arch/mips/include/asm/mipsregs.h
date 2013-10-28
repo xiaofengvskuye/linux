@@ -694,7 +694,7 @@
 #define MIPS_SEGCFG_UK		_ULCAST_(0)
 
 /* ebase register bit definition */
-#define MIPS_EBASE_WG           _ULCAST_(11)
+#define MIPS_EBASE_WG           (_ULCAST_(1) << 11)
 
 #ifndef __ASSEMBLY__
 
