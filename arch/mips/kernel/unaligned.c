@@ -112,7 +112,10 @@ asmlinkage void do_cpu(struct pt_regs *regs);
 
 #ifdef __BIG_ENDIAN
 #define     LoadHW(addr, value, res)  \
-		__asm__ __volatile__ (".set\tnoat\n"        \
+		__asm__ __volatile__ (				\
+			".set\tpush\n"				\
+			".set\teva\n"				\
+			".set\tnoat\n"				\
 			"1:\tlbe\t%0, 0(%2)\n"               \
 			"2:\tlbue\t$1, 1(%2)\n\t"            \
 			"sll\t%0, 0x8\n\t"                  \
@@ -127,12 +130,15 @@ asmlinkage void do_cpu(struct pt_regs *regs);
 			".section\t__ex_table,\"a\"\n\t"    \
 			STR(PTR)"\t1b, 4b\n\t"              \
 			STR(PTR)"\t2b, 4b\n\t"              \
-			".previous"                         \
+			".previous\n"				\
+			".set\tpop\n"				\
 			: "=&r" (value), "=r" (res)         \
 			: "r" (addr), "i" (-EFAULT));
 
 #define     LoadW(addr, value, res)   \
-		__asm__ __volatile__ (                      \
+		__asm__ __volatile__ (				\
+			".set\tpush\n"				\
+			".set\teva\n"				\
 			"1:\tlwle\t%0, (%2)\n"               \
 			"2:\tlwre\t%0, 3(%2)\n\t"            \
 			"li\t%1, 0\n"                       \
@@ -145,13 +151,16 @@ asmlinkage void do_cpu(struct pt_regs *regs);
 			".section\t__ex_table,\"a\"\n\t"    \
 			STR(PTR)"\t1b, 4b\n\t"              \
 			STR(PTR)"\t2b, 4b\n\t"              \
-			".previous"                         \
+			".previous\n"				\
+			".set\tpop\n"				\
 			: "=&r" (value), "=r" (res)         \
 			: "r" (addr), "i" (-EFAULT));
 
 #define     LoadHWU(addr, value, res) \
-		__asm__ __volatile__ (                      \
-			".set\tnoat\n"                      \
+		__asm__ __volatile__ (				\
+			".set\tpush\n"				\
+			".set\teva\n"				\
+			".set\tnoat\n"				\
 			"1:\tlbue\t%0, 0(%2)\n"              \
 			"2:\tlbue\t$1, 1(%2)\n\t"            \
 			"sll\t%0, 0x8\n\t"                  \
@@ -167,12 +176,15 @@ asmlinkage void do_cpu(struct pt_regs *regs);
 			".section\t__ex_table,\"a\"\n\t"    \
 			STR(PTR)"\t1b, 4b\n\t"              \
 			STR(PTR)"\t2b, 4b\n\t"              \
-			".previous"                         \
+			".previous\n"				\
+			".set\tpop\n"				\
 			: "=&r" (value), "=r" (res)         \
 			: "r" (addr), "i" (-EFAULT));
 
 #define     LoadWU(addr, value, res)  \
-		__asm__ __volatile__ (                      \
+		__asm__ __volatile__ (				\
+			".set\tpush\n"				\
+			".set\teva\n"				\
 			"1:\tlwle\t%0, (%2)\n"               \
 			"2:\tlwre\t%0, 3(%2)\n\t"            \
 			"dsll\t%0, %0, 32\n\t"              \
@@ -187,13 +199,16 @@ asmlinkage void do_cpu(struct pt_regs *regs);
 			".section\t__ex_table,\"a\"\n\t"    \
 			STR(PTR)"\t1b, 4b\n\t"              \
 			STR(PTR)"\t2b, 4b\n\t"              \
-			".previous"                         \
+			".previous\n"				\
+			".set\tpop\n"				\
 			: "=&r" (value), "=r" (res)         \
 			: "r" (addr), "i" (-EFAULT));
 
 #define     StoreHW(addr, value, res) \
-		__asm__ __volatile__ (                      \
-			".set\tnoat\n"                      \
+		__asm__ __volatile__ (				\
+			".set\tpush\n"				\
+			".set\teva\n"				\
+			".set\tnoat\n"				\
 			"1:\tsbe\t%1, 1(%2)\n\t"             \
 			"srl\t$1, %1, 0x8\n"                \
 			"2:\tsbe\t$1, 0(%2)\n\t"             \
@@ -208,12 +223,15 @@ asmlinkage void do_cpu(struct pt_regs *regs);
 			".section\t__ex_table,\"a\"\n\t"    \
 			STR(PTR)"\t1b, 4b\n\t"              \
 			STR(PTR)"\t2b, 4b\n\t"              \
-			".previous"                         \
+			".previous\n"				\
+			".set\tpop\n"				\
 			: "=r" (res)                        \
 			: "r" (value), "r" (addr), "i" (-EFAULT));
 
 #define     StoreW(addr, value, res)  \
-		__asm__ __volatile__ (                      \
+		__asm__ __volatile__ (				\
+			".set\tpush\n"				\
+			".set\teva\n"				\
 			"1:\tswle\t%1,(%2)\n"                \
 			"2:\tswre\t%1, 3(%2)\n\t"            \
 			"li\t%0, 0\n"                       \
@@ -226,14 +244,18 @@ asmlinkage void do_cpu(struct pt_regs *regs);
 			".section\t__ex_table,\"a\"\n\t"    \
 			STR(PTR)"\t1b, 4b\n\t"              \
 			STR(PTR)"\t2b, 4b\n\t"              \
-			".previous"                         \
+			".previous\n"				\
+			".set\tpop\n"				\
 		: "=r" (res)                                \
 		: "r" (value), "r" (addr), "i" (-EFAULT));
 #endif
 
 #ifdef __LITTLE_ENDIAN
 #define     LoadHW(addr, value, res)  \
-		__asm__ __volatile__ (".set\tnoat\n"        \
+		__asm__ __volatile__ (				\
+			".set\tpush\n"				\
+			".set\teva\n"				\
+			".set\tnoat\n"				\
 			"1:\tlbe\t%0, 1(%2)\n"               \
 			"2:\tlbue\t$1, 0(%2)\n\t"            \
 			"sll\t%0, 0x8\n\t"                  \
@@ -248,12 +270,15 @@ asmlinkage void do_cpu(struct pt_regs *regs);
 			".section\t__ex_table,\"a\"\n\t"    \
 			STR(PTR)"\t1b, 4b\n\t"              \
 			STR(PTR)"\t2b, 4b\n\t"              \
-			".previous"                         \
+			".previous\n"				\
+			".set\tpop\n"				\
 			: "=&r" (value), "=r" (res)         \
 			: "r" (addr), "i" (-EFAULT));
 
 #define     LoadW(addr, value, res)   \
-		__asm__ __volatile__ (                      \
+		__asm__ __volatile__ (				\
+			".set\tpush\n"				\
+			".set\teva\n"				\
 			"1:\tlwle\t%0, 3(%2)\n"              \
 			"2:\tlwre\t%0, (%2)\n\t"             \
 			"li\t%1, 0\n"                       \
@@ -266,13 +291,16 @@ asmlinkage void do_cpu(struct pt_regs *regs);
 			".section\t__ex_table,\"a\"\n\t"    \
 			STR(PTR)"\t1b, 4b\n\t"              \
 			STR(PTR)"\t2b, 4b\n\t"              \
-			".previous"                         \
+			".previous\n"				\
+			".set\tpop\n"				\
 			: "=&r" (value), "=r" (res)         \
 			: "r" (addr), "i" (-EFAULT));
 
 #define     LoadHWU(addr, value, res) \
-		__asm__ __volatile__ (                      \
-			".set\tnoat\n"                      \
+		__asm__ __volatile__ (				\
+			".set\tpush\n"				\
+			".set\teva\n"				\
+			".set\tnoat\n"				\
 			"1:\tlbue\t%0, 1(%2)\n"              \
 			"2:\tlbue\t$1, 0(%2)\n\t"            \
 			"sll\t%0, 0x8\n\t"                  \
@@ -288,12 +316,15 @@ asmlinkage void do_cpu(struct pt_regs *regs);
 			".section\t__ex_table,\"a\"\n\t"    \
 			STR(PTR)"\t1b, 4b\n\t"              \
 			STR(PTR)"\t2b, 4b\n\t"              \
-			".previous"                         \
+			".previous\n"				\
+			".set\tpop\n"				\
 			: "=&r" (value), "=r" (res)         \
 			: "r" (addr), "i" (-EFAULT));
 
 #define     LoadWU(addr, value, res)  \
-		__asm__ __volatile__ (                      \
+		__asm__ __volatile__ (				\
+			".set\tpush\n"				\
+			".set\teva\n"				\
 			"1:\tlwle\t%0, 3(%2)\n"              \
 			"2:\tlwre\t%0, (%2)\n\t"             \
 			"dsll\t%0, %0, 32\n\t"              \
@@ -308,13 +339,16 @@ asmlinkage void do_cpu(struct pt_regs *regs);
 			".section\t__ex_table,\"a\"\n\t"    \
 			STR(PTR)"\t1b, 4b\n\t"              \
 			STR(PTR)"\t2b, 4b\n\t"              \
-			".previous"                         \
+			".previous\n"				\
+			".set\tpop\n"				\
 			: "=&r" (value), "=r" (res)         \
 			: "r" (addr), "i" (-EFAULT));
 
 #define     StoreHW(addr, value, res) \
-		__asm__ __volatile__ (                      \
-			".set\tnoat\n"                      \
+		__asm__ __volatile__ (				\
+			".set\tpush\n"				\
+			".set\teva\n"				\
+			".set\tnoat\n"				\
 			"1:\tsbe\t%1, 0(%2)\n\t"             \
 			"srl\t$1,%1, 0x8\n"                 \
 			"2:\tsbe\t$1, 1(%2)\n\t"             \
@@ -329,12 +363,15 @@ asmlinkage void do_cpu(struct pt_regs *regs);
 			".section\t__ex_table,\"a\"\n\t"    \
 			STR(PTR)"\t1b, 4b\n\t"              \
 			STR(PTR)"\t2b, 4b\n\t"              \
-			".previous"                         \
+			".previous\n"				\
+			".set\tpop\n"				\
 			: "=r" (res)                        \
 			: "r" (value), "r" (addr), "i" (-EFAULT));
 
 #define     StoreW(addr, value, res)  \
-		__asm__ __volatile__ (                      \
+		__asm__ __volatile__ (				\
+			".set\tpush\n"				\
+			".set\teva\n"				\
 			"1:\tswle\t%1, 3(%2)\n"              \
 			"2:\tswre\t%1, (%2)\n\t"             \
 			"li\t%0, 0\n"                       \
@@ -347,7 +384,8 @@ asmlinkage void do_cpu(struct pt_regs *regs);
 			".section\t__ex_table,\"a\"\n\t"    \
 			STR(PTR)"\t1b, 4b\n\t"              \
 			STR(PTR)"\t2b, 4b\n\t"              \
-			".previous"                         \
+			".previous\n"				\
+			".set\tpop\n"				\
 		: "=r" (res)                                \
 		: "r" (value), "r" (addr), "i" (-EFAULT));
 #endif
