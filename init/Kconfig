@@ -118,6 +118,7 @@ config HAVE_KERNEL_LZ4
 choice
 	prompt "Kernel compression mode"
 	default KERNEL_GZIP
+	depends on HAVE_KERNEL_GZIP || HAVE_KERNEL_BZIP2 || HAVE_KERNEL_LZMA || HAVE_KERNEL_XZ || HAVE_KERNEL_LZO || HAVE_KERNEL_LZ4
 	help
 	  The linux kernel is a kind of self-extracting executable.
 	  Several compression algorithms are available, which differ
@@ -135,13 +136,6 @@ choice
 	  size matters less.
 
 	  If in doubt, select 'gzip'
-
-config KERNEL_UNCOMPRESSED
-	bool "No compression"
-	help
-	  No compression at all. The kernel is huge but the compression and
-	  decompression times are zero.
-	  This is usually not what you want.
 
 config KERNEL_GZIP
 	bool "Gzip"
@@ -851,7 +845,7 @@ config NUMA_BALANCING_DEFAULT_ENABLED
 	default y
 	depends on NUMA_BALANCING
 	help
-	  If set, autonumic NUMA balancing will be enabled if running on a NUMA
+	  If set, automatic NUMA balancing will be enabled if running on a NUMA
 	  machine.
 
 config NUMA_BALANCING
@@ -862,7 +856,7 @@ config NUMA_BALANCING
 	help
 	  This option adds support for automatic NUMA aware memory/task placement.
 	  The mechanism is quite primitive and is based on migrating memory when
-	  it is references to the node the task is running on.
+	  it has references to the node the task is running on.
 
 	  This system will be inactive on UMA systems.
 
