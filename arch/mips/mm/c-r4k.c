@@ -1366,6 +1366,7 @@ static void __cpuinit probe_pcache(void)
 	case CPU_1074K:
 	case CPU_PROAPTIV:
 	case CPU_INTERAPTIV:
+	case CPU_M5150:
 		if ((c->cputype == CPU_74K) || (c->cputype == CPU_1074K))
 			alias_74k_erratum(c);
 		if (!(read_c0_config7() & MIPS_CONF7_IAR)) {
