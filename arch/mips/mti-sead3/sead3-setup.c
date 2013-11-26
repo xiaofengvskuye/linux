@@ -10,7 +10,6 @@
 #include <linux/libfdt.h>
 #include <linux/of_platform.h>
 #include <linux/of_fdt.h>
-#include <linux/bootmem.h>
 
 #include <asm/fw/fw.h>
 #include <asm/mips-boards/generic.h>
@@ -94,19 +93,29 @@ void __init plat_mem_setup(void)
 	__dt_setup_arch(&__dtb_start);
 }
 
+/**
+ * copy_fdt - Copy device tree into non-init memory.
+ *
+ * We must copy the flattened device tree blob into non-init memory because the
+ * unflattened device tree will reference the strings in it directly.
+ */
+void __init copy_fdt(void)
+{
+	void *alloc = early_init_dt_alloc_memory_arch(
+	be32_to_cpu(initial_boot_params->totalsize), 0x40);
+	if (alloc) {
+		memcpy(alloc, initial_boot_params,
+		be32_to_cpu(initial_boot_params->totalsize));
+		initial_boot_params = alloc;
+	}
+}
+
 void __init device_tree_init(void)
 {
-	unsigned long base, size;
-
 	if (!initial_boot_params)
 		return;
 
-	base = virt_to_phys((void *)initial_boot_params);
-	size = be32_to_cpu(initial_boot_params->totalsize);
-
-	/* Before we do anything, lets reserve the dt blob */
-	reserve_bootmem(base, size, BOOTMEM_DEFAULT);
-
+	copy_fdt();
 	unflatten_device_tree();
 }
 
