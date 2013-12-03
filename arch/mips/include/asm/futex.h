@@ -109,13 +109,11 @@
 		"	.set	push				\n"	\
 		"	.set	noat				\n"	\
 		"       .set    eva                             \n"     \
-		"1:     lwe     %1, %4                          \n"     \
-		"       lwe     %1, %4                          \n"     \
+		"1:     lle     %1, %4                          \n"     \
 		"	.set	mips0				\n"	\
 		"	" insn	"				\n"	\
 		"       .set    eva                             \n"     \
-		"2:     swe     $1, %2                          \n"     \
-		"       li      $1, 1                           \n"     \
+		"2:     sce     $1, %2                          \n"     \
 		"	beqz	$1, 1b				\n"	\
 		__WEAK_LLSC_MB						\
 		"3:						\n"	\
@@ -311,14 +309,12 @@ futex_atomic_cmpxchg_inatomic(u32 *uval, u32 __user *uaddr,
 		"	.set	push					\n"
 		"	.set	noat					\n"
 		"       .set    eva                                     \n"
-		"1:     lwe     %1, %3                                  \n"
-		"       lwe     %1, %3                                  \n"
+		"1:     lle     %1, %3                                  \n"
 		"       bne     %1, %z4, 3f                             \n"
 		"	.set	mips0					\n"
 		"       move    $1, %z5                                 \n"
 		"       .set    eva                                     \n"
-		"2:     swe     $1, %2                                  \n"
-		"       li      $1, 1                                   \n"
+		"2:     sce     $1, %2                                  \n"
 		"	beqz	$1, 1b					\n"
 		__WEAK_LLSC_MB
 		"3:							\n"
