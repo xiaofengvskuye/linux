@@ -20,6 +20,7 @@
 #include <asm/traps.h>
 #include <asm/fw/fw.h>
 #include <asm/gcmpregs.h>
+#include <asm/mips-cpc.h>
 #include <asm/mips-boards/generic.h>
 #include <asm/mips-boards/malta.h>
 
@@ -110,6 +111,11 @@ static void __init mips_ejtag_setup(void)
 #endif
 	memcpy(base, &except_vec_ejtag_debug, 0x80);
 	local_flush_icache_range((unsigned long)base, (unsigned long)base + 0x80);
+}
+
+phys_t mips_cpc_default_phys_base(void)
+{
+	return CPC_BASE_ADDR;
 }
 
 void __init prom_mem_check(int niocu);
@@ -313,6 +319,8 @@ mips_pci_controller:
 #if defined(CONFIG_EVA) && !defined(CONFIG_EVA_OLD_MALTA_MAP)
 		prom_mem_check(gcmp_niocu());
 #endif
+		mips_cpc_probe();
+
 		if (!register_cmp_smp_ops())
 			return;
 	}
