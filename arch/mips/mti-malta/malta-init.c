@@ -321,6 +321,8 @@ mips_pci_controller:
 #endif
 		mips_cpc_probe();
 
+		if (!register_cps_smp_ops())
+			return;
 		if (!register_cmp_smp_ops())
 			return;
 	}
