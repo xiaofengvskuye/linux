@@ -2067,6 +2067,9 @@ config MIPS_CMP
 	help
 	  Enable Coherency Manager processor (CMP) support.
 
+config MIPS_CPC
+	bool
+
 config MIPS_CPUIDLE_CPS
 	bool
 	depends on CPU_MIPSR2 && !MIPS_MT_SMTC
