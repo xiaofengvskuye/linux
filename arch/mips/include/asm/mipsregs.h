@@ -668,6 +668,10 @@
 #define MIPS_CONF7_IAR		(_ULCAST_(1) << 10)
 #define MIPS_CONF7_RPS		(_ULCAST_(1) << 2)
 
+/* CMGCRBase bit definitions */
+#define MIPS_CMGCRB_BASE	11
+#define MIPS_CMGCRF_BASE	(~_ULCAST_((1 << MIPS_CMGCRB_BASE) - 1))
+
 /*  EntryHI bit definition */
 #define MIPS_EHINV		(_ULCAST_(1) << 10)
 
