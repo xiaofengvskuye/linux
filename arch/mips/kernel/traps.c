@@ -1328,6 +1328,7 @@ static inline void parity_protection_init(void)
 	case CPU_34K:
 	case CPU_74K:
 	case CPU_1004K:
+	case CPU_1074K:
 	case CPU_PROAPTIV:
 	case CPU_INTERAPTIV:
 		{
