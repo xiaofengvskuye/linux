@@ -470,7 +470,8 @@ int __init gcmp_probe(unsigned long addr, unsigned long size)
 
 	if (gcmp_present) {
 		printk("GCMP present\n");
-		if (GCMPGCB(GCMPREV) >= 6)
+		if (((GCMPGCB(GCMPREV) & GCMP_GCB_GCMPREV_MAJOR_MSK) >>
+		      GCMP_GCB_GCMPREV_MAJOR_SHF) >= 6)
 			cpu_data[0].options |= MIPS_CPU_CM2;
 		if (cpu_has_cm2 && (size > 0x8000)) {
 			GCMPGCB(GCML2S) = (confaddr + 0x8000) | 1;
