@@ -96,6 +96,8 @@ obj-$(CONFIG_HW_PERF_EVENTS)	+= perf_event_mipsxx.o
 
 obj-$(CONFIG_JUMP_LABEL)	+= jump_label.o
 
+obj-$(CONFIG_MIPS_CPUIDLE_CPS)	+= cpuidle-cps.o
+
 #
 # DSP ASE supported for MIPS32 or MIPS64 Release 2 cores only.
 #
