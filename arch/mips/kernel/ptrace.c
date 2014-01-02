@@ -651,10 +651,14 @@ long arch_ptrace(struct task_struct *child, long request,
  * Notification of system call entry/exit
  * - triggered by current->work.syscall_trace
  */
-asmlinkage void syscall_trace_enter(struct pt_regs *regs)
+asmlinkage long syscall_trace_enter(struct pt_regs *regs)
 {
+	long syscall = regs->regs[2];
+
 	/* do the secure computing check first */
-	secure_computing_strict(regs->regs[2]);
+	if (secure_computing(syscall) == -1)
+		return -1;
+
 
 	if (!(current->ptrace & PT_PTRACED))
 		goto out;
@@ -679,9 +683,11 @@ asmlinkage void syscall_trace_enter(struct pt_regs *regs)
 
 out:
 	audit_syscall_entry(syscall_get_arch(current, regs),
-			    regs->regs[2],
+			    syscall,
 			    regs->regs[4], regs->regs[5],
 			    regs->regs[6], regs->regs[7]);
+
+	return syscall;
 }
 
 /*
