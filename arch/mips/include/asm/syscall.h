@@ -94,4 +94,17 @@ static inline int __syscall_get_arch(void)
 	return arch;
 }
 
-#endif	/* __ASM_MIPS_SYSCALL_H */
+static inline void syscall_set_return_value(struct task_struct *task,
+					    struct pt_regs *regs,
+					    int error, long val)
+{
+	/* $a3 == 0 for success or $a3 == 1 for failure */
+	regs->regs[7] = (long) error ? 1 : 0;
+	/*
+	 * The real return value. Userland expects a negative errno value for
+	 * failures.
+	 */
+	regs->regs[2] = (long) error ? -error : val;
+}
+
+#endif /* _ASM_MIPS_SYSCALL_H */
