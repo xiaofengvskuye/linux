@@ -40,12 +40,6 @@
 	PTR	9b, handler;				\
 	.previous
 
-#define EXE(insn,handler)                               \
-9:      .word   insn;                                   \
-	.section __ex_table,"a"; 			\
-	PTR	9b, handler; 				\
-	.previous
-
 	.macro	f_fill64 dst, offset, val, fixup
 	EX(LONG_S, \val, (\offset +  0 * STORSIZE)(\dst), \fixup)
 	EX(LONG_S, \val, (\offset +  1 * STORSIZE)(\dst), \fixup)
