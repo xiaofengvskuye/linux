@@ -1512,7 +1512,7 @@ __strncpy_from_user(char *__to, const char __user *__from, long __len)
 		"move\t$4, %1\n\t"
 		"move\t$5, %2\n\t"
 		"move\t$6, %3\n\t"
-#ifdef CONFIG_EVA
+#ifndef CONFIG_EVA
 		__MODULE_JAL(__strncpy_from_kernel_nocheck_asm)
 #else
 		__MODULE_JAL(__strncpy_from_user_nocheck_asm)
