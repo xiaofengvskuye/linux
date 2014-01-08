@@ -521,6 +521,13 @@ retry:
 
 		entered_state = cpuidle_enter_state(dev, drv,
 			dev->safe_state_index);
+
+		/*
+		 * cpuidle_enter_state will have enabled IRQs. Disable them
+		 * again so that IRQs are consistently disabled when calling
+		 * the coupled state enter function.
+		 */
+		local_irq_disable();
 	}
 
 	cpuidle_coupled_clear_pokes(dev->cpu);
