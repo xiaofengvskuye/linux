@@ -85,6 +85,11 @@
 #define	 GCMP_GCB_GICBA_BASE_MSK	GCMPGCBMSK(GICBA_BASE, 15)
 #define	 GCMP_GCB_GICBA_EN_SHF		0
 #define	 GCMP_GCB_GICBA_EN_MSK		GCMPGCBMSK(GICBA_EN, 1)
+#define	GCMP_GCB_CPCBA_OFS              0x0088  /* CPC Base Address */
+#define	 GCMP_GCB_CPCBA_BASE_SHF	15
+#define	 GCMP_GCB_CPCBA_BASE_MSK	GCMPGCBMSK(CPCBA_BASE, 17)
+#define	 GCMP_GCB_CPCBA_EN_SHF		0
+#define	 GCMP_GCB_CPCBA_EN_MSK		GCMPGCBMSK(CPCBA_EN, 1)
 
 /* GCB Regions */
 #define GCMP_GCB_CMxBASE_OFS(n)		(0x0090+16*(n))		/* Global Region[0-3] Base Address */
@@ -100,6 +105,13 @@
 #define	 GCMP_GCB_CMxMASK_CMREGTGT_IOCU1 2
 #define	 GCMP_GCB_CMxMASK_CMREGTGT_IOCU2 3
 
+/* GCB registers */
+#define	GCMP_GCB_GICST_OFS		0x00d0	/* GIC status */
+#define	 GCMP_GCB_GICST_EX_SHF		0
+#define	 GCMP_GCB_GICST_EX_MSK		GCMPGCBMSK(GICST_EX, 1)
+#define	GCMP_GCB_CPCST_OFS		0x00f0	/* CPC status */
+#define	 GCMP_GCB_CPCST_EX_SHF		0
+#define	 GCMP_GCB_CPCST_EX_MSK		GCMPGCBMSK(CPCST_EX, 1)
 
 /* Core local/Core other control block registers */
 #define GCMP_CCB_RESETR_OFS		0x0000			/* Reset Release */
