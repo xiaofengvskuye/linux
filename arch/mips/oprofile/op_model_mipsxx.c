@@ -381,6 +381,10 @@ static int __init mipsxx_init(void)
 		op_model_mipsxx_ops.cpu_type = "mips/proAptiv";
 		break;
 
+	case CPU_P5600:
+		op_model_mipsxx_ops.cpu_type = "mips/P5600";
+		break;
+
 	case CPU_INTERAPTIV:
 		op_model_mipsxx_ops.cpu_type = "mips/interAptiv";
 		break;
