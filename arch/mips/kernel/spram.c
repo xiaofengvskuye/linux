@@ -208,6 +208,7 @@ void __cpuinit spram_config(void)
 	case CPU_74K:
 	case CPU_1074K:
 	case CPU_PROAPTIV:
+	case CPU_P5600:
 	case CPU_INTERAPTIV:
 		config0 = read_c0_config();
 		/* FIXME: addresses are Malta specific */

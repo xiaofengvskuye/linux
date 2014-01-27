@@ -185,6 +185,7 @@ void __init check_wait(void)
 	case CPU_1004K:
 	case CPU_1074K:
 	case CPU_PROAPTIV:
+	case CPU_P5600:
 	case CPU_INTERAPTIV:
 	case CPU_M5150:
 		cpu_wait = r4k_wait;
