@@ -488,6 +488,7 @@ static int __init cps_cpuidle_init(void)
 	switch (current_cpu_data.cputype) {
 	case CPU_INTERAPTIV:
 	case CPU_PROAPTIV:
+	case CPU_P5600:
 		stype_intervention = 0x2;
 		stype_memory = 0x3;
 		stype_ordering = 0x10;

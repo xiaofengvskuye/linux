@@ -82,6 +82,7 @@ static inline int mips_sc_is_activated(struct cpuinfo_mips *c)
 	case CPU_74K:
 	case CPU_1074K:
 	case CPU_PROAPTIV:	/* proAptiv havn't L2B capability but ... */
+	case CPU_P5600:
 	case CPU_INTERAPTIV:
 	case CPU_BMIPS5000:
 		if (config2 & (1 << 12))

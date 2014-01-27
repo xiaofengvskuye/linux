@@ -522,6 +522,7 @@ static void __cpuinit build_tlb_write_entry(u32 **p, struct uasm_label **l,
 		case CPU_74K:
 		case CPU_1074K:
 		case CPU_PROAPTIV:
+		case CPU_P5600:
 		case CPU_M5150:
 			break;
 
