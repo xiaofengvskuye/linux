@@ -851,7 +851,7 @@ static inline void cpu_probe_mips(struct cpuinfo_mips *c, unsigned int cpu)
 		cpu_capability = MIPS_FTLB_CAPABLE;
 		break;
 	case PRID_IMP_P5600:
-		c->cputype = CPU_PROAPTIV;
+		c->cputype = CPU_P5600;
 		__cpu_name[cpu] = "MIPS P5600";
 		cpu_capability = MIPS_FTLB_CAPABLE;
 		break;
