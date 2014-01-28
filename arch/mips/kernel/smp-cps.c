@@ -144,7 +144,8 @@ static void __init cps_smp_setup(void)
 	bitmap_set(core_power, 0, 1);
 
 	/* Disable MT - we only want to run 1 TC per VPE */
-	dmt();
+	if (cpu_has_mipsmt)
+		dmt();
 
 	/* Initialise core 0 */
 	init_core();
@@ -267,6 +268,8 @@ static void cps_boot_secondary(int cpu, struct task_struct *idle)
 		return;
 	}
 
+	BUG_ON(!cpu_has_mipsmt);
+
 	/* Boot a VPE on this core */
 	boot_vpe(&cfg);
 }
@@ -274,7 +277,8 @@ static void cps_boot_secondary(int cpu, struct task_struct *idle)
 static void cps_init_secondary(void)
 {
 	/* Disable MT - we only want to run 1 TC per VPE */
-	dmt();
+	if (cpu_has_mipsmt)
+		dmt();
 
 	/* TODO: revisit this assumption once hotplug is implemented */
 	if (cpu_vpe_id(&current_cpu_data) == 0)
