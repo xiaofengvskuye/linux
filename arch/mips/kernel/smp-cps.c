@@ -123,7 +123,9 @@ static void __init cps_smp_setup(void)
 
 		for (v = 0; v < min_t(int, core_vpes, NR_CPUS - nvpes); v++) {
 			cpu_data[nvpes + v].core = c;
+#ifdef CONFIG_MIPS_MT_SMP
 			cpu_data[nvpes + v].vpe_id = v;
+#endif
 		}
 
 		nvpes += core_vpes;
@@ -238,7 +240,7 @@ static void cps_boot_secondary(int cpu, struct task_struct *idle)
 	int err;
 
 	cfg.core = cpu_data[cpu].core;
-	cfg.vpe = cpu_data[cpu].vpe_id;
+	cfg.vpe = cpu_vpe_id(&cpu_data[cpu]);
 	cfg.pc = (unsigned long)&smp_bootstrap;
 	cfg.sp = __KSTK_TOS(idle);
 	cfg.gp = (unsigned long)task_thread_info(idle);
@@ -275,7 +277,7 @@ static void cps_init_secondary(void)
 	dmt();
 
 	/* TODO: revisit this assumption once hotplug is implemented */
-	if (current_cpu_data.vpe_id == 0)
+	if (cpu_vpe_id(&current_cpu_data) == 0)
 		init_core();
 
 	change_c0_status(ST0_IM, STATUSF_IP3 | STATUSF_IP4 |
