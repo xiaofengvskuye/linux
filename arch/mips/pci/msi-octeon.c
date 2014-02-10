@@ -142,6 +142,7 @@ try_only_one:
 		msg.address_lo =
 			((128ul << 20) + CVMX_PCI_MSI_RCV) & 0xffffffff;
 		msg.address_hi = ((128ul << 20) + CVMX_PCI_MSI_RCV) >> 32;
+		break;
 	case OCTEON_DMA_BAR_TYPE_BIG:
 		/* When using big bar, Bar 0 is based at 0 */
 		msg.address_lo = (0 + CVMX_PCI_MSI_RCV) & 0xffffffff;
