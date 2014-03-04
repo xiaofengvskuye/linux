@@ -253,7 +253,7 @@ extern unsigned int mips_cca;
 
 void __init plat_eva_setup(void)
 {
-	unsigned int val;
+	unsigned long val;
 
 #ifdef CONFIG_EVA_OLD_MALTA_MAP
 

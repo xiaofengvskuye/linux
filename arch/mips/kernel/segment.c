@@ -12,7 +12,7 @@
 #ifdef CONFIG_PROC_FS
 static struct proc_dir_entry *segments;
 
-static void proc_build_segment_config(char *str, unsigned int cfg)
+static void proc_build_segment_config(char *str, unsigned long cfg)
 {
 	unsigned int am;
 	int len = 0;
@@ -53,7 +53,7 @@ static int proc_read_segments(char *page, char **start, off_t off,
 			  int count, int *eof, void *data)
 {
 	int len = 0;
-	unsigned int segcfg;
+	unsigned long segcfg;
 	char str[42];
 
 	len += sprintf(page + len, "\nSegment   Virtual    Size   Access Mode    Physical    Caching     EU\n");

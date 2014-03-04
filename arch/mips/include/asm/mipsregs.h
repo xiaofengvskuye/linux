@@ -1189,14 +1189,14 @@ do {									\
 #define write_c0_ebase(val)	__write_32bit_c0_register($15, 1, val)
 
 /* MIPSR3 */
-#define read_c0_segctl0()	__read_32bit_c0_register($5, 2)
-#define write_c0_segctl0(val)	__write_32bit_c0_register($5, 2, val)
+#define read_c0_segctl0()	__read_ulong_c0_register($5, 2)
+#define write_c0_segctl0(val)	__write_ulong_c0_register($5, 2, val)
 
-#define read_c0_segctl1()	__read_32bit_c0_register($5, 3)
-#define write_c0_segctl1(val)	__write_32bit_c0_register($5, 3, val)
+#define read_c0_segctl1()	__read_ulong_c0_register($5, 3)
+#define write_c0_segctl1(val)	__write_ulong_c0_register($5, 3, val)
 
-#define read_c0_segctl2()	__read_32bit_c0_register($5, 4)
-#define write_c0_segctl2(val)	__write_32bit_c0_register($5, 4, val)
+#define read_c0_segctl2()	__read_ulong_c0_register($5, 4)
+#define write_c0_segctl2(val)	__write_ulong_c0_register($5, 4, val)
 
 /* Cavium OCTEON (cnMIPS) */
 #define read_c0_cvmcount()	__read_ulong_c0_register($9, 6)
