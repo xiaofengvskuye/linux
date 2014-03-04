@@ -466,6 +466,7 @@ static inline void local_r4k___flush_cache_all(void * args)
 	case CPU_R10000:
 	case CPU_R12000:
 	case CPU_R14000:
+	default:
 		r4k_blast_scache();
 	}
 }
