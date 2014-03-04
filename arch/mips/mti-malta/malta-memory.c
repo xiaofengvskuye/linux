@@ -309,6 +309,12 @@ void __init prom_free_prom_memory(void)
 	unsigned long addr;
 	int i;
 
+	/*
+	 * HACK: don't free boot memory, it may get clobbered by bootloader
+	 * during resume from RAM.
+	 */
+	return;
+
 	for (i = 0; i < boot_mem_map.nr_map; i++) {
 		if (boot_mem_map.map[i].type != BOOT_MEM_ROM_DATA)
 			continue;
