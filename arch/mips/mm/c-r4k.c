@@ -476,6 +476,21 @@ static void r4k___flush_cache_all(void)
 	r4k_indexop_on_each_cpu(local_r4k___flush_cache_all, NULL);
 }
 
+/*
+ * Write back all data from caches to physical memory so the rest of the system
+ * can be powered down for Suspend to RAM.
+ * We can assume we're running on a single processor with interrupts disabled.
+ */
+static void r4k___wback_cache_all(void)
+{
+	if (!cpu_has_inclusive_pcaches) {
+		r4k_blast_dcache();
+		wmb();
+	}
+	r4k_blast_scache();
+	__sync();
+}
+
 static inline int has_valid_asid(const struct mm_struct *mm)
 {
 #if defined(CONFIG_MIPS_MT_SMP) || defined(CONFIG_MIPS_MT_SMTC)
@@ -1757,6 +1772,7 @@ void __cpuinit r4k_cache_init(void)
 
 	flush_cache_all		= cache_noop;
 	__flush_cache_all	= r4k___flush_cache_all;
+	__wback_cache_all	= r4k___wback_cache_all;
 	flush_cache_mm		= r4k_flush_cache_mm;
 	flush_cache_page	= r4k_flush_cache_page;
 	flush_cache_range	= r4k_flush_cache_range;

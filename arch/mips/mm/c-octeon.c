@@ -101,6 +101,16 @@ static void octeon_flush_icache_all(void)
 	octeon_flush_icache_all_cores(NULL);
 }
 
+/**
+ * Called to write back all data from caches to physical memory.
+ *
+ * Write back all data from caches to physical memory so the rest of the system
+ * can be powered down for Suspend to RAM.
+ * We can assume we're running on a single processor with interrupts disabled.
+ */
+static void octeon___wback_cache_all(void)
+{
+}
 
 /**
  * Called to flush all memory associated with a memory
@@ -276,6 +286,7 @@ void __cpuinit octeon_cache_init(void)
 
 	flush_cache_all			= octeon_flush_icache_all;
 	__flush_cache_all		= octeon_flush_icache_all;
+	__wback_cache_all		= octeon___wback_cache_all;
 	flush_cache_mm			= octeon_flush_cache_mm;
 	flush_cache_page		= octeon_flush_cache_page;
 	flush_cache_range		= octeon_flush_cache_range;

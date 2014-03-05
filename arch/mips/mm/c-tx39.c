@@ -56,6 +56,10 @@ static void tx39h_flush_icache_all(void)
 	local_irq_restore(flags);
 }
 
+static void tx39h___wback_cache_all(void)
+{
+}
+
 static void tx39h_dma_cache_wback_inv(unsigned long addr, unsigned long size)
 {
 	/* Catch bad driver code */
@@ -144,6 +148,16 @@ static inline void tx39___flush_cache_all(void)
 {
 	tx39_blast_dcache();
 	tx39_blast_icache();
+}
+
+/*
+ * Write back all data from caches to physical memory so the rest of the system
+ * can be powered down for Suspend to RAM.
+ * We can assume we're running on a single processor with interrupts disabled.
+ */
+static inline void tx39___wback_cache_all(void)
+{
+	tx39_blast_dcache();
 }
 
 static void tx39_flush_cache_mm(struct mm_struct *mm)
@@ -369,6 +383,7 @@ void __cpuinit tx39_cache_init(void)
 		__flush_cache_vunmap	= tx39__flush_cache_vunmap;
 		flush_cache_all = tx39h_flush_icache_all;
 		__flush_cache_all	= tx39h_flush_icache_all;
+		__wback_cache_all	= tx39h___wback_cache_all;
 		flush_cache_mm		= (void *) tx39h_flush_icache_all;
 		flush_cache_range	= (void *) tx39h_flush_icache_all;
 		flush_cache_page	= (void *) tx39h_flush_icache_all;
@@ -399,6 +414,7 @@ void __cpuinit tx39_cache_init(void)
 
 		flush_cache_all = tx39_flush_cache_all;
 		__flush_cache_all = tx39___flush_cache_all;
+		__wback_cache_all = tx39___wback_cache_all;
 		flush_cache_mm = tx39_flush_cache_mm;
 		flush_cache_range = tx39_flush_cache_range;
 		flush_cache_page = tx39_flush_cache_page;

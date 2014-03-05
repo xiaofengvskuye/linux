@@ -225,6 +225,16 @@ static inline void r3k___flush_cache_all(void)
 	r3k_flush_icache_range(KSEG0, KSEG0 + icache_size);
 }
 
+/*
+ * Write back all data from caches to physical memory so the rest of the system
+ * can be powered down for Suspend to RAM.
+ * We can assume we're running on a single processor with interrupts disabled.
+ */
+static inline void r3k___wback_cache_all(void)
+{
+	r3k_flush_dcache_range(KSEG0, KSEG0 + dcache_size);
+}
+
 static void r3k_flush_cache_mm(struct mm_struct *mm)
 {
 }
@@ -327,6 +337,7 @@ void __cpuinit r3k_cache_init(void)
 
 	flush_cache_all = r3k_flush_cache_all;
 	__flush_cache_all = r3k___flush_cache_all;
+	__wback_cache_all = r3k___wback_cache_all;
 	flush_cache_mm = r3k_flush_cache_mm;
 	mips_flush_cache_range = r3k_mips_flush_cache_range;
 	flush_cache_page = r3k_flush_cache_page;
