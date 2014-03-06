@@ -30,7 +30,7 @@ LEAF(mips_cps_core_entry)
 
 	/* Check whether we're here due to an NMI */
 	mfc0	k0, CP0_STATUS
-	and	k0, t0, ST0_NMI
+	and	k0, k0, ST0_NMI
 	beqz	k0, not_nmi
 	 nop
 
