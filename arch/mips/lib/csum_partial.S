@@ -55,14 +55,20 @@
 #define UNIT(unit)  ((unit)*NBYTES)
 
 #define ADDC(sum,reg)						\
+	.set	push;						\
+	.set	noat;						\
 	ADD	sum, reg;					\
 	sltu	v1, sum, reg;					\
 	ADD	sum, v1;					\
+	.set	pop
 
 #define ADDC32(sum,reg)						\
+	.set	push;						\
+	.set	noat;						\
 	addu	sum, reg;					\
 	sltu	v1, sum, reg;					\
 	addu	sum, v1;					\
+	.set	pop
 
 #define CSUM_BIGCHUNK1(src, offset, sum, _t0, _t1, _t2, _t3)	\
 	LOAD	_t0, (offset + UNIT(0))(src);			\
@@ -662,6 +668,8 @@ EXC(	sb	t0, NBYTES-2(dst), .Ls_exc)
 	ADDC(sum, t2)
 .Ldone:
 	/* fold checksum */
+	.set	push
+	.set	noat
 #ifdef USE_DOUBLE
 	dsll32	v1, sum, 0
 	daddu	sum, v1
@@ -684,6 +692,7 @@ EXC(	sb	t0, NBYTES-2(dst), .Ls_exc)
 	or	sum, sum, t0
 1:
 #endif
+	.set	pop
 	.set reorder
 	ADDC32(sum, psum)
 	jr	ra
