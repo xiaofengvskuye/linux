@@ -543,6 +543,7 @@ static int rfcomm_sock_getname(struct socket *sock, struct sockaddr *addr, int *
 
 	BT_DBG("sock %p, sk %p", sock, sk);
 
+	memset(sa, 0, sizeof(*sa));
 	sa->rc_family  = AF_BLUETOOTH;
 	sa->rc_channel = rfcomm_pi(sk)->channel;
 	if (peer)
@@ -656,8 +657,6 @@ static int rfcomm_sock_recvmsg(struct kiocb *iocb, struct socket *sock,
 
 	if (flags & MSG_OOB)
 		return -EOPNOTSUPP;
-
-	msg->msg_namelen = 0;
 
 	BT_DBG("sk %p size %zu", sk, size);
 
