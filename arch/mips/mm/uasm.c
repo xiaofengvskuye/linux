@@ -49,13 +49,13 @@ enum opcode {
 	insn_bne, insn_cache, insn_daddiu, insn_daddu, insn_dins, insn_dinsm,
 	insn_dmfc0, insn_dmtc0, insn_drotr, insn_drotr32, insn_dsll,
 	insn_dsll32, insn_dsra, insn_dsrl, insn_dsrl32, insn_dsubu, insn_eret,
-	insn_ext, insn_ins, insn_j, insn_jal, insn_jr, insn_jr_hb, insn_ld,
-	insn_ldx, insn_ll, insn_lld, insn_lui, insn_lw, insn_lwx, insn_mfc0,
-	insn_mftc0, insn_mtc0, insn_mttc0, insn_or, insn_ori, insn_pref,
-	insn_rfe, insn_rotr, insn_sc, insn_scd, insn_sd, insn_sll, insn_sra,
-	insn_srl, insn_subu, insn_sw, insn_sync, insn_syscall, insn_tlbp,
-	insn_tlbr, insn_tlbwi, insn_tlbwr, insn_wait, insn_xor, insn_xori,
-	insn_yield,
+	insn_ext, insn_ins, insn_j, insn_jal, insn_jalr, insn_jr, insn_jr_hb,
+	insn_ld, insn_ldx, insn_ll, insn_lld, insn_lui, insn_lw, insn_lwx,
+	insn_mfc0, insn_mftc0, insn_mtc0, insn_mttc0, insn_or, insn_ori,
+	insn_pref, insn_rfe, insn_rotr, insn_sc, insn_scd, insn_sd, insn_sll,
+	insn_sra, insn_srl, insn_subu, insn_sw, insn_sync, insn_syscall,
+	insn_tlbp, insn_tlbr, insn_tlbwi, insn_tlbwr, insn_wait, insn_xor,
+	insn_xori, insn_yield,
 };
 
 struct insn {
@@ -258,6 +258,7 @@ I_u2u1msbdu3(_ext)
 I_u2u1msbu3(_ins)
 I_u1(_j)
 I_u1(_jal)
+I_u2u1(_jalr)
 I_u1(_jr)
 I_u1(_jr_hb)
 I_u2s3u1(_ld)

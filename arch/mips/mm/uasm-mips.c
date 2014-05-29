@@ -83,6 +83,7 @@ static struct insn insn_table[] __uasminitdata = {
 	{ insn_ins, M(spec3_op, 0, 0, 0, 0, ins_op), RS | RT | RD | RE },
 	{ insn_j,  M(j_op, 0, 0, 0, 0, 0),  JIMM },
 	{ insn_jal,  M(jal_op, 0, 0, 0, 0, 0),	JIMM },
+	{ insn_jalr,  M(spec_op, 0, 0, 0, 0, jalr_op), RS | RD },
 	{ insn_j,  M(j_op, 0, 0, 0, 0, 0),  JIMM },
 	{ insn_jr,  M(spec_op, 0, 0, 0, 0, jr_op),  RS },
 	{ insn_jr_hb,  M(spec_op, 0, 0, 0, jr_hb_hint, jr_op),  RS },
