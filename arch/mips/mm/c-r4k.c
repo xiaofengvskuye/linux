@@ -8,6 +8,7 @@
  * Copyright (C) 1999, 2000 Silicon Graphics, Inc.
  * Copyright (C) 2012, MIPS Technology, Leonid Yegoshin (yegoshin@mips.com)
  */
+#include <linux/cpu_pm.h>
 #include <linux/hardirq.h>
 #include <linux/init.h>
 #include <linux/highmem.h>
@@ -1657,7 +1658,7 @@ static int __init cca_setup(char *str)
 
 early_param("cca", cca_setup);
 
-static void __cpuinit coherency_setup(void)
+static void coherency_setup(void)
 {
 	if (mips_cca < 0 || mips_cca > 7)
 		mips_cca = read_c0_config() & CONF_CM_CMASK;
@@ -1801,3 +1802,26 @@ void __cpuinit r4k_cache_init(void)
 	coherency_setup();
 	board_cache_error_setup = r4k_cache_error_setup;
 }
+
+static int r4k_cache_pm_notifier(struct notifier_block *self, unsigned long cmd,
+			       void *v)
+{
+	switch (cmd) {
+	case CPU_PM_ENTER_FAILED:
+	case CPU_PM_EXIT:
+		coherency_setup();
+		break;
+	}
+
+	return NOTIFY_OK;
+}
+
+static struct notifier_block r4k_cache_pm_notifier_block = {
+	.notifier_call = r4k_cache_pm_notifier,
+};
+
+int __init r4k_cache_init_pm(void)
+{
+	return cpu_pm_register_notifier(&r4k_cache_pm_notifier_block);
+}
+arch_initcall(r4k_cache_init_pm);
