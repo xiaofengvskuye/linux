@@ -314,7 +314,6 @@ static void * __init cps_gen_entry_code(unsigned cpu, enum cps_pm_state state)
 		lbl_set_cont,
 		lbl_secondary_cont,
 		lbl_decready,
-		lbl_cleared_cont,
 	};
 
 	/* Allocate a buffer to hold the generated code */
@@ -463,17 +462,6 @@ static void * __init cps_gen_entry_code(unsigned cpu, enum cps_pm_state state)
 		uasm_i_sc(&p, t2, 0, r_nc_count);
 		uasm_il_beqz(&p, &r, t2, lbl_decready);
 		uasm_i_andi(&p, v0, t1, (1 << fls(smp_num_siblings)) - 1);
-
-		/*
-		 * If this is the final VPE to leave the idle state then clear
-		 * the top bit of ready_count, since by definition we now know
-		 * that all VPEs have seen that it was safe to continue to the
-		 * idle state.
-		 */
-		uasm_il_bnez(&p, &r, v0, lbl_cleared_cont);
-		uasm_i_nop(&p);
-		uasm_i_sw(&p, v0, 0, r_nc_count);
-		uasm_build_label(&l, p, lbl_cleared_cont);
 
 		/* Ordering barrier */
 		uasm_i_sync(&p, stype_ordering);
