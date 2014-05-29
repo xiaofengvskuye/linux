@@ -542,9 +542,6 @@ static int __init cps_gen_core_entries(unsigned cpu)
 		core_rc += dlinesz - 1;
 		core_rc = (void *)((unsigned long)core_rc & ~(dlinesz - 1));
 		per_cpu(ready_count, core) = core_rc;
-
-		/* Zero-initialize ready_count */
-		*per_cpu(ready_count, core) = 0;
 	}
 
 	return 0;
