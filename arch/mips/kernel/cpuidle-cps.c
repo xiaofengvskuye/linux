@@ -33,8 +33,8 @@
 
 /*
  * cps_nc_entry_fn - type of a generated non-coherent state entry function
- * @vpe_mask: a bitmap of online coupled VPEs, excluding this one
- * @online: the count of online coupled VPEs (weight of vpe_mask + 1)
+ * @online: the count of online coupled VPEs
+ * @nc_ready_count: pointer to a non-coherent mapping of the core ready_count
  *
  * The code entering & exiting non-coherent states is generated at runtime
  * using uasm, in order to ensure that the compiler cannot insert a stray
@@ -43,7 +43,7 @@
  * is non-zero, returns the number of VPEs that were in the wait state at the
  * point this VPE left it. Returns garbage if coupled_coherence is zero.
  */
-typedef unsigned (*cps_nc_entry_fn)(unsigned vpe_mask, unsigned online);
+typedef unsigned (*cps_nc_entry_fn)(unsigned online, u32 *nc_ready_count);
 
 /*
  * The entry point of the generated non-coherent wait entry/exit function.
@@ -55,7 +55,7 @@ static DEFINE_PER_CPU_READ_MOSTLY(cps_nc_entry_fn, ncwait_asm_enter);
  * Indicates the number of coupled VPEs ready to operate in a non-coherent
  * state. Actually per-core rather than per-CPU.
  */
-static DEFINE_PER_CPU_ALIGNED(u32, ready_count);
+static DEFINE_PER_CPU_ALIGNED(u32*, ready_count);
 
 /* A somewhat arbitrary number of labels & relocs for uasm */
 static struct uasm_label __initdata labels[32];
@@ -81,35 +81,35 @@ static int cps_ncwait_enter(struct cpuidle_device *dev,
 {
 	unsigned core = cpu_data[dev->cpu].core;
 	unsigned online, num_left;
-	cpumask_var_t coupled_mask, vpe_mask;
+	cpumask_var_t coupled_mask;
+	u32 *core_ready_count, *nc_core_ready_count;
+	void *nc_addr;
 
 	if (!alloc_cpumask_var(&coupled_mask, GFP_KERNEL))
 		return -ENOMEM;
-
-	if (!alloc_cpumask_var(&vpe_mask, GFP_KERNEL)) {
-		free_cpumask_var(coupled_mask);
-		return -ENOMEM;
-	}
 
 	/* Calculate which coupled CPUs (VPEs) are online */
 #ifdef CONFIG_MIPS_MT
 	cpumask_and(coupled_mask, cpu_online_mask, &dev->coupled_cpus);
 	online = cpumask_weight(coupled_mask);
 	cpumask_clear_cpu(dev->cpu, coupled_mask);
-	cpumask_shift_right(vpe_mask, coupled_mask,
-			    cpumask_first(&dev->coupled_cpus));
 #else
 	cpumask_clear(coupled_mask);
-	cpumask_clear(vpe_mask);
 	online = 1;
 #endif
 
-	/*
-	 * Run the generated entry code. Note that we assume the number of VPEs
-	 * within this core does not exceed the width in bits of a long. Since
-	 * MVPConf0.PVPE is 4 bits wide this seems like a safe assumption.
-	 */
-	num_left = per_cpu(ncwait_asm_enter, core)(vpe_mask->bits[0], online);
+	/* Create a non-coherent mapping of the core ready_count */
+	core_ready_count = per_cpu(ready_count, core);
+	nc_addr = kmap_noncoherent(virt_to_page(core_ready_count),
+				   (unsigned long)core_ready_count);
+	nc_addr += ((unsigned long)core_ready_count & ~PAGE_MASK);
+	nc_core_ready_count = nc_addr;
+
+	/* Run the generated entry code */
+	num_left = per_cpu(ncwait_asm_enter, core)(online, nc_core_ready_count);
+
+	/* Remove the non-coherent mapping of ready_count */
+	kunmap_noncoherent();
 
 	/*
 	 * If this VPE is the first to leave the non-coherent wait state then
@@ -122,7 +122,6 @@ static int cps_ncwait_enter(struct cpuidle_device *dev,
 	if (coupled_coherence && (num_left == online))
 		arch_send_call_function_ipi_mask(coupled_mask);
 
-	free_cpumask_var(vpe_mask);
 	free_cpumask_var(coupled_mask);
 	return index;
 }
@@ -184,28 +183,23 @@ static void __init cps_gen_cache_routine(u32 **pp, struct uasm_label **pl,
 
 static void * __init cps_gen_entry_code(struct cpuidle_device *dev)
 {
-	unsigned core = cpu_data[dev->cpu].core;
 	struct uasm_label *l = labels;
 	struct uasm_reloc *r = relocs;
 	u32 *buf, *p;
-	const unsigned r_vpemask = a0;
-	const unsigned r_online = a1;
-	const unsigned r_pcount = t6;
+	const unsigned r_online = a0;
+	const unsigned r_nc_count = a1;
 	const unsigned r_pcohctl = t7;
 	const unsigned max_instrs = 256;
 	enum {
 		lbl_incready = 1,
-		lbl_lastvpe,
-		lbl_vpehalt_loop,
-		lbl_vpehalt_poll,
-		lbl_vpehalt_next,
+		lbl_poll_cont,
 		lbl_disable_coherence,
 		lbl_invicache,
 		lbl_flushdcache,
-		lbl_vpeactivate_loop,
-		lbl_vpeactivate_next,
-		lbl_wait,
+		lbl_set_cont,
+		lbl_secondary_cont,
 		lbl_decready,
+		lbl_cleared_cont,
 	};
 
 	/* Allocate a buffer to hold the generated code */
@@ -225,104 +219,39 @@ static void * __init cps_gen_entry_code(struct cpuidle_device *dev)
 	UASM_i_LA(&p, r_pcohctl, (long)_gcmp_base + GCMPCLCBOFS(COHCTL));
 
 	if (coupled_coherence) {
-		/* Load address of ready_count */
-		UASM_i_LA(&p, r_pcount, (long)&per_cpu(ready_count, core));
-
 		/* Increment ready_count */
-		uasm_build_label(&l, p, lbl_incready);
 		uasm_i_sync(&p, stype_ordering);
-		uasm_i_ll(&p, t1, 0, r_pcount);
+		uasm_build_label(&l, p, lbl_incready);
+		uasm_i_ll(&p, t1, 0, r_nc_count);
 		uasm_i_addiu(&p, t2, t1, 1);
-		uasm_i_sc(&p, t2, 0, r_pcount);
+		uasm_i_sc(&p, t2, 0, r_nc_count);
 		uasm_il_beqz(&p, &r, t2, lbl_incready);
 		uasm_i_addiu(&p, t1, t1, 1);
+
+		/* Ordering barrier */
+		uasm_i_sync(&p, stype_ordering);
 
 		/*
 		 * If this is the last VPE to become ready for non-coherence
 		 * then it should branch below.
 		 */
-		uasm_il_beq(&p, &r, t1, r_online, lbl_lastvpe);
+		uasm_il_beq(&p, &r, t1, r_online, lbl_disable_coherence);
 		uasm_i_nop(&p);
 
 		/*
 		 * Otherwise this is not the last VPE to become ready for
 		 * non-coherence. It needs to wait until coherence has been
-		 * disabled before executing a wait instruction, otherwise it
-		 * may return from wait quickly & re-enable coherence causing
-		 * a race with the VPE disabling coherence. It can't simply
-		 * poll the CPC sequencer for a non-coherent state as that
-		 * would race with any other VPE which may spot the
-		 * non-coherent state, run wait, return quickly & re-enable
-		 * coherence before this VPE ever saw the non-coherent state.
-		 * Instead this VPE will halt its TC such that it ceases to
-		 * execute for the moment.
+		 * disabled before proceeding, which it will do by polling
+		 * for the top bit of ready_count being set.
 		 */
-		uasm_i_addiu(&p, t0, zero, TCHALT_H);
-		uasm_i_mtc0(&p, t0, 2, 4); /* TCHalt */
-
-		/* instruction_hazard(), to ensure the TC halts */
-		UASM_i_LA(&p, t0, (long)p + 12);
-		uasm_i_jr_hb(&p, t0);
-		uasm_i_nop(&p);
-
-		/*
-		 * The VPE which disables coherence will then clear the halt
-		 * bit for this VPE's TC once coherence has been disabled and
-		 * it can safely proceed to execute the wait instruction.
-		 */
-		uasm_il_b(&p, &r, lbl_wait);
-		uasm_i_nop(&p);
-
-		/*
-		 * The last VPE to increment ready_count will continue from
-		 * here and must spin until all other VPEs within the core have
-		 * been halted, at which point it can be sure that it is safe
-		 * to disable coherence.
-		 *
-		 *   t0: number of VPEs left to handle
-		 *   t1: (shifted) mask of online VPEs
-		 *   t2: current VPE index
-		 */
-		uasm_build_label(&l, p, lbl_lastvpe);
-		uasm_i_addiu(&p, t0, r_online, -1);
-		uasm_il_beqz(&p, &r, t0, lbl_disable_coherence);
-		uasm_i_move(&p, t1, r_vpemask);
-		uasm_i_move(&p, t2, zero);
-
-		/*
-		 * Now loop through all VPEs within the core checking whether
-		 * they are online & not this VPE, which can be determined by
-		 * checking the vpe_mask argument. If a VPE is offline or is
-		 * this VPE, skip it.
-		 */
-		uasm_build_label(&l, p, lbl_vpehalt_loop);
-		uasm_i_andi(&p, t3, t1, 1);
-		uasm_il_beqz(&p, &r, t3, lbl_vpehalt_next);
-
-		/* settc(vpe) */
-		uasm_i_mfc0(&p, t3, 1, 1); /* VPEControl */
-		uasm_i_ins(&p, t3, t2, 0, 8);
-		uasm_i_mtc0(&p, t3, 1, 1); /* VPEControl */
+		uasm_i_addiu(&p, t1, zero, -1);
+		uasm_build_label(&l, p, lbl_poll_cont);
+		uasm_i_lw(&p, t0, 0, r_nc_count);
+		uasm_il_bltz(&p, &r, t0, lbl_secondary_cont);
 		uasm_i_ehb(&p);
-
-		/*
-		 * It's very likely that the VPE has already halted itself
-		 * by now, but there's theoretically a chance that it may not
-		 * have. Wait until the VPE's TC is halted.
-		 */
-		uasm_build_label(&l, p, lbl_vpehalt_poll);
-		uasm_i_mftc0(&p, t3, 2, 4); /* TCHalt */
-		uasm_il_beqz(&p, &r, t3, lbl_vpehalt_poll);
+		uasm_i_yield(&p, zero, t1);
+		uasm_il_b(&p, &r, lbl_poll_cont);
 		uasm_i_nop(&p);
-
-		/* Decrement the count of VPEs to be handled */
-		uasm_i_addiu(&p, t0, t0, -1);
-
-		/* Proceed to the next VPE, if there is one */
-		uasm_build_label(&l, p, lbl_vpehalt_next);
-		uasm_i_srl(&p, t1, t1, 1);
-		uasm_il_bnez(&p, &r, t0, lbl_vpehalt_loop);
-		uasm_i_addiu(&p, t2, t2, 1);
 	}
 
 	/*
@@ -332,9 +261,6 @@ static void * __init cps_gen_entry_code(struct cpuidle_device *dev)
 	 */
 	uasm_build_label(&l, p, lbl_disable_coherence);
 
-	/* Completion barrier */
-	uasm_i_sync(&p, stype_memory);
-
 	/* Invalidate the L1 icache */
 	cps_gen_cache_routine(&p, &l, &r, &cpu_data[dev->cpu].icache,
 			      Index_Invalidate_I, lbl_invicache);
@@ -342,6 +268,10 @@ static void * __init cps_gen_entry_code(struct cpuidle_device *dev)
 	/* Writeback & invalidate the L1 dcache */
 	cps_gen_cache_routine(&p, &l, &r, &cpu_data[dev->cpu].dcache,
 			      Index_Writeback_Inv_D, lbl_flushdcache);
+
+	/* Completion barrier */
+	uasm_i_sync(&p, stype_memory);
+	uasm_i_ehb(&p);
 
 	/*
 	 * Disable all but self interventions. The load from COHCTL is defined
@@ -354,6 +284,7 @@ static void * __init cps_gen_entry_code(struct cpuidle_device *dev)
 
 	/* Sync to ensure previous interventions are complete */
 	uasm_i_sync(&p, stype_intervention);
+	uasm_i_ehb(&p);
 
 	/* Disable coherence */
 	uasm_i_sw(&p, zero, 0, r_pcohctl);
@@ -362,52 +293,26 @@ static void * __init cps_gen_entry_code(struct cpuidle_device *dev)
 	if (coupled_coherence) {
 		/*
 		 * Now that coherence is disabled it is safe for all VPEs to
-		 * proceed with executing their wait instruction, so this VPE
-		 * will go ahead and clear the halt bit of the TCs associated
-		 * with all other online VPEs within the core. Start by
-		 * initialising variables used throughout the loop, and
-		 * skipping the loop entirely if there are no VPEs to handle.
-		 *
-		 *   t0: number of VPEs left to handle
-		 *   t1: (shifted) mask of online VPEs
-		 *   t2: current VPE index
+		 * proceed with execution. This VPE will set the top bit of
+		 * ready_count to indicate to the other VPEs that they may
+		 * continue.
 		 */
-		uasm_i_addiu(&p, t0, r_online, -1);
-		uasm_il_beqz(&p, &r, t0, lbl_wait);
-		uasm_i_move(&p, t1, r_vpemask);
-		uasm_i_move(&p, t2, zero);
-
-		/*
-		 * Now loop through all VPEs within the core checking whether
-		 * they are online & not this VPE, which can be determined by
-		 * checking the vpe_mask argument. If a VPE is offline or is
-		 * this VPE, skip it.
-		 */
-		uasm_build_label(&l, p, lbl_vpeactivate_loop);
-		uasm_i_andi(&p, t3, t1, 1);
-		uasm_il_beqz(&p, &r, t3, lbl_vpeactivate_next);
-
-		/* settc(vpe) */
-		uasm_i_mfc0(&p, t3, 1, 1); /* VPEControl */
-		uasm_i_ins(&p, t3, t2, 0, 8);
-		uasm_i_mtc0(&p, t3, 1, 1); /* VPEControl */
-		uasm_i_ehb(&p);
-
-		/* Clear TCHalt */
-		uasm_i_mttc0(&p, zero, 2, 4); /* TCHalt */
-
-		/* Decrement the count of VPEs to be handled */
-		uasm_i_addiu(&p, t0, t0, -1);
-
-		/* Proceed to the next VPE, if there is one */
-		uasm_build_label(&l, p, lbl_vpeactivate_next);
-		uasm_i_srl(&p, t1, t1, 1);
-		uasm_il_bnez(&p, &r, t0, lbl_vpeactivate_loop);
-		uasm_i_addiu(&p, t2, t2, 1);
+		uasm_i_lui(&p, t0, uasm_rel_hi(0x80000000));
+		uasm_build_label(&l, p, lbl_set_cont);
+		uasm_i_ll(&p, t1, 0, r_nc_count);
+		uasm_i_or(&p, t1, t1, t0);
+		uasm_i_sc(&p, t1, 0, r_nc_count);
+		uasm_il_beqz(&p, &r, t1, lbl_set_cont);
+		uasm_i_nop(&p);
 	}
 
+	/*
+	 * VPEs which did not disable coherence will continue executing, after
+	 * coherence has been disabled, from this point.
+	 */
+	uasm_build_label(&l, p, lbl_secondary_cont);
+
 	/* Now perform our wait */
-	uasm_build_label(&l, p, lbl_wait);
 	uasm_i_wait(&p, 0);
 
 	/*
@@ -419,18 +324,33 @@ static void * __init cps_gen_entry_code(struct cpuidle_device *dev)
 	uasm_i_sw(&p, t0, 0, r_pcohctl);
 	uasm_i_lw(&p, t0, 0, r_pcohctl);
 
-	/* Ordering barrier */
-	uasm_i_sync(&p, stype_ordering);
+	/* Completion barrier */
+	uasm_i_sync(&p, stype_memory);
+	uasm_i_ehb(&p);
 
 	if (coupled_coherence) {
 		/* Decrement ready_count */
 		uasm_build_label(&l, p, lbl_decready);
 		uasm_i_sync(&p, stype_ordering);
-		uasm_i_ll(&p, t1, 0, r_pcount);
+		uasm_i_ll(&p, t1, 0, r_nc_count);
 		uasm_i_addiu(&p, t2, t1, -1);
-		uasm_i_sc(&p, t2, 0, r_pcount);
+		uasm_i_sc(&p, t2, 0, r_nc_count);
 		uasm_il_beqz(&p, &r, t2, lbl_decready);
-		uasm_i_move(&p, v0, t1);
+		uasm_i_andi(&p, v0, t1, (1 << fls(smp_num_siblings)) - 1);
+
+		/*
+		 * If this is the final VPE to leave the idle state then clear
+		 * the top bit of ready_count, since by definition we now know
+		 * that all VPEs have seen that it was safe to continue to the
+		 * idle state.
+		 */
+		uasm_il_bnez(&p, &r, v0, lbl_cleared_cont);
+		uasm_i_nop(&p);
+		uasm_i_sw(&p, v0, 0, r_nc_count);
+		uasm_build_label(&l, p, lbl_cleared_cont);
+
+		/* Ordering barrier */
+		uasm_i_sync(&p, stype_ordering);
 	}
 
 	/* The core is coherent, time to return to C code */
@@ -453,28 +373,70 @@ static void * __init cps_gen_entry_code(struct cpuidle_device *dev)
 
 static void __init cps_cpuidle_unregister(void)
 {
-	int cpu;
+	int cpu, core;
 	struct cpuidle_device *device;
 	cps_nc_entry_fn *fn;
 
 	for_each_possible_cpu(cpu) {
+		core = cpu_data[cpu].core;
 		device = &per_cpu(cpuidle_dev, cpu);
 		cpuidle_unregister_device(device);
 
 		/* Free entry code */
-		fn = &per_cpu(ncwait_asm_enter, cpu_data[cpu].core);
+		fn = &per_cpu(ncwait_asm_enter, core);
 		kfree(*fn);
 		*fn = NULL;
+
+		/* Free ready_count */
+		kfree(per_cpu(ready_count_alloc, core));
+		per_cpu(ready_count_alloc, core) = NULL;
+		per_cpu(ready_count, core) = NULL;
 	}
 
 	cpuidle_unregister_driver(&cps_driver);
+}
+
+static int __init cps_gen_core_entries(struct cpuidle_device *dev)
+{
+	unsigned core = cpu_data[dev->cpu].core;
+	unsigned dlinesz = cpu_data[dev->cpu].dcache.linesz;
+	void *entry_fn, *core_rc;
+
+	if (!per_cpu(ncwait_asm_enter, core)) {
+		entry_fn = cps_gen_entry_code(dev);
+		if (!entry_fn) {
+			pr_err("Failed to generate core %u entry\n",
+			       core);
+			return -ENOMEM;
+		}
+
+		per_cpu(ncwait_asm_enter, core) = entry_fn;
+	}
+
+	if (!per_cpu(ready_count, core)) {
+		core_rc = kmalloc(dlinesz * 2, GFP_KERNEL);
+		if (!core_rc) {
+			pr_err("Failed allocate core %u ready_count\n", core);
+			return -ENOMEM;
+		}
+		per_cpu(ready_count_alloc, core) = core_rc;
+
+		/* Ensure ready_count is aligned to a cacheline boundary */
+		core_rc += dlinesz - 1;
+		core_rc = (void *)((unsigned long)core_rc & ~(dlinesz - 1));
+		per_cpu(ready_count, core) = core_rc;
+
+		/* Zero-initialize ready_count */
+		*per_cpu(ready_count, core) = 0;
+	}
+
+	return 0;
 }
 
 static int __init cps_cpuidle_init(void)
 {
 	int err, cpu, core, i;
 	struct cpuidle_device *device;
-	void *core_entry;
 
 	/*
 	 * If interrupts were enabled whilst running the wait instruction then
@@ -527,16 +489,10 @@ static int __init cps_cpuidle_init(void)
 		cpumask_copy(&device->coupled_cpus,
 			     &per_cpu(cpu_sibling_map, cpu));
 #endif
-		if (!per_cpu(ncwait_asm_enter, core)) {
-			core_entry = cps_gen_entry_code(device);
-			if (!core_entry) {
-				pr_err("Failed to generate core %u entry\n",
-				       core);
-				err = -ENOMEM;
-				goto err_out;
-			}
-			per_cpu(ncwait_asm_enter, core) = core_entry;
-		}
+
+		err = cps_gen_core_entries(device);
+		if (err)
+			goto err_out;
 
 		err = cpuidle_register_device(device);
 		if (err) {
