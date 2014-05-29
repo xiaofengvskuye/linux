@@ -55,7 +55,7 @@ static DEFINE_PER_CPU_READ_MOSTLY(cps_nc_entry_fn, ncwait_asm_enter);
  * Indicates the number of coupled VPEs ready to operate in a non-coherent
  * state. Actually per-core rather than per-CPU.
  */
-static DEFINE_PER_CPU_ALIGNED(u32, nc_ready_count);
+static DEFINE_PER_CPU_ALIGNED(u32, ready_count);
 
 /* A somewhat arbitrary number of labels & relocs for uasm */
 static struct uasm_label __initdata labels[32];
@@ -225,10 +225,10 @@ static void * __init cps_gen_entry_code(struct cpuidle_device *dev)
 	UASM_i_LA(&p, r_pcohctl, (long)_gcmp_base + GCMPCLCBOFS(COHCTL));
 
 	if (coupled_coherence) {
-		/* Load address of nc_ready_count */
-		UASM_i_LA(&p, r_pcount, (long)&per_cpu(nc_ready_count, core));
+		/* Load address of ready_count */
+		UASM_i_LA(&p, r_pcount, (long)&per_cpu(ready_count, core));
 
-		/* Increment nc_ready_count */
+		/* Increment ready_count */
 		uasm_build_label(&l, p, lbl_incready);
 		uasm_i_sync(&p, stype_ordering);
 		uasm_i_ll(&p, t1, 0, r_pcount);
@@ -274,7 +274,7 @@ static void * __init cps_gen_entry_code(struct cpuidle_device *dev)
 		uasm_i_nop(&p);
 
 		/*
-		 * The last VPE to increment nc_ready_count will continue from
+		 * The last VPE to increment ready_count will continue from
 		 * here and must spin until all other VPEs within the core have
 		 * been halted, at which point it can be sure that it is safe
 		 * to disable coherence.
@@ -423,7 +423,7 @@ static void * __init cps_gen_entry_code(struct cpuidle_device *dev)
 	uasm_i_sync(&p, stype_ordering);
 
 	if (coupled_coherence) {
-		/* Decrement nc_ready_count */
+		/* Decrement ready_count */
 		uasm_build_label(&l, p, lbl_decready);
 		uasm_i_sync(&p, stype_ordering);
 		uasm_i_ll(&p, t1, 0, r_pcount);
