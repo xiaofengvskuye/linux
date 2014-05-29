@@ -94,10 +94,40 @@ static void __init cps_smp_setup(void)
 
 static void __init cps_prepare_cpus(unsigned int max_cpus)
 {
-	unsigned ncores, core_vpes, c;
+	unsigned ncores, core_vpes, c, cca;
+	bool cca_unsuitable;
 	u32 *entry_code;
 
 	mips_mt_set_cpuoptions();
+
+	/* Detect the number of cores */
+	ncores = ((GCMPGCB(GC) & GCMP_GCB_GC_NUMCORES_MSK) >>
+		  GCMP_GCB_GC_NUMCORES_SHF) + 1;
+
+	/* Detect whether the CCA is unsuited to multi-core SMP */
+	cca = read_c0_config() & CONF_CM_CMASK;
+	switch (cca) {
+	case 0x4: /* CWBE */
+	case 0x5: /* CWB */
+		/* The CCA is coherent, multi-core is fine */
+		cca_unsuitable = false;
+		break;
+
+	default:
+		/* CCA is not coherent, multi-core is not usable */
+		cca_unsuitable = true;
+	}
+
+	/* Warn the user if the CCA prevents multi-core */
+	if (cca_unsuitable && ncores > 1) {
+		pr_warn("Using only one core due to unsuitable CCA 0x%x\n",
+			cca);
+
+		for_each_present_cpu(c) {
+			if (cpu_data[c].core)
+				set_cpu_present(c, false);
+		}
+	}
 
 	/* Patch the start of mips_cps_core_entry to provide the CM base */
 	entry_code = (u32 *)&mips_cps_core_entry;
@@ -107,10 +137,6 @@ static void __init cps_prepare_cpus(unsigned int max_cpus)
 	bc_wback_inv((unsigned long)&mips_cps_core_entry,
 		     (void *)entry_code - (void *)&mips_cps_core_entry);
 	__sync();
-
-	/* Detect the number of cores */
-	ncores = ((GCMPGCB(GC) & GCMP_GCB_GC_NUMCORES_MSK) >>
-		  GCMP_GCB_GC_NUMCORES_SHF) + 1;
 
 	/* Allocate core boot configuration structs */
 	mips_cps_core_bootcfg = kcalloc(ncores, sizeof(*mips_cps_core_bootcfg),
