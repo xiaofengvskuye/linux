@@ -181,11 +181,10 @@ static void boot_core(struct boot_config *cfg)
 	mips_cps_bootcfg = *cfg;
 
 	if (mips_cpc_present()) {
-		/* Select the appropriate core */
-		write_cpc_cl_other(cfg->core << CPC_Cx_OTHER_CORENUM_SHF);
-
 		/* Reset the core */
+		mips_cpc_lock_other(cfg->core);
 		write_cpc_co_cmd(CPC_Cx_CMD_RESET);
+		mips_cpc_unlock_other();
 	} else {
 		/* Take the core out of reset */
 		GCMPCOCB(RESETR) = 0;
