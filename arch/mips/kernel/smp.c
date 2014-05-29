@@ -66,6 +66,8 @@ EXPORT_PER_CPU_SYMBOL(cpu_sibling_map);
 /* representing cpus for which sibling maps can be computed */
 static cpumask_t cpu_sibling_setup_map;
 
+cpumask_t cpu_coherent_mask;
+
 /* CPU siblings in MIPS:
  *
  *      SMVP kernel - VPEs on common core are siblings
@@ -129,6 +131,7 @@ asmlinkage __cpuinit void start_secondary(void)
 	cpu = smp_processor_id();
 	cpu_data[cpu].udelay_val = loops_per_jiffy;
 
+	cpu_set(cpu, cpu_coherent_mask);
 	notify_cpu_starting(cpu);
 
 	set_cpu_online(cpu, true);
@@ -192,6 +195,7 @@ void __init smp_prepare_cpus(unsigned int max_cpus)
 #ifndef CONFIG_HOTPLUG_CPU
 	init_cpu_present(cpu_possible_mask);
 #endif
+	cpumask_copy(&cpu_coherent_mask, cpu_possible_mask);
 }
 
 /* preload SMP state for boot cpu */
