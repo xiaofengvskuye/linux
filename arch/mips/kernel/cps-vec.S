@@ -16,7 +16,10 @@
 #include <asm/mipsregs.h>
 #include <asm/mipsmtregs.h>
 
-#define GCR_CL_COHERENCE_OFS 0x2008
+#define GCR_CL_COHERENCE_OFS	0x2008
+#define GCR_CL_ID_OFS		0x2028
+
+.extern _gcmp_base
 
 .set noreorder
 
@@ -157,18 +160,16 @@ dcache_done:
 	 nop
 
 	/*
-	 * TODO: We should check the VPE number we intended to boot here, and
-	 *       if non-zero we should start that VPE and stop this one. For
-	 *       the moment this doesn't matter since CPUs are brought up
-	 *       sequentially and in order, but once hotplug is implemented
-	 *       this will need revisiting.
+	 * Boot any other VPEs within this core that should be online, and
+	 * deactivate this VPE if it should be offline.
 	 */
+	jal	mips_cps_boot_vpes
+	 nop
 
 	/* Off we go! */
-	la	t0, mips_cps_bootcfg
-	lw	t1, BOOTCFG_PC(t0)
-	lw	gp, BOOTCFG_GP(t0)
-	lw	sp, BOOTCFG_SP(t0)
+	lw	t1, VPEBOOTCFG_PC(v0)
+	lw	gp, VPEBOOTCFG_GP(v0)
+	lw	sp, VPEBOOTCFG_SP(v0)
 	jr	t1
 	 nop
 	END(mips_cps_core_entry)
@@ -277,3 +278,164 @@ LEAF(mips_cps_core_init)
 	jr	ra
 	 nop
 	END(mips_cps_core_init)
+
+LEAF(mips_cps_boot_vpes)
+	/* Retrieve CM base address */
+	la	t0, _gcmp_base
+	lw	t0, 0(t0)
+
+	/* Calculate a pointer to this cores struct core_boot_config */
+	lw	t0, GCR_CL_ID_OFS(t0)
+	li	t1, COREBOOTCFG_SIZE
+	mul	t0, t0, t1
+	la	t1, mips_cps_core_bootcfg
+	lw	t1, 0(t1)
+	addu	t0, t0, t1
+
+	/* Calculate this VPEs ID. If the core doesn't support MT use 0 */
+	has_mt	t6, 1f
+	 li	t9, 0
+
+	/* Find the number of VPEs present in the core */
+	mfc0	t1, CP0_MVPCONF0
+	srl	t1, t1, MVPCONF0_PVPE_SHIFT
+	andi	t1, t1, MVPCONF0_PVPE >> MVPCONF0_PVPE_SHIFT
+	addi	t1, t1, 1
+
+	/* Calculate a mask for the VPE ID from EBase.CPUNum */
+	clz	t1, t1
+	li	t2, 31
+	subu	t1, t2, t1
+	li	t2, 1
+	sll	t1, t2, t1
+	addiu	t1, t1, -1
+
+	/* Retrieve the VPE ID from EBase.CPUNum */
+	mfc0	t9, $15, 1
+	and	t9, t9, t1
+
+1:	/* Calculate a pointer to this VPEs struct vpe_boot_config */
+	li	t1, VPEBOOTCFG_SIZE
+	mul	v0, t9, t1
+	lw	t7, COREBOOTCFG_VPECONFIG(t0)
+	addu	v0, v0, t7
+
+#ifdef CONFIG_MIPS_MT
+
+	/* If the core doesn't support MT then return */
+	bnez	t6, 1f
+	 nop
+	jr	ra
+	 nop
+
+	.set	push
+	.set	mt
+
+1:	/* Enter VPE configuration state */
+	dvpe
+	la	t1, 1f
+	jr.hb	t1
+	 nop
+1:	mfc0	t1, CP0_MVPCONTROL
+	ori	t1, t1, MVPCONTROL_VPC
+	mtc0	t1, CP0_MVPCONTROL
+	ehb
+
+	/* Loop through each VPE */
+	lw	t6, COREBOOTCFG_VPEMASK(t0)
+	move	t8, t6
+	li	t5, 0
+
+	/* Check whether the VPE should be running. If not, skip it */
+1:	andi	t0, t6, 1
+	beqz	t0, 2f
+	 nop
+
+	/* Operate on the appropriate TC */
+	mfc0	t0, CP0_VPECONTROL
+	ori	t0, t0, VPECONTROL_TARGTC
+	xori	t0, t0, VPECONTROL_TARGTC
+	or	t0, t0, t5
+	mtc0	t0, CP0_VPECONTROL
+	ehb
+
+	/* Skip the VPE if its TC is not halted */
+	mftc0	t0, CP0_TCHALT
+	beqz	t0, 2f
+	 nop
+
+	/* Calculate a pointer to the VPEs struct vpe_boot_config */
+	li	t0, VPEBOOTCFG_SIZE
+	mul	t0, t0, t5
+	addu	t0, t0, t7
+
+	/* Set the TC restart PC */
+	lw	t1, VPEBOOTCFG_PC(t0)
+	mttc0	t1, CP0_TCRESTART
+
+	/* Set the TC stack pointer */
+	lw	t1, VPEBOOTCFG_SP(t0)
+	mttgpr	t1, sp
+
+	/* Set the TC global pointer */
+	lw	t1, VPEBOOTCFG_GP(t0)
+	mttgpr	t1, gp
+
+	/* Copy config from this VPE */
+	mfc0	t0, CP0_CONFIG
+	mttc0	t0, CP0_CONFIG
+
+	/* Ensure no software interrupts are pending */
+	mttc0	zero, CP0_CAUSE
+	mttc0	zero, CP0_STATUS
+
+	/* Set TC active, not interrupt exempt */
+	mftc0	t0, CP0_TCSTATUS
+	li	t1, ~TCSTATUS_IXMT
+	and	t0, t0, t1
+	ori	t0, t0, TCSTATUS_A
+	mttc0	t0, CP0_TCSTATUS
+
+	/* Clear the TC halt bit */
+	mttc0	zero, CP0_TCHALT
+
+	/* Set VPE active */
+	mftc0	t0, CP0_VPECONF0
+	ori	t0, t0, VPECONF0_VPA
+	mttc0	t0, CP0_VPECONF0
+
+	/* Next VPE */
+2:	srl	t6, t6, 1
+	addi	t5, t5, 1
+	bnez	t6, 1b
+	 nop
+
+	/* Leave VPE configuration state */
+	mfc0	t1, CP0_MVPCONTROL
+	xori	t1, t1, MVPCONTROL_VPC
+	mtc0	t1, CP0_MVPCONTROL
+	ehb
+	evpe
+
+	/* Check whether this VPE is meant to be running */
+	li	t0, 1
+	sll	t0, t0, t9
+	and	t0, t0, t8
+	bnez	t0, 2f
+	 nop
+
+	/* This VPE should be offline, halt the TC */
+	li	t0, TCHALT_H
+	mtc0	t0, CP0_TCHALT
+	la	t0, 1f
+1:	jr.hb	t0
+	 nop
+
+2:	.set	pop
+
+#endif /* CONFIG_MIPS_MT */
+
+	/* Return */
+	jr	ra
+	 nop
+	END(mips_cps_boot_vpes)
