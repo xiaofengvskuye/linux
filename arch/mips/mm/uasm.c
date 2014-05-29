@@ -55,6 +55,7 @@ enum opcode {
 	insn_rfe, insn_rotr, insn_sc, insn_scd, insn_sd, insn_sll, insn_sra,
 	insn_srl, insn_subu, insn_sw, insn_sync, insn_syscall, insn_tlbp,
 	insn_tlbr, insn_tlbwi, insn_tlbwr, insn_wait, insn_xor, insn_xori,
+	insn_yield,
 };
 
 struct insn {
@@ -200,6 +201,13 @@ Ip_u1u2(op)						\
 }							\
 UASM_EXPORT_SYMBOL(uasm_i##op);
 
+#define I_u2u1(op)					\
+Ip_u1u2(op)						\
+{							\
+	build_insn(buf, insn##op, b, a);		\
+}							\
+UASM_EXPORT_SYMBOL(uasm_i##op);
+
 #define I_u1s2(op)					\
 Ip_u1s2(op)						\
 {							\
@@ -281,6 +289,7 @@ I_0(_tlbwr)
 I_u1(_wait);
 I_u3u1u2(_xor)
 I_u2u1u3(_xori)
+I_u2u1(_yield)
 I_u2u1msbu3(_dins);
 I_u2u1msb32u3(_dinsm);
 I_u1(_syscall);

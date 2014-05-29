@@ -85,6 +85,9 @@ ISAOPC(op)(u32 **buf, unsigned int a, unsigned int b, unsigned int c,	\
 #define Ip_u1u2(op)							\
 void __uasminit ISAOPC(op)(u32 **buf, unsigned int a, unsigned int b)
 
+#define Ip_u2u1(op)							\
+void __uasminit ISAOPC(op)(u32 **buf, unsigned int a, unsigned int b)
+
 #define Ip_u1s2(op)							\
 void __uasminit ISAOPC(op)(u32 **buf, unsigned int a, signed int b)
 
@@ -160,6 +163,7 @@ Ip_0(_tlbwr);
 Ip_u1(_wait);
 Ip_u3u1u2(_xor);
 Ip_u2u1u3(_xori);
+Ip_u2u1(_yield);
 
 
 /* Handle labels. */
