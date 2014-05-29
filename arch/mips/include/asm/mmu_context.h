@@ -36,10 +36,13 @@ do {									\
 	tlbmiss_handler_setup_pgd((unsigned long)(pgd));		\
 } while (0)
 
+#define TLBMISS_HANDLER_RESTORE()					\
+	write_c0_xcontext((unsigned long) smp_processor_id() << 51)
+
 #define TLBMISS_HANDLER_SETUP()						\
 	do {								\
 		TLBMISS_HANDLER_SETUP_PGD(swapper_pg_dir);		\
-		write_c0_xcontext((unsigned long) smp_processor_id() << 51); \
+		TLBMISS_HANDLER_RESTORE();				\
 	} while (0)
 
 #else /* CONFIG_MIPS_PGD_C0_CONTEXT: using  pgd_current*/
@@ -55,17 +58,18 @@ extern unsigned long pgd_current[];
 	pgd_current[smp_processor_id()] = (unsigned long)(pgd)
 
 #ifdef CONFIG_32BIT
-#define TLBMISS_HANDLER_SETUP()						\
-	write_c0_context((unsigned long) smp_processor_id() << 25);	\
-	back_to_back_c0_hazard();					\
-	TLBMISS_HANDLER_SETUP_PGD(swapper_pg_dir)
+#define TLBMISS_HANDLER_RESTORE()					\
+	write_c0_context((unsigned long) smp_processor_id() << 25)
 #endif
 #ifdef CONFIG_64BIT
+#define TLBMISS_HANDLER_RESTORE()					\
+	write_c0_context((unsigned long) smp_processor_id() << 26)
+#endif
+
 #define TLBMISS_HANDLER_SETUP()						\
-	write_c0_context((unsigned long) smp_processor_id() << 26);	\
+	TLBMISS_HANDLER_RESTORE();					\
 	back_to_back_c0_hazard();					\
 	TLBMISS_HANDLER_SETUP_PGD(swapper_pg_dir)
-#endif
 #endif /* CONFIG_MIPS_PGD_C0_CONTEXT*/
 #if defined(CONFIG_CPU_R3000) || defined(CONFIG_CPU_TX39XX)
 
