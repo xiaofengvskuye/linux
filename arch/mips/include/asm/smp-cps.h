@@ -24,6 +24,7 @@ struct boot_config {
 extern struct boot_config mips_cps_bootcfg;
 
 extern void mips_cps_core_entry(void);
+extern void mips_cps_core_init(void);
 
 extern bool mips_cps_smp_in_use(void);
 

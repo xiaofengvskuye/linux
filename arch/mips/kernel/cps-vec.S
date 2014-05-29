@@ -14,12 +14,27 @@
 #include <asm/asmmacro.h>
 #include <asm/cacheops.h>
 #include <asm/mipsregs.h>
+#include <asm/mipsmtregs.h>
 
 #define GCR_CL_COHERENCE_OFS 0x2008
 
+.set noreorder
+
+	/* Set dest to non-zero if the core supports the MT ASE, else zero */
+	.macro	has_mt	dest, nomt
+	mfc0	\dest, CP0_CONFIG
+	bgez	\dest, \nomt
+	 mfc0	\dest, CP0_CONFIG, 1
+	bgez	\dest, \nomt
+	 mfc0	\dest, CP0_CONFIG, 2
+	bgez	\dest, \nomt
+	 mfc0	\dest, CP0_CONFIG, 3
+	andi	\dest, \dest, MIPS_CONF3_MT
+	beqz	\dest, \nomt
+	.endm
+
 .section .text.cps-vec
 .balign 0x1000
-.set noreorder
 
 LEAF(mips_cps_core_entry)
 	/*
@@ -134,7 +149,12 @@ dcache_done:
 	jr	t0
 	 nop
 
-1:	/* We're up, cached & coherent */
+	/*
+	 * We're up, cached & coherent. Perform any further required core-level
+	 * initialisation.
+	 */
+1:	jal	mips_cps_core_init
+	 nop
 
 	/*
 	 * TODO: We should check the VPE number we intended to boot here, and
@@ -184,3 +204,76 @@ LEAF(excep_ejtag)
 	jr	k0
 	 nop
 	END(excep_ejtag)
+
+LEAF(mips_cps_core_init)
+#ifdef CONFIG_MIPS_MT
+	/* Check that the core implements the MT ASE */
+	has_mt	t0, 3f
+	 nop
+
+	.set	push
+	.set	mt
+
+	/* Only allow 1 TC per VPE to execute... */
+	dmt
+
+	/* ...and for the moment only 1 VPE */
+	dvpe
+	la	t1, 1f
+	jr.hb	t1
+	 nop
+
+	/* Enter VPE configuration state */
+1:	mfc0	t0, CP0_MVPCONTROL
+	ori	t0, t0, MVPCONTROL_VPC
+	mtc0	t0, CP0_MVPCONTROL
+
+	/* Retrieve the number of VPEs within the core */
+	mfc0	t0, CP0_MVPCONF0
+	srl	t0, t0, MVPCONF0_PVPE_SHIFT
+	andi	t0, t0, (MVPCONF0_PVPE >> MVPCONF0_PVPE_SHIFT)
+	addi	t7, t0, 1
+
+	/* If there's only 1, we're done */
+	beqz	t0, 2f
+	 nop
+
+	/* Loop through each VPE within this core */
+	li	t5, 1
+
+1:	/* Operate on the appropriate TC */
+	mtc0	t5, CP0_VPECONTROL
+	ehb
+
+	/* Bind TC to VPE (1:1 TC:VPE mapping) */
+	mttc0	t5, CP0_TCBIND
+
+	/* Set exclusive TC, non-active, master */
+	li	t0, VPECONF0_MVP
+	sll	t1, t5, VPECONF0_XTC_SHIFT
+	or	t0, t0, t1
+	mttc0	t0, CP0_VPECONF0
+
+	/* Set TC non-active, non-allocatable */
+	mttc0	zero, CP0_TCSTATUS
+
+	/* Set TC halted */
+	li	t0, TCHALT_H
+	mttc0	t0, CP0_TCHALT
+
+	/* Next VPE */
+	addi	t5, t5, 1
+	slt	t0, t5, t7
+	bnez	t0, 1b
+	 nop
+
+	/* Leave VPE configuration state */
+2:	mfc0	t0, CP0_MVPCONTROL
+	xori	t0, t0, MVPCONTROL_VPC
+	mtc0	t0, CP0_MVPCONTROL
+
+3:	.set	pop
+#endif
+	jr	ra
+	 nop
+	END(mips_cps_core_init)

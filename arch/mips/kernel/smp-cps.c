@@ -30,75 +30,6 @@ static DECLARE_BITMAP(core_power, NR_CPUS);
 
 struct boot_config mips_cps_bootcfg;
 
-static void init_core(void)
-{
-	unsigned int nvpes, t;
-	u32 mvpconf0, vpeconf0, vpecontrol, tcstatus, tcbind, status;
-
-	if (!cpu_has_mipsmt)
-		return;
-
-	/* Enter VPE configuration state */
-	dvpe();
-	set_c0_mvpcontrol(MVPCONTROL_VPC);
-
-	/* Retrieve the count of VPEs in this core */
-	mvpconf0 = read_c0_mvpconf0();
-	nvpes = ((mvpconf0 & MVPCONF0_PVPE) >> MVPCONF0_PVPE_SHIFT) + 1;
-	smp_num_siblings = nvpes;
-
-	for (t = 1; t < nvpes; t++) {
-		/* Use a 1:1 mapping of TC index to VPE index */
-		settc(t);
-
-		/* Bind 1 TC to this VPE */
-		tcbind = read_tc_c0_tcbind();
-		tcbind &= ~TCBIND_CURVPE;
-		tcbind |= t << TCBIND_CURVPE_SHIFT;
-		write_tc_c0_tcbind(tcbind);
-
-		/* Set exclusive TC, non-active, master */
-		vpeconf0 = read_vpe_c0_vpeconf0();
-		vpeconf0 &= ~(VPECONF0_XTC | VPECONF0_VPA);
-		vpeconf0 |= t << VPECONF0_XTC_SHIFT;
-		vpeconf0 |= VPECONF0_MVP;
-		write_vpe_c0_vpeconf0(vpeconf0);
-
-		/* Declare TC non-active, non-allocatable & interrupt exempt */
-		tcstatus = read_tc_c0_tcstatus();
-		tcstatus &= ~(TCSTATUS_A | TCSTATUS_DA);
-		tcstatus |= TCSTATUS_IXMT;
-		write_tc_c0_tcstatus(tcstatus);
-
-		/* Halt the TC */
-		write_tc_c0_tchalt(TCHALT_H);
-
-		/* Allow only 1 TC to execute */
-		vpecontrol = read_vpe_c0_vpecontrol();
-		vpecontrol &= ~VPECONTROL_TE;
-		write_vpe_c0_vpecontrol(vpecontrol);
-
-		/* Copy (most of) Status from VPE 0 */
-		status = read_c0_status();
-		status &= ~(ST0_IM | ST0_IE | ST0_KSU);
-		status |= ST0_CU0;
-		write_vpe_c0_status(status);
-
-		/* Copy Config from VPE 0 */
-		write_vpe_c0_config(read_c0_config());
-		write_vpe_c0_config7(read_c0_config7());
-
-		/* Ensure no software interrupts are pending */
-		write_vpe_c0_cause(0);
-
-		/* Sync Count */
-		write_vpe_c0_count(read_c0_count());
-	}
-
-	/* Leave VPE configuration state */
-	clear_c0_mvpcontrol(MVPCONTROL_VPC);
-}
-
 static void __init cps_smp_setup(void)
 {
 	unsigned int ncores, nvpes, core_vpes;
@@ -120,6 +51,10 @@ static void __init cps_smp_setup(void)
 		}
 
 		pr_cont("%c%u", c ? ',' : '{', core_vpes);
+
+		/* Use the number of VPEs in core 0 for smp_num_siblings */
+		if (!c)
+			smp_num_siblings = core_vpes;
 
 		for (v = 0; v < min_t(int, core_vpes, NR_CPUS - nvpes); v++) {
 			cpu_data[nvpes + v].core = c;
@@ -143,12 +78,8 @@ static void __init cps_smp_setup(void)
 	/* Core 0 is powered up (we're running on it) */
 	bitmap_set(core_power, 0, 1);
 
-	/* Disable MT - we only want to run 1 TC per VPE */
-	if (cpu_has_mipsmt)
-		dmt();
-
 	/* Initialise core 0 */
-	init_core();
+	mips_cps_core_init();
 
 	/* Patch the start of mips_cps_core_entry to provide the CM base */
 	entry_code = (u32 *)&mips_cps_core_entry;
@@ -197,7 +128,7 @@ static void boot_core(struct boot_config *cfg)
 static void boot_vpe(void *info)
 {
 	struct boot_config *cfg = info;
-	u32 tcstatus, vpeconf0;
+	unsigned int tcstatus;
 
 	/* Enter VPE configuration state */
 	dvpe();
@@ -208,7 +139,17 @@ static void boot_vpe(void *info)
 	/* Set the TC restart PC */
 	write_tc_c0_tcrestart((unsigned long)&smp_bootstrap);
 
-	/* Activate the TC, allow interrupts */
+	/* Set the stack & global pointer registers */
+	write_tc_gpr_sp(cfg->sp);
+	write_tc_gpr_gp(cfg->gp);
+
+	/* Copy Config from this VPE */
+	write_vpe_c0_config(read_c0_config());
+
+	/* Ensure no software interrupts are pending */
+	write_vpe_c0_cause(0);
+
+	/* Set TC active */
 	tcstatus = read_tc_c0_tcstatus();
 	tcstatus &= ~TCSTATUS_IXMT;
 	tcstatus |= TCSTATUS_A;
@@ -218,13 +159,7 @@ static void boot_vpe(void *info)
 	write_tc_c0_tchalt(0);
 
 	/* Activate the VPE */
-	vpeconf0 = read_vpe_c0_vpeconf0();
-	vpeconf0 |= VPECONF0_VPA;
-	write_vpe_c0_vpeconf0(vpeconf0);
-
-	/* Set the stack & global pointer registers */
-	write_tc_gpr_sp(cfg->sp);
-	write_tc_gpr_gp(cfg->gp);
+	write_vpe_c0_vpeconf0(read_vpe_c0_vpeconf0() | VPECONF0_VPA);
 
 	/* Leave VPE configuration state */
 	clear_c0_mvpcontrol(MVPCONTROL_VPC);
@@ -278,10 +213,6 @@ static void cps_init_secondary(void)
 	/* Disable MT - we only want to run 1 TC per VPE */
 	if (cpu_has_mipsmt)
 		dmt();
-
-	/* TODO: revisit this assumption once hotplug is implemented */
-	if (cpu_vpe_id(&current_cpu_data) == 0)
-		init_core();
 
 	change_c0_status(ST0_IM, STATUSF_IP3 | STATUSF_IP4 |
 				 STATUSF_IP6 | STATUSF_IP7);
