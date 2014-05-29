@@ -12,12 +12,14 @@
 #include <linux/percpu.h>
 #include <linux/slab.h>
 
+#include <asm/asm-offsets.h>
 #include <asm/cacheflush.h>
 #include <asm/cacheops.h>
 #include <asm/gcmpregs.h>
 #include <asm/gic.h> /* for MSK */
 #include <asm/idle.h>
 #include <asm/mips-cpc.h>
+#include <asm/pm.h>
 #include <asm/pm-cps.h>
 #include <asm/smp-cps.h>
 #include <asm/uasm.h>
@@ -63,6 +65,9 @@ static DEFINE_PER_CPU_ALIGNED(cpumask_t, online_coupled);
  * than per-CPU.
  */
 static DEFINE_PER_CPU_ALIGNED(atomic_t, pm_barrier);
+
+/* Saved CPU state across the CPS_PM_POWER_GATED state */
+DEFINE_PER_CPU_ALIGNED(struct mips_static_suspend_state, cps_cpu_state);
 
 /* A somewhat arbitrary number of labels & relocs for uasm */
 static struct uasm_label __initdata labels[32];
@@ -123,6 +128,8 @@ int cps_pm_enter_state(enum cps_pm_state state)
 	u32 *core_ready_count, *nc_core_ready_count;
 	void *nc_addr;
 	cps_nc_entry_fn entry;
+	struct core_boot_config *core_cfg;
+	struct vpe_boot_config *vpe_cfg;
 
 	/* Check that there is an entry function for this state */
 	entry = per_cpu(nc_asm_enter, core)[state];
@@ -141,6 +148,15 @@ int cps_pm_enter_state(enum cps_pm_state state)
 	{
 		cpumask_clear(coupled_mask);
 		online = 1;
+	}
+
+	/* Setup the VPE to run mips_cps_pm_restore when started again */
+	if (state == CPS_PM_POWER_GATED) {
+		core_cfg = &mips_cps_core_bootcfg[core];
+		vpe_cfg = &core_cfg->vpe_config[current_cpu_data.vpe_id];
+		vpe_cfg->pc = (unsigned long)mips_cps_pm_restore;
+		vpe_cfg->gp = (unsigned long)current_thread_info();
+		vpe_cfg->sp = 0;
 	}
 
 	/* Indicate that this CPU might not be coherent */
@@ -330,6 +346,17 @@ static void * __init cps_gen_entry_code(unsigned cpu, enum cps_pm_state state)
 	/* Clear labels & relocs ready for (re)use */
 	memset(labels, 0, sizeof(labels));
 	memset(relocs, 0, sizeof(relocs));
+
+	if (state == CPS_PM_POWER_GATED) {
+		/*
+		 * Save CPU state. Note the non-standard calling convention
+		 * with the return address placed in v0 to avoid clobbering
+		 * the ra register before it is saved.
+		 */
+		UASM_i_LA(&p, t0, (long)mips_cps_pm_save);
+		uasm_i_jalr(&p, v0, t0);
+		uasm_i_nop(&p);
+	}
 
 	/*
 	 * Load addresses of required CM & CPC registers. This is done early

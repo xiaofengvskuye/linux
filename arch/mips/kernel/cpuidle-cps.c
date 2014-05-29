@@ -8,6 +8,7 @@
  * option) any later version.
  */
 
+#include <linux/cpu_pm.h>
 #include <linux/cpuidle.h>
 #include <linux/init.h>
 
@@ -19,6 +20,7 @@ enum cps_idle_state {
 	STATE_WAIT = 0,		/* MIPS wait instruction, coherent */
 	STATE_NC_WAIT,		/* MIPS wait instruction, non-coherent */
 	STATE_CLOCK_GATED,	/* Core clock gated */
+	STATE_POWER_GATED,	/* Core power gated */
 	STATE_COUNT
 };
 
@@ -46,17 +48,26 @@ static int cps_nc_enter(struct cpuidle_device *dev,
 	case STATE_CLOCK_GATED:
 		pm_state = CPS_PM_CLOCK_GATED;
 		break;
+	case STATE_POWER_GATED:
+		pm_state = CPS_PM_POWER_GATED;
+		break;
 	default:
 		BUG();
 		return -EINVAL;
 	}
 
+	/* Notify listeners the CPU is about to power down */
+	if ((pm_state == CPS_PM_POWER_GATED) && cpu_pm_enter())
+		return -EINTR;
+
 	/* Enter that state */
 	err = cps_pm_enter_state(pm_state);
-	if (err)
-		return err;
 
-	return index;
+	/* Notify listeners the CPU is back up */
+	if (pm_state == CPS_PM_POWER_GATED)
+		cpu_pm_exit();
+
+	return err ?: index;
 }
 
 static struct cpuidle_driver cps_driver = {
@@ -80,6 +91,15 @@ static struct cpuidle_driver cps_driver = {
 				  CPUIDLE_FLAG_TIMER_STOP,
 			.name	= "clock-gated",
 			.desc	= "core clock gated",
+		},
+		[STATE_POWER_GATED] = {
+			.enter	= cps_nc_enter,
+			.exit_latency		= 600,
+			.target_residency	= 1000,
+			.flags	= CPUIDLE_FLAG_TIME_VALID |
+				  CPUIDLE_FLAG_TIMER_STOP,
+			.name	= "power-gated",
+			.desc	= "core power gated",
 		},
 	},
 	.state_count		= STATE_COUNT,
@@ -105,6 +125,8 @@ static int __init cps_cpuidle_init(void)
 	struct cpuidle_device *device;
 
 	/* Detect supported states */
+	if (!cps_pm_support_state(CPS_PM_POWER_GATED))
+		cps_driver.state_count = STATE_CLOCK_GATED + 1;
 	if (!cps_pm_support_state(CPS_PM_CLOCK_GATED))
 		cps_driver.state_count = STATE_NC_WAIT + 1;
 
@@ -120,6 +142,9 @@ static int __init cps_cpuidle_init(void)
 			break;
 		case STATE_NC_WAIT:
 			pr_cont("non-coherent wait\n");
+			break;
+		case STATE_CLOCK_GATED:
+			pr_cont("clock gating\n");
 			break;
 		}
 	}
