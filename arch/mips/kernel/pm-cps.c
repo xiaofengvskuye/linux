@@ -54,6 +54,9 @@ DECLARE_BITMAP(state_support, CPS_PM_STATE_COUNT);
 static DEFINE_PER_CPU_ALIGNED(u32*, ready_count);
 static DEFINE_PER_CPU_ALIGNED(void*, ready_count_alloc);
 
+/* Indicates online CPUs coupled with the current CPU */
+static DEFINE_PER_CPU_ALIGNED(cpumask_t, online_coupled);
+
 /*
  * Used to synchronize entry to deep idle states. Actually per-core rather
  * than per-CPU.
@@ -115,7 +118,7 @@ int cps_pm_enter_state(enum cps_pm_state state)
 	unsigned cpu = smp_processor_id();
 	unsigned core = current_cpu_data.core;
 	unsigned online, left;
-	cpumask_var_t coupled_mask;
+	cpumask_t *coupled_mask = this_cpu_ptr(&online_coupled);
 	u32 *core_ready_count, *nc_core_ready_count;
 	void *nc_addr;
 	cps_nc_entry_fn entry;
@@ -124,9 +127,6 @@ int cps_pm_enter_state(enum cps_pm_state state)
 	entry = per_cpu(nc_asm_enter, core)[state];
 	if (!entry)
 		return -EINVAL;
-
-	if (!alloc_cpumask_var(&coupled_mask, GFP_KERNEL))
-		return -ENOMEM;
 
 	/* Calculate which coupled CPUs (VPEs) are online */
 #ifdef CONFIG_MIPS_MT
@@ -174,7 +174,6 @@ int cps_pm_enter_state(enum cps_pm_state state)
 	if (coupled_coherence && (state == CPS_PM_NC_WAIT) && (left == online))
 		arch_send_call_function_ipi_mask(coupled_mask);
 
-	free_cpumask_var(coupled_mask);
 	return 0;
 }
 
