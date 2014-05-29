@@ -19,6 +19,7 @@
 #include <asm/idle.h>
 #include <asm/mips-cpc.h>
 #include <asm/pm-cps.h>
+#include <asm/smp-cps.h>
 #include <asm/uasm.h>
 
 /*
@@ -303,13 +304,16 @@ static void * __init cps_gen_entry_code(unsigned cpu, enum cps_pm_state state)
 	const unsigned r_nc_count = a1;
 	const unsigned r_pcohctl = t7;
 	const unsigned max_instrs = 256;
+	unsigned cpc_cmd;
 	enum {
 		lbl_incready = 1,
 		lbl_poll_cont,
+		lbl_secondary_hang,
 		lbl_disable_coherence,
 		lbl_flush_fsb,
 		lbl_invicache,
 		lbl_flushdcache,
+		lbl_hang,
 		lbl_set_cont,
 		lbl_secondary_cont,
 		lbl_decready,
@@ -351,20 +355,32 @@ static void * __init cps_gen_entry_code(unsigned cpu, enum cps_pm_state state)
 		uasm_il_beq(&p, &r, t1, r_online, lbl_disable_coherence);
 		uasm_i_nop(&p);
 
-		/*
-		 * Otherwise this is not the last VPE to become ready for
-		 * non-coherence. It needs to wait until coherence has been
-		 * disabled before proceeding, which it will do by polling
-		 * for the top bit of ready_count being set.
-		 */
-		uasm_i_addiu(&p, t1, zero, -1);
-		uasm_build_label(&l, p, lbl_poll_cont);
-		uasm_i_lw(&p, t0, 0, r_nc_count);
-		uasm_il_bltz(&p, &r, t0, lbl_secondary_cont);
-		uasm_i_ehb(&p);
-		uasm_i_yield(&p, zero, t1);
-		uasm_il_b(&p, &r, lbl_poll_cont);
-		uasm_i_nop(&p);
+		if (state < CPS_PM_POWER_GATED) {
+			/*
+			 * Otherwise this is not the last VPE to become ready
+			 * for non-coherence. It needs to wait until coherence
+			 * has been disabled before proceeding, which it will do
+			 * by polling for the top bit of ready_count being set.
+			 */
+			uasm_i_addiu(&p, t1, zero, -1);
+			uasm_build_label(&l, p, lbl_poll_cont);
+			uasm_i_lw(&p, t0, 0, r_nc_count);
+			uasm_il_bltz(&p, &r, t0, lbl_secondary_cont);
+			uasm_i_ehb(&p);
+			uasm_i_yield(&p, zero, t1);
+			uasm_il_b(&p, &r, lbl_poll_cont);
+			uasm_i_nop(&p);
+		} else {
+			/*
+			 * The core will lose power & this VPE will not continue
+			 * so it can simply halt here.
+			 */
+			uasm_i_addiu(&p, t0, zero, TCHALT_H);
+			uasm_i_mtc0(&p, t0, 2, 4);
+			uasm_build_label(&l, p, lbl_secondary_hang);
+			uasm_il_b(&p, &r, lbl_secondary_hang);
+			uasm_i_nop(&p);
+		}
 	}
 
 	/*
@@ -403,15 +419,42 @@ static void * __init cps_gen_entry_code(unsigned cpu, enum cps_pm_state state)
 	uasm_i_sw(&p, zero, 0, r_pcohctl);
 	uasm_i_lw(&p, t0, 0, r_pcohctl);
 
-	if (state == CPS_PM_CLOCK_GATED) {
+	if (state >= CPS_PM_CLOCK_GATED) {
 		/* TODO: determine whether required based on CPC version */
 		cps_gen_flush_fsb(&p, &l, &r, &cpu_data[cpu].dcache,
 				  lbl_flush_fsb);
 
-		/* Issue the CPC clock-off command */
+		/* Determine the CPC command to issue */
+		switch (state) {
+		case CPS_PM_CLOCK_GATED:
+			cpc_cmd = CPC_Cx_CMD_CLOCKOFF;
+			break;
+		case CPS_PM_POWER_GATED:
+			cpc_cmd = CPC_Cx_CMD_PWRDOWN;
+			break;
+		default:
+			BUG();
+			goto out_err;
+		}
+
+		/* Issue the CPC command */
 		UASM_i_LA(&p, t0, (long)addr_cpc_cl_cmd());
-		uasm_i_addiu(&p, t1, zero, CPC_Cx_CMD_CLOCKOFF);
+		uasm_i_addiu(&p, t1, zero, cpc_cmd);
 		uasm_i_sw(&p, t1, 0, t0);
+
+		if (state == CPS_PM_POWER_GATED) {
+			/* If anything goes wrong just hang */
+			uasm_build_label(&l, p, lbl_hang);
+			uasm_il_b(&p, &r, lbl_hang);
+			uasm_i_nop(&p);
+
+			/*
+			 * There's no point generating more code, the core is
+			 * powered down & if powered back up will run from the
+			 * reset vector not from here.
+			 */
+			goto gen_done;
+		}
 
 		/* Completion barrier */
 		uasm_i_sync(&p, stype_memory);
@@ -492,6 +535,7 @@ static void * __init cps_gen_entry_code(unsigned cpu, enum cps_pm_state state)
 	uasm_i_jr(&p, ra);
 	uasm_i_nop(&p);
 
+gen_done:
 	/* Ensure the code didn't exceed the resources allocated for it */
 	BUG_ON((p - buf) > max_instrs);
 	BUG_ON((l - labels) > ARRAY_SIZE(labels));
@@ -504,6 +548,9 @@ static void * __init cps_gen_entry_code(unsigned cpu, enum cps_pm_state state)
 	local_flush_icache_range((unsigned long)buf, (unsigned long)p);
 
 	return buf;
+out_err:
+	kfree(buf);
+	return NULL;
 }
 
 static int __init cps_gen_core_entries(unsigned cpu)
@@ -580,12 +627,22 @@ static int __init cps_pm_init(void)
 	else
 		pr_warn("pm-cps: non-coherent wait unavailable\n");
 
-	/* Detect whether a CPC with clock gating implemented is present */
-	if (mips_cpc_present() &&
-	    (read_cpc_cl_stat_conf() & CPC_Cx_STAT_CONF_CLKGAT_IMPL_MSK))
-		set_bit(CPS_PM_CLOCK_GATED, state_support);
-	else
-		pr_warn("pm-cps: CPC does not support clock gating\n");
+	/* Detect whether a CPC is present */
+	if (mips_cpc_present()) {
+		/* Detect whether clock gating is implemented */
+		if (read_cpc_cl_stat_conf() & CPC_Cx_STAT_CONF_CLKGAT_IMPL_MSK)
+			set_bit(CPS_PM_CLOCK_GATED, state_support);
+		else
+			pr_warn("pm-cps: CPC does not support clock gating\n");
+
+		/* Power gating is available with CPS SMP & any CPC */
+		if (mips_cps_smp_in_use())
+			set_bit(CPS_PM_POWER_GATED, state_support);
+		else
+			pr_warn("pm-cps: CPS SMP not in use, power gating unavailable\n");
+	} else {
+		pr_warn("pm-cps: no CPC, clock & power gating unavailable\n");
+	}
 
 	for_each_possible_cpu(cpu) {
 		err = cps_gen_core_entries(cpu);

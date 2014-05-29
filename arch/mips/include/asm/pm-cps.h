@@ -26,6 +26,7 @@
 enum cps_pm_state {
 	CPS_PM_NC_WAIT,		/* MIPS wait instruction, non-coherent */
 	CPS_PM_CLOCK_GATED,	/* Core clock gated */
+	CPS_PM_POWER_GATED,	/* Core power gated */
 	CPS_PM_STATE_COUNT,
 };
 
