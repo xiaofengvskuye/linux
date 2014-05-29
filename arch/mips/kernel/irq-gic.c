@@ -8,9 +8,11 @@
  */
 #include <linux/bitmap.h>
 #include <linux/init.h>
+#include <linux/slab.h>
 #include <linux/smp.h>
 #include <linux/irq.h>
 #include <linux/clocksource.h>
+#include <linux/cpu_pm.h>
 
 #include <asm/io.h>
 #include <asm/gic.h>
@@ -28,6 +30,8 @@ unsigned int gic_irq_flags[GIC_NUM_INTRS];
 
 /* The index into this array is the vector # of the interrupt. */
 struct gic_shared_intr_map gic_shared_intr_map[GIC_NUM_INTRS];
+static u32 gic_map_pin[GIC_NUM_INTRS];
+static u32 gic_map_vpe[GIC_NUM_INTRS];
 
 struct gic_pcpu_mask {
 	DECLARE_BITMAP(pcpu_mask, GIC_NUM_INTRS);
@@ -242,7 +246,8 @@ static int gic_set_affinity(struct irq_data *d, const struct cpumask *cpumask,
 	spin_lock_irqsave(&gic_lock, flags);
 
 	/* Re-route this IRQ */
-	GIC_SH_MAP_TO_VPE_SMASK(irq, first_cpu(tmp));
+	gic_map_vpe[irq] = first_cpu(tmp);
+	GIC_SH_MAP_TO_VPE_SMASK(irq, gic_map_vpe[irq]);
 
 	/* Update the pcpu_masks */
 	for (i = 0; i < NR_CPUS; i++)
@@ -278,7 +283,9 @@ static void __init gic_setup_intr(unsigned int intr, unsigned int cpu,
 	if (pin & GIC_MAP_TO_NMI_MSK) {
 		int i;
 
-		GICWRITE(GIC_REG_ADDR(SHARED, GIC_SH_MAP_TO_PIN(intr)), pin);
+		gic_map_pin[intr] = pin;
+		GICWRITE(GIC_REG_ADDR(SHARED, GIC_SH_MAP_TO_PIN(intr)),
+			 gic_map_pin[intr]);
 		/* FIXME: hack to route NMI to all cpu's */
 		for (i = 0; i < NR_CPUS; i += 32) {
 			GICWRITE(GIC_REG_ADDR(SHARED,
@@ -286,10 +293,12 @@ static void __init gic_setup_intr(unsigned int intr, unsigned int cpu,
 				 0xffffffff);
 		}
 	} else {
+		gic_map_pin[intr] = GIC_MAP_TO_PIN_MSK | pin;
 		GICWRITE(GIC_REG_ADDR(SHARED, GIC_SH_MAP_TO_PIN(intr)),
-			 GIC_MAP_TO_PIN_MSK | pin);
+			 gic_map_pin[intr]);
 		/* Setup Intr to CPU mapping */
-		GIC_SH_MAP_TO_VPE_SMASK(intr, cpu);
+		gic_map_vpe[intr] = cpu;
+		GIC_SH_MAP_TO_VPE_SMASK(intr, gic_map_vpe[intr]);
 		if (cpu_has_veic) {
 			set_vi_handler(pin + GIC_PIN_TO_VEC_OFFSET,
 				gic_eic_irq_dispatch);
@@ -361,6 +370,164 @@ static void __init gic_basic_init(int numintrs, int numvpes,
 	vpe_local_setup(numvpes);
 }
 
+#ifdef CONFIG_CPU_PM
+#define GIC_LOCAL_IRQS 7
+struct gic_vpe_state {
+	u32 mask;
+	u32 map[GIC_LOCAL_IRQS];
+};
+
+struct gic_bank_state {
+	u32 polarity;
+	u32 trigger;
+	u32 dual;
+	u32 mask;
+};
+
+static unsigned int gic_irqs;
+static unsigned int gic_vpes;
+static unsigned int gic_banks;
+static struct gic_vpe_state *gic_vpe_suspend_state;
+static struct gic_bank_state *gic_bank_suspend_state;
+
+static int gic_save(void)
+{
+	u32 *irq_map;
+	struct gic_vpe_state *vpe;
+	struct gic_bank_state *bank;
+	unsigned int i, offs;
+
+	/* suspend state memory wasn't allocated */
+	if (!gic_vpe_suspend_state || !gic_bank_suspend_state)
+		return -ENOMEM;
+
+	/* save state of each bank */
+	bank = gic_bank_suspend_state;
+	for (offs = 0; offs < gic_banks*4; offs += 4, ++bank) {
+		GICREAD(GIC_REG(SHARED, offs + GIC_SH_POL_31_0),
+			bank->polarity);
+		GICREAD(GIC_REG(SHARED, offs + GIC_SH_TRIG_31_0),
+			bank->trigger);
+		GICREAD(GIC_REG(SHARED, offs + GIC_SH_DUAL_31_0),
+			bank->dual);
+		GICREAD(GIC_REG(SHARED, offs + GIC_SH_MASK_31_0),
+			bank->mask);
+	}
+
+	/* save VPE local IRQ routing */
+	vpe = gic_vpe_suspend_state;
+	for (i = 0; i < gic_vpes; ++i, ++vpe) {
+		GICWRITE(GIC_REG(VPE_LOCAL, GIC_VPE_OTHER_ADDR), i);
+
+		GICREAD(GIC_REG(VPE_OTHER, GIC_VPE_MASK), vpe->mask);
+		/* local interrupt routing */
+		irq_map = vpe->map;
+		for (offs = 0; offs < GIC_LOCAL_IRQS*4; offs += 4, ++irq_map)
+			GICREAD(GIC_REG(VPE_OTHER, offs + GIC_VPE_WD_MAP),
+				*irq_map);
+	}
+
+	return 0;
+}
+
+static void gic_restore(void)
+{
+	u32 *irq_map, *vpe_map;
+	struct gic_vpe_state *vpe;
+	struct gic_bank_state *bank;
+	unsigned int i, offs;
+
+	/* restore state of each bank */
+	bank = gic_bank_suspend_state;
+	for (offs = 0; offs < gic_banks*4; offs += 4, ++bank) {
+		GICWRITE(GIC_REG(SHARED, offs + GIC_SH_POL_31_0),
+			 bank->polarity);
+		GICWRITE(GIC_REG(SHARED, offs + GIC_SH_TRIG_31_0),
+			 bank->trigger);
+		GICWRITE(GIC_REG(SHARED, offs + GIC_SH_DUAL_31_0),
+			 bank->dual);
+		GICWRITE(GIC_REG(SHARED, offs + GIC_SH_RMASK_31_0),
+			 ~bank->mask);
+		GICWRITE(GIC_REG(SHARED, offs + GIC_SH_SMASK_31_0),
+			 bank->mask);
+	}
+
+	/* restore VPE local IRQ routing */
+	vpe = gic_vpe_suspend_state;
+	for (i = 0; i < gic_vpes; ++i, ++vpe) {
+		GICWRITE(GIC_REG(VPE_LOCAL, GIC_VPE_OTHER_ADDR), i);
+
+		GICWRITE(GIC_REG(VPE_OTHER, GIC_VPE_RMASK), ~vpe->mask);
+		GICWRITE(GIC_REG(VPE_OTHER, GIC_VPE_SMASK), vpe->mask);
+		/* local interrupt routing */
+		irq_map = vpe->map;
+		for (offs = 0; offs < GIC_LOCAL_IRQS*4; offs += 4, ++irq_map)
+			GICWRITE(GIC_REG(VPE_OTHER, offs + GIC_VPE_WD_MAP),
+				 *irq_map);
+	}
+
+	/* restore pin/vpe mapping */
+	irq_map = gic_map_pin;
+	vpe_map = gic_map_vpe;
+	for (i = 0; i < gic_irqs; ++i, ++irq_map, ++vpe_map) {
+		GICWRITE(GIC_REG_ADDR(SHARED, GIC_SH_MAP_TO_PIN(i)),
+			 *irq_map);
+		GIC_SH_MAP_TO_VPE_SMASK(i, *vpe_map);
+	}
+}
+
+static int gic_notifier(struct notifier_block *self, unsigned long cmd, void *v)
+{
+	int ret;
+
+	switch (cmd) {
+	case CPU_CLUSTER_PM_ENTER:
+		ret = gic_save();
+		if (ret)
+			return NOTIFY_STOP;
+		break;
+	case CPU_CLUSTER_PM_ENTER_FAILED:
+	case CPU_CLUSTER_PM_EXIT:
+		gic_restore();
+		break;
+	}
+
+	return NOTIFY_OK;
+}
+
+static struct notifier_block gic_notifier_block = {
+	.notifier_call = gic_notifier,
+};
+
+static void gic_suspend_init(unsigned int num_irqs, unsigned int num_vpes)
+{
+	/* allocate memory for storing state across suspend */
+	gic_irqs  = num_irqs;
+	if (gic_irqs > GIC_NUM_INTRS)
+		gic_irqs = GIC_NUM_INTRS;
+	gic_vpes  = num_vpes;
+	gic_banks = (num_irqs + 31) / 32;
+	gic_bank_suspend_state = kmalloc(sizeof(*gic_bank_suspend_state) *
+					 gic_banks, GFP_KERNEL);
+	gic_vpe_suspend_state = kmalloc(sizeof(*gic_vpe_suspend_state) *
+					gic_vpes, GFP_KERNEL);
+	/* failed allocation will cause suspend to fail later */
+	if (!gic_bank_suspend_state)
+		pr_warn("%s failed to allocate memory to save bank state\n",
+			__func__);
+	if (!gic_vpe_suspend_state)
+		pr_warn("%s failed to allocate memory to save VPE state\n",
+			__func__);
+
+	/* register CPU power management notifier */
+	cpu_pm_register_notifier(&gic_notifier_block);
+}
+#else /* CONFIG_CPU_PM */
+static void gic_suspend_init(unsigned int num_irqs, unsigned int num_vpes)
+{
+}
+#endif /* !CONFIG_CPU_PM */
+
 void __init gic_init(unsigned long gic_base_addr,
 		     unsigned long gic_addrspace_size,
 		     struct gic_intr_map *intr_map, unsigned int intr_map_size,
@@ -385,4 +552,6 @@ void __init gic_init(unsigned long gic_base_addr,
 	gic_basic_init(numintrs, numvpes, intr_map, intr_map_size);
 
 	gic_platform_init(numintrs, &gic_irq_controller);
+
+	gic_suspend_init(numintrs, numvpes);
 }
