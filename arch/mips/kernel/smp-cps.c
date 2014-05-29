@@ -197,10 +197,12 @@ static void cps_boot_secondary(int cpu, struct task_struct *idle)
 
 	atomic_or(1 << cpu_vpe_id(&cpu_data[cpu]), &core_cfg->vpe_mask);
 
+	preempt_disable();
+
 	if (!test_bit(core, core_power)) {
 		/* Boot a VPE on a powered down core */
 		boot_core(core);
-		return;
+		goto out;
 	}
 
 	if (core != current_cpu_data.core) {
@@ -217,13 +219,15 @@ static void cps_boot_secondary(int cpu, struct task_struct *idle)
 					       NULL, 1);
 		if (err)
 			panic("Failed to call remote CPU\n");
-		return;
+		goto out;
 	}
 
 	BUG_ON(!cpu_has_mipsmt);
 
 	/* Boot a VPE on this core */
 	mips_cps_boot_vpes();
+out:
+	preempt_enable();
 }
 
 static void cps_init_secondary(void)
