@@ -10,27 +10,9 @@
 
 #include <linux/cpuidle.h>
 #include <linux/init.h>
-#include <linux/kconfig.h>
-#include <linux/slab.h>
 
-#include <asm/cacheflush.h>
-#include <asm/cacheops.h>
-#include <asm/gcmpregs.h>
-#include <asm/gic.h> /* for MSK */
 #include <asm/idle.h>
-#include <asm/mips-cpc.h>
-#include <asm/uasm.h>
-
-/*
- * The CM & CPC can only handle coherence & power control on a per-core basis,
- * thus in an MT system the VPEs within each core are coupled and can only
- * enter or exit states requiring CM or CPC assistance in unison.
- */
-#ifdef CONFIG_MIPS_MT
-# define coupled_coherence cpu_has_mipsmt
-#else
-# define coupled_coherence 0
-#endif
+#include <asm/pm-cps.h>
 
 /* Enumeration of the various idle states this driver may enter */
 enum cps_idle_state {
@@ -40,65 +22,11 @@ enum cps_idle_state {
 	STATE_COUNT
 };
 
-/*
- * cps_nc_entry_fn - type of a generated non-coherent state entry function
- * @online: the count of online coupled VPEs
- * @nc_ready_count: pointer to a non-coherent mapping of the core ready_count
- *
- * The code entering & exiting non-coherent states is generated at runtime
- * using uasm, in order to ensure that the compiler cannot insert a stray
- * memory access at an unfortunate time and to allow the generation of optimal
- * core-specific code particularly for cache routines. If coupled_coherence
- * is non-zero and this is the entry for STATE_NC_WAIT, returns the number of
- * VPEs that were in the wait state at the point this VPE left it. Returns
- * garbage if coupled_coherence is zero or this is not the entry for
- * STATE_NC_WAIT.
- */
-typedef unsigned (*cps_nc_entry_fn)(unsigned online, u32 *nc_ready_count);
-
-/*
- * The entry point of the generated non-coherent idle state entry/exit
- * functions. Actually per-core rather than per-CPU.
- */
-static DEFINE_PER_CPU_READ_MOSTLY(cps_nc_entry_fn[STATE_COUNT], nc_asm_enter);
-
-/*
- * Indicates the number of coupled VPEs ready to operate in a non-coherent
- * state. Actually per-core rather than per-CPU.
- */
-static DEFINE_PER_CPU_ALIGNED(u32*, ready_count);
-static DEFINE_PER_CPU_ALIGNED(void*, ready_count_alloc);
-
-/* Used to synchronise entry to idle states */
-static DEFINE_PER_CPU_ALIGNED(atomic_t, idle_barrier);
-
-/* A somewhat arbitrary number of labels & relocs for uasm */
-static struct uasm_label __initdata labels[32];
-static struct uasm_reloc __initdata relocs[32];
-
-/* CPU dependant sync types */
-static unsigned stype_intervention;
-static unsigned stype_memory;
-static unsigned stype_ordering;
-
-/* CM presence declared elsewhere */
-extern int gcmp_present;
-
-enum mips_reg {
-	zero, at, v0, v1, a0, a1, a2, a3,
-	t0, t1, t2, t3, t4, t5, t6, t7,
-	s0, s1, s2, s3, s4, s5, s6, s7,
-	t8, t9, k0, k1, gp, sp, fp, ra,
-};
-
 static int cps_nc_enter(struct cpuidle_device *dev,
 			struct cpuidle_driver *drv, int index)
 {
-	unsigned core = cpu_data[dev->cpu].core;
-	unsigned online, left;
-	cpumask_var_t coupled_mask;
-	u32 *core_ready_count, *nc_core_ready_count;
-	void *nc_addr;
+	enum cps_pm_state pm_state;
+	int err;
 
 	/*
 	 * At least one core must remain powered up & clocked in order for the
@@ -107,59 +35,27 @@ static int cps_nc_enter(struct cpuidle_device *dev,
 	 * TODO: don't treat core 0 specially, just prevent the final core
 	 * TODO: remap interrupt affinity temporarily
 	 */
-	if (!core && (index > STATE_NC_WAIT))
+	if (!cpu_data[dev->cpu].core && (index > STATE_NC_WAIT))
 		index = STATE_NC_WAIT;
 
-	if (!alloc_cpumask_var(&coupled_mask, GFP_KERNEL))
-		return -ENOMEM;
+	/* Select the appropriate cps_pm_state */
+	switch (index) {
+	case STATE_NC_WAIT:
+		pm_state = CPS_PM_NC_WAIT;
+		break;
+	case STATE_CLOCK_GATED:
+		pm_state = CPS_PM_CLOCK_GATED;
+		break;
+	default:
+		BUG();
+		return -EINVAL;
+	}
 
-	/* Calculate which coupled CPUs (VPEs) are online */
-#ifdef CONFIG_MIPS_MT
-	cpumask_and(coupled_mask, cpu_online_mask, &dev->coupled_cpus);
-	online = cpumask_weight(coupled_mask);
-	cpumask_clear_cpu(dev->cpu, coupled_mask);
-#else
-	cpumask_clear(coupled_mask);
-	online = 1;
-#endif
+	/* Enter that state */
+	err = cps_pm_enter_state(pm_state);
+	if (err)
+		return err;
 
-	/* Indicate that this CPU might not be coherent */
-	cpumask_clear_cpu(dev->cpu, &cpu_coherent_mask);
-	smp_mb__after_clear_bit();
-
-	/* Create a non-coherent mapping of the core ready_count */
-	core_ready_count = per_cpu(ready_count, core);
-	nc_addr = kmap_noncoherent(virt_to_page(core_ready_count),
-				   (unsigned long)core_ready_count);
-	nc_addr += ((unsigned long)core_ready_count & ~PAGE_MASK);
-	nc_core_ready_count = nc_addr;
-
-	/* Ensure ready_count is clear before any VPE runs generated code */
-	ACCESS_ONCE(*nc_core_ready_count) = 0;
-	cpuidle_coupled_parallel_barrier(dev,
-					 &per_cpu(idle_barrier, core));
-
-	/* Run the generated entry code */
-	left = per_cpu(nc_asm_enter, core)[index](online, nc_core_ready_count);
-
-	/* Remove the non-coherent mapping of ready_count */
-	kunmap_noncoherent();
-
-	/* Indicate that this CPU is definitely coherent */
-	cpumask_set_cpu(dev->cpu, &cpu_coherent_mask);
-
-	/*
-	 * If this VPE is the first to leave the non-coherent wait state then
-	 * it needs to wake up any coupled VPEs still running their wait
-	 * instruction so that they return to cpuidle, which can then complete
-	 * coordination between the coupled VPEs & provide the governor with
-	 * a chance to reflect on the length of time the VPEs were in the
-	 * idle state.
-	 */
-	if (coupled_coherence && (index == STATE_NC_WAIT) && (left == online))
-		arch_send_call_function_ipi_mask(coupled_mask);
-
-	free_cpumask_var(coupled_mask);
 	return index;
 }
 
@@ -190,415 +86,17 @@ static struct cpuidle_driver cps_driver = {
 	.safe_state_index	= 0,
 };
 
-static void __init cps_gen_cache_routine(u32 **pp, struct uasm_label **pl,
-					 struct uasm_reloc **pr,
-					 const struct cache_desc *cache,
-					 unsigned op, int lbl)
-{
-	unsigned cache_size = cache->ways << cache->waybit;
-	unsigned i;
-	const unsigned unroll_lines = 32;
-
-	/* If the cache isn't present this function has it easy */
-	if (cache->flags & MIPS_CACHE_NOT_PRESENT)
-		return;
-
-	/* Load base address */
-	UASM_i_LA(pp, t0, (long)CKSEG0);
-
-	/* Calculate end address */
-	if (cache_size < 0x8000)
-		uasm_i_addiu(pp, t1, t0, cache_size);
-	else
-		UASM_i_LA(pp, t1, (long)(CKSEG0 + cache_size));
-
-	/* Start of cache op loop */
-	uasm_build_label(pl, *pp, lbl);
-
-	/* Generate the cache ops */
-	for (i = 0; i < unroll_lines; i++)
-		uasm_i_cache(pp, op, i * cache->linesz, t0);
-
-	/* Update the base address */
-	uasm_i_addiu(pp, t0, t0, unroll_lines * cache->linesz);
-
-	/* Loop if we haven't reached the end address yet */
-	uasm_il_bne(pp, pr, t0, t1, lbl);
-	uasm_i_nop(pp);
-}
-
-static void __init cps_gen_flush_fsb(u32 **pp, struct uasm_label **pl,
-				     struct uasm_reloc **pr,
-				     const struct cache_desc *dcache,
-				     int lbl)
-{
-	unsigned i, fsb_size = 8;
-	unsigned num_loads = (fsb_size * 3) / 2;
-	unsigned line_stride = 2;
-
-	/*
-	 * Ensure that the fill/store buffer (FSB) is not holding the results
-	 * of a prefetch, since if it is then the CPC sequencer may become
-	 * stuck in the D3 (ClrBus) state whilst entering a low power state.
-	 */
-
-	/* TODO: this is interAptiv-specific, generalise it */
-
-	/* Preserve perf counter 1 setup */
-	uasm_i_mfc0(pp, t2, 25, 2); /* PerfCtl1 */
-	uasm_i_mfc0(pp, t3, 25, 3); /* PerfCnt1 */
-
-	/* Setup perf counter 1 to count FSB full pipeline stalls */
-	uasm_i_addiu(pp, t0, zero, 0x66f);
-	uasm_i_mtc0(pp, t0, 25, 2); /* PerfCtl1 */
-	uasm_i_ehb(pp);
-	uasm_i_mtc0(pp, zero, 25, 3); /* PerfCnt1 */
-	uasm_i_ehb(pp);
-
-	/* Base address for loads */
-	UASM_i_LA(pp, t0, (long)CKSEG0);
-
-	/* Start of clear loop */
-	uasm_build_label(pl, *pp, lbl);
-
-	/* Perform some loads to fill the FSB */
-	for (i = 0; i < num_loads; i++)
-		uasm_i_lw(pp, zero, i * dcache->linesz * line_stride, t0);
-
-	/*
-	 * Invalidate the new D-cache entries so that the cache will need
-	 * refilling (via the FSB) if the loop is executed again.
-	 */
-	for (i = 0; i < num_loads; i++) {
-		uasm_i_cache(pp, Hit_Invalidate_D,
-			     i * dcache->linesz * line_stride, t0);
-		uasm_i_cache(pp, Hit_Writeback_Inv_SD,
-			     i * dcache->linesz * line_stride, t0);
-	}
-
-	/* Completion barrier */
-	uasm_i_sync(pp, stype_memory);
-	uasm_i_ehb(pp);
-
-	/* Check whether the pipeline stalled due to the FSB being full */
-	uasm_i_mfc0(pp, t1, 25, 3); /* PerfCnt1 */
-
-	/* Loop if it didn't */
-	uasm_il_beqz(pp, pr, t1, lbl);
-	uasm_i_nop(pp);
-
-	/* Restore perf counter 1. The count may well now be wrong... */
-	uasm_i_mtc0(pp, t2, 25, 2); /* PerfCtl1 */
-	uasm_i_ehb(pp);
-	uasm_i_mtc0(pp, t3, 25, 3); /* PerfCnt1 */
-	uasm_i_ehb(pp);
-}
-
-static void __init cps_gen_set_top_bit(u32 **pp, struct uasm_label **pl,
-				       struct uasm_reloc **pr,
-				       unsigned r_addr, int lbl)
-{
-	uasm_i_lui(pp, t0, uasm_rel_hi(0x80000000));
-	uasm_build_label(pl, *pp, lbl);
-	uasm_i_ll(pp, t1, 0, r_addr);
-	uasm_i_or(pp, t1, t1, t0);
-	uasm_i_sc(pp, t1, 0, r_addr);
-	uasm_il_beqz(pp, pr, t1, lbl);
-	uasm_i_nop(pp);
-}
-
-static void * __init cps_gen_entry_code(struct cpuidle_device *dev,
-					enum cps_idle_state state)
-{
-	struct uasm_label *l = labels;
-	struct uasm_reloc *r = relocs;
-	u32 *buf, *p;
-	const unsigned r_online = a0;
-	const unsigned r_nc_count = a1;
-	const unsigned r_pcohctl = t7;
-	const unsigned max_instrs = 256;
-	enum {
-		lbl_incready = 1,
-		lbl_poll_cont,
-		lbl_disable_coherence,
-		lbl_flush_fsb,
-		lbl_invicache,
-		lbl_flushdcache,
-		lbl_set_cont,
-		lbl_secondary_cont,
-		lbl_decready,
-		lbl_cleared_cont,
-	};
-
-	/* Allocate a buffer to hold the generated code */
-	p = buf = kcalloc(max_instrs, sizeof(u32), GFP_KERNEL);
-	if (!buf)
-		return NULL;
-
-	/* Clear labels & relocs ready for (re)use */
-	memset(labels, 0, sizeof(labels));
-	memset(relocs, 0, sizeof(relocs));
-
-	/*
-	 * Load addresses of required CM & CPC registers. This is done early
-	 * because they're needed in both the enable & disable coherence steps
-	 * but in the coupled case the enable step will only run on one VPE.
-	 */
-	UASM_i_LA(&p, r_pcohctl, (long)_gcmp_base + GCMPCLCBOFS(COHCTL));
-
-	if (coupled_coherence) {
-		/* Increment ready_count */
-		uasm_i_sync(&p, stype_ordering);
-		uasm_build_label(&l, p, lbl_incready);
-		uasm_i_ll(&p, t1, 0, r_nc_count);
-		uasm_i_addiu(&p, t2, t1, 1);
-		uasm_i_sc(&p, t2, 0, r_nc_count);
-		uasm_il_beqz(&p, &r, t2, lbl_incready);
-		uasm_i_addiu(&p, t1, t1, 1);
-
-		/* Ordering barrier */
-		uasm_i_sync(&p, stype_ordering);
-
-		/*
-		 * If this is the last VPE to become ready for non-coherence
-		 * then it should branch below.
-		 */
-		uasm_il_beq(&p, &r, t1, r_online, lbl_disable_coherence);
-		uasm_i_nop(&p);
-
-		/*
-		 * Otherwise this is not the last VPE to become ready for
-		 * non-coherence. It needs to wait until coherence has been
-		 * disabled before proceeding, which it will do by polling
-		 * for the top bit of ready_count being set.
-		 */
-		uasm_i_addiu(&p, t1, zero, -1);
-		uasm_build_label(&l, p, lbl_poll_cont);
-		uasm_i_lw(&p, t0, 0, r_nc_count);
-		uasm_il_bltz(&p, &r, t0, lbl_secondary_cont);
-		uasm_i_ehb(&p);
-		uasm_i_yield(&p, zero, t1);
-		uasm_il_b(&p, &r, lbl_poll_cont);
-		uasm_i_nop(&p);
-	}
-
-	/*
-	 * This is the point of no return - this VPE will now proceed to
-	 * disable coherence. At this point we *must* be sure that no other
-	 * VPE within the core will interfere with the L1 dcache.
-	 */
-	uasm_build_label(&l, p, lbl_disable_coherence);
-
-	/* Invalidate the L1 icache */
-	cps_gen_cache_routine(&p, &l, &r, &cpu_data[dev->cpu].icache,
-			      Index_Invalidate_I, lbl_invicache);
-
-	/* Writeback & invalidate the L1 dcache */
-	cps_gen_cache_routine(&p, &l, &r, &cpu_data[dev->cpu].dcache,
-			      Index_Writeback_Inv_D, lbl_flushdcache);
-
-	/* Completion barrier */
-	uasm_i_sync(&p, stype_memory);
-	uasm_i_ehb(&p);
-
-	/*
-	 * Disable all but self interventions. The load from COHCTL is defined
-	 * by the interAptiv & proAptiv SUMs as ensuring that the operation
-	 * resulting from the preceeding store is complete.
-	 */
-	uasm_i_addiu(&p, t0, zero, 1 << cpu_data[dev->cpu].core);
-	uasm_i_sw(&p, t0, 0, r_pcohctl);
-	uasm_i_lw(&p, t0, 0, r_pcohctl);
-
-	/* Sync to ensure previous interventions are complete */
-	uasm_i_sync(&p, stype_intervention);
-	uasm_i_ehb(&p);
-
-	/* Disable coherence */
-	uasm_i_sw(&p, zero, 0, r_pcohctl);
-	uasm_i_lw(&p, t0, 0, r_pcohctl);
-
-	if (state == STATE_CLOCK_GATED) {
-		/* TODO: determine whether required based on CPC version */
-		cps_gen_flush_fsb(&p, &l, &r, &cpu_data[dev->cpu].dcache,
-				  lbl_flush_fsb);
-
-		/* Issue the CPC clock-off command */
-		UASM_i_LA(&p, t0, (long)addr_cpc_cl_cmd());
-		uasm_i_addiu(&p, t1, zero, CPC_Cx_CMD_CLOCKOFF);
-		uasm_i_sw(&p, t1, 0, t0);
-
-		/* Completion barrier */
-		uasm_i_sync(&p, stype_memory);
-		uasm_i_ehb(&p);
-	}
-
-	if (state == STATE_NC_WAIT) {
-		/*
-		 * At this point it is safe for all VPEs to proceed with
-		 * execution. This VPE will set the top bit of ready_count
-		 * to indicate to the other VPEs that they may continue.
-		 */
-		if (coupled_coherence)
-			cps_gen_set_top_bit(&p, &l, &r, r_nc_count,
-					    lbl_set_cont);
-
-		/*
-		 * VPEs which did not disable coherence will continue
-		 * executing, after coherence has been disabled, from this
-		 * point.
-		 */
-		uasm_build_label(&l, p, lbl_secondary_cont);
-
-		/* Now perform our wait */
-		uasm_i_wait(&p, 0);
-	}
-
-	/*
-	 * Re-enable coherence. Note that for STATE_NC_WAIT all coupled VPEs
-	 * will run this. The first will actually re-enable coherence & the
-	 * rest will just be performing a rather unusual nop.
-	 */
-	uasm_i_addiu(&p, t0, zero, GCMP_CCB_COHCTL_DOMAIN_MSK);
-	uasm_i_sw(&p, t0, 0, r_pcohctl);
-	uasm_i_lw(&p, t0, 0, r_pcohctl);
-
-	/* Completion barrier */
-	uasm_i_sync(&p, stype_memory);
-	uasm_i_ehb(&p);
-
-	if (coupled_coherence && (state == STATE_NC_WAIT)) {
-		/* Decrement ready_count */
-		uasm_build_label(&l, p, lbl_decready);
-		uasm_i_sync(&p, stype_ordering);
-		uasm_i_ll(&p, t1, 0, r_nc_count);
-		uasm_i_addiu(&p, t2, t1, -1);
-		uasm_i_sc(&p, t2, 0, r_nc_count);
-		uasm_il_beqz(&p, &r, t2, lbl_decready);
-		uasm_i_andi(&p, v0, t1, (1 << fls(smp_num_siblings)) - 1);
-
-		/*
-		 * If this is the final VPE to leave the idle state then clear
-		 * the top bit of ready_count, since by definition we now know
-		 * that all VPEs have seen that it was safe to continue to the
-		 * idle state.
-		 */
-		uasm_il_bnez(&p, &r, v0, lbl_cleared_cont);
-		uasm_i_nop(&p);
-		uasm_i_sw(&p, v0, 0, r_nc_count);
-		uasm_build_label(&l, p, lbl_cleared_cont);
-
-		/* Ordering barrier */
-		uasm_i_sync(&p, stype_ordering);
-	}
-
-	if (coupled_coherence && (state == STATE_CLOCK_GATED)) {
-		/*
-		 * At this point it is safe for all VPEs to proceed with
-		 * execution. This VPE will set the top bit of ready_count
-		 * to indicate to the other VPEs that they may continue.
-		 */
-		cps_gen_set_top_bit(&p, &l, &r, r_nc_count, lbl_set_cont);
-
-		/*
-		 * This core will be reliant upon another core sending a
-		 * power-up command to the CPC in order to resume operation.
-		 * Thus an arbitrary VPE can't trigger the core leaving the
-		 * idle state and the one that disables coherence might as well
-		 * be the one to re-enable it. The rest can simply return after
-		 * that has been done.
-		 */
-		uasm_build_label(&l, p, lbl_secondary_cont);
-
-		/* Ordering barrier */
-		uasm_i_sync(&p, stype_ordering);
-	}
-
-	/* The core is coherent, time to return to C code */
-	uasm_i_jr(&p, ra);
-	uasm_i_nop(&p);
-
-	/* Ensure the code didn't exceed the resources allocated for it */
-	BUG_ON((p - buf) > max_instrs);
-	BUG_ON((l - labels) > ARRAY_SIZE(labels));
-	BUG_ON((r - relocs) > ARRAY_SIZE(relocs));
-
-	/* Patch branch offsets */
-	uasm_resolve_relocs(relocs, labels);
-
-	/* Flush the icache */
-	local_flush_icache_range((unsigned long)buf, (unsigned long)p);
-
-	return buf;
-}
-
 static void __init cps_cpuidle_unregister(void)
 {
-	int cpu, core;
+	int cpu;
 	struct cpuidle_device *device;
-	enum cps_idle_state state;
-	cps_nc_entry_fn *fn;
 
 	for_each_possible_cpu(cpu) {
-		core = cpu_data[cpu].core;
 		device = &per_cpu(cpuidle_dev, cpu);
 		cpuidle_unregister_device(device);
-
-		/* Free entry code */
-		for (state = STATE_NC_WAIT; state < STATE_COUNT; state++) {
-			fn = &per_cpu(nc_asm_enter, core)[state];
-			kfree(*fn);
-			*fn = NULL;
-		}
-
-		/* Free ready_count */
-		kfree(per_cpu(ready_count_alloc, core));
-		per_cpu(ready_count_alloc, core) = NULL;
-		per_cpu(ready_count, core) = NULL;
 	}
 
 	cpuidle_unregister_driver(&cps_driver);
-}
-
-static int __init cps_gen_core_entries(struct cpuidle_device *dev)
-{
-	enum cps_idle_state state;
-	unsigned core = cpu_data[dev->cpu].core;
-	unsigned dlinesz = cpu_data[dev->cpu].dcache.linesz;
-	void *entry_fn, *core_rc;
-
-	for (state = STATE_NC_WAIT; state < STATE_COUNT; state++) {
-		if (per_cpu(nc_asm_enter, core)[state])
-			continue;
-
-		entry_fn = cps_gen_entry_code(dev, state);
-		if (!entry_fn) {
-			pr_err("Failed to generate core %u state %u entry\n",
-			       core, state);
-			return -ENOMEM;
-		}
-
-		per_cpu(nc_asm_enter, core)[state] = entry_fn;
-	}
-
-	if (!per_cpu(ready_count, core)) {
-		core_rc = kmalloc(dlinesz * 2, GFP_KERNEL);
-		if (!core_rc) {
-			pr_err("Failed allocate core %u ready_count\n", core);
-			return -ENOMEM;
-		}
-		per_cpu(ready_count_alloc, core) = core_rc;
-
-		/* Ensure ready_count is aligned to a cacheline boundary */
-		core_rc += dlinesz - 1;
-		core_rc = (void *)((unsigned long)core_rc & ~(dlinesz - 1));
-		per_cpu(ready_count, core) = core_rc;
-
-		/* Zero-initialize ready_count */
-		*per_cpu(ready_count, core) = 0;
-	}
-
-	return 0;
 }
 
 static int __init cps_cpuidle_init(void)
@@ -606,40 +104,24 @@ static int __init cps_cpuidle_init(void)
 	int err, cpu, core, i;
 	struct cpuidle_device *device;
 
-	/*
-	 * If interrupts were enabled whilst running the wait instruction then
-	 * the VPE may end up processing interrupts whilst non-coherent.
-	 */
-	if (cpu_wait != r4k_wait_irqoff) {
-		pr_warn("cpuidle-cps requires that masked interrupts restart the CPU pipeline following a wait\n");
-		return -ENODEV;
-	}
-
-	/* Detect whether a CM is present */
-	if (!gcmp_present) {
-		pr_warn("cpuidle-cps unusable without a CM\n");
-		return -ENODEV;
-	}
-
-	/* Detect whether a CPC with clock gating implemented is present */
-	if (!mips_cpc_present() ||
-	    !(read_cpc_cl_stat_conf() & CPC_Cx_STAT_CONF_CLKGAT_IMPL_MSK)) {
-		pr_warn("cpuidle-cps CPC clock gating not implemented\n");
+	/* Detect supported states */
+	if (!cps_pm_support_state(CPS_PM_CLOCK_GATED))
 		cps_driver.state_count = STATE_NC_WAIT + 1;
-	}
 
-	/* Detect appropriate sync types for the system */
-	switch (current_cpu_data.cputype) {
-	case CPU_INTERAPTIV:
-	case CPU_PROAPTIV:
-	case CPU_P5600:
-		stype_intervention = 0x2;
-		stype_memory = 0x3;
-		stype_ordering = 0x10;
-		break;
+	if (!cps_pm_support_state(CPS_PM_NC_WAIT))
+		cps_driver.state_count = STATE_WAIT + 1;
 
-	default:
-		pr_warn("cpuidle-cps using heavyweight sync 0\n");
+	/* Inform the user if some states are unavailable */
+	if (cps_driver.state_count < STATE_COUNT) {
+		pr_info("cpuidle-cps: limited to ");
+		switch (cps_driver.state_count - 1) {
+		case STATE_WAIT:
+			pr_cont("coherent wait\n");
+			break;
+		case STATE_NC_WAIT:
+			pr_cont("non-coherent wait\n");
+			break;
+		}
 	}
 
 	/*
@@ -664,10 +146,6 @@ static int __init cps_cpuidle_init(void)
 		cpumask_copy(&device->coupled_cpus,
 			     &per_cpu(cpu_sibling_map, cpu));
 #endif
-
-		err = cps_gen_core_entries(device);
-		if (err)
-			goto err_out;
 
 		err = cpuidle_register_device(device);
 		if (err) {
