@@ -80,7 +80,7 @@ static int cps_ncwait_enter(struct cpuidle_device *dev,
 			    struct cpuidle_driver *drv, int index)
 {
 	unsigned core = cpu_data[dev->cpu].core;
-	unsigned online, first_cpu, num_left;
+	unsigned online, num_left;
 	cpumask_var_t coupled_mask, vpe_mask;
 
 	if (!alloc_cpumask_var(&coupled_mask, GFP_KERNEL))
@@ -94,7 +94,6 @@ static int cps_ncwait_enter(struct cpuidle_device *dev,
 	/* Calculate which coupled CPUs (VPEs) are online */
 #ifdef CONFIG_MIPS_MT
 	cpumask_and(coupled_mask, cpu_online_mask, &dev->coupled_cpus);
-	first_cpu = cpumask_first(coupled_mask);
 	online = cpumask_weight(coupled_mask);
 	cpumask_clear_cpu(dev->cpu, coupled_mask);
 	cpumask_shift_right(vpe_mask, coupled_mask,
@@ -102,7 +101,6 @@ static int cps_ncwait_enter(struct cpuidle_device *dev,
 #else
 	cpumask_clear(coupled_mask);
 	cpumask_clear(vpe_mask);
-	first_cpu = dev->cpu;
 	online = 1;
 #endif
 
