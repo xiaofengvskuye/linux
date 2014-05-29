@@ -114,11 +114,11 @@ static void __init kmap_coherent_init(void)
 static inline void kmap_coherent_init(void) {}
 #endif
 
-void *kmap_coherent(struct page *page, unsigned long addr)
+static void *__kmap_pgprot(struct page *page, unsigned long addr, pgprot_t prot)
 {
 #ifdef CONFIG_EVA
 	dump_stack();
-	panic("kmap_coherent");
+	panic("__kmap_pgprot");
 #else
 
 	enum fixed_addresses idx;
@@ -137,7 +137,7 @@ void *kmap_coherent(struct page *page, unsigned long addr)
 	idx += in_interrupt() ? FIX_N_COLOURS : 0;
 #endif
 	vaddr = __fix_to_virt(FIX_CMAP_END - idx);
-	pte = mk_pte(page, PAGE_KERNEL);
+	pte = mk_pte(page, prot);
 #if defined(CONFIG_64BIT_PHYS_ADDR) && defined(CONFIG_CPU_MIPS32)
 	entrylo = pte.pte_high;
 #else
@@ -174,6 +174,16 @@ void *kmap_coherent(struct page *page, unsigned long addr)
 
 	return (void*) vaddr;
 #endif /* CONFIG_EVA */
+}
+
+void *kmap_coherent(struct page *page, unsigned long addr)
+{
+	return __kmap_pgprot(page, addr, PAGE_KERNEL);
+}
+
+void *kmap_noncoherent(struct page *page, unsigned long addr)
+{
+	return __kmap_pgprot(page, addr, PAGE_KERNEL_NC);
 }
 
 #define UNIQUE_ENTRYHI(idx) (cpu_has_tlbinv ? ((CKSEG0 + ((idx) << (PAGE_SHIFT + 1))) | MIPS_EHINV) : \
