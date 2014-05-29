@@ -103,6 +103,8 @@ obj-$(CONFIG_MIPS_CPC)		+= mips-cpc.o
 
 obj-$(CONFIG_MIPS_CPUIDLE_CPS)	+= cpuidle-cps.o
 
+obj-$(CONFIG_CPU_PM)		+= pm.o
+
 #
 # DSP ASE supported for MIPS32 or MIPS64 Release 2 cores only.
 #
