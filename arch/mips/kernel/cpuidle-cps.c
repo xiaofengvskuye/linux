@@ -66,6 +66,9 @@ static unsigned stype_intervention;
 static unsigned stype_memory;
 static unsigned stype_ordering;
 
+/* CM presence declared elsewhere */
+extern int gcmp_present;
+
 enum mips_reg {
 	zero, at, v0, v1, a0, a1, a2, a3,
 	t0, t1, t2, t3, t4, t5, t6, t7,
@@ -481,6 +484,12 @@ static int __init cps_cpuidle_init(void)
 	 */
 	if (cpu_wait != r4k_wait_irqoff) {
 		pr_warn("cpuidle-cps requires that masked interrupts restart the CPU pipeline following a wait\n");
+		return -ENODEV;
+	}
+
+	/* Detect whether a CM is present */
+	if (!gcmp_present) {
+		pr_warn("cpuidle-cps unusable without a CM\n");
 		return -ENODEV;
 	}
 
