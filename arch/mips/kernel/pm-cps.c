@@ -131,14 +131,17 @@ int cps_pm_enter_state(enum cps_pm_state state)
 
 	/* Calculate which coupled CPUs (VPEs) are online */
 #ifdef CONFIG_MIPS_MT
-	cpumask_and(coupled_mask, cpu_online_mask,
-		    this_cpu_ptr(&cpu_sibling_map));
-	online = cpumask_weight(coupled_mask);
-	cpumask_clear_cpu(cpu, coupled_mask);
-#else
-	cpumask_clear(coupled_mask);
-	online = 1;
+	if (cpu_online(cpu)) {
+		cpumask_and(coupled_mask, cpu_online_mask,
+			    this_cpu_ptr(&cpu_sibling_map));
+		online = cpumask_weight(coupled_mask);
+		cpumask_clear_cpu(cpu, coupled_mask);
+	} else
 #endif
+	{
+		cpumask_clear(coupled_mask);
+		online = 1;
+	}
 
 	/* Indicate that this CPU might not be coherent */
 	cpumask_clear_cpu(cpu, &cpu_coherent_mask);
