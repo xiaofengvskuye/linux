@@ -14,13 +14,14 @@
 #include <linux/smp.h>
 #include <linux/types.h>
 
-#include <asm/cacheflush.h>
+#include <asm/bcache.h>
 #include <asm/gcmpregs.h>
 #include <asm/gic.h>
 #include <asm/mips-cpc.h>
 #include <asm/mips_mt.h>
 #include <asm/mipsregs.h>
 #include <asm/pm-cps.h>
+#include <asm/r4kcache.h>
 #include <asm/smp-cps.h>
 #include <asm/time.h>
 #include <asm/tlbflush.h>
@@ -47,7 +48,6 @@ static unsigned core_vpe_count(unsigned core)
 static void __init cps_smp_setup(void)
 {
 	unsigned ncores, nvpes, core_vpes, c, v;
-	u32 *entry_code;
 
 	/* Detect the number of cores */
 	ncores = ((GCMPGCB(GC) & GCMP_GCB_GC_NUMCORES_MSK) >>
@@ -88,10 +88,6 @@ static void __init cps_smp_setup(void)
 	/* Initialise core 0 */
 	mips_cps_core_init();
 
-	/* Patch the start of mips_cps_core_entry to provide the CM base */
-	entry_code = (u32 *)&mips_cps_core_entry;
-	UASM_i_LA(&entry_code, 3, (long)_gcmp_base);
-
 	/* Make core 0 coherent with everything */
 	GCMPCLCB(COHCTL) = 0xff;
 }
@@ -99,8 +95,18 @@ static void __init cps_smp_setup(void)
 static void __init cps_prepare_cpus(unsigned int max_cpus)
 {
 	unsigned ncores, core_vpes, c;
+	u32 *entry_code;
 
 	mips_mt_set_cpuoptions();
+
+	/* Patch the start of mips_cps_core_entry to provide the CM base */
+	entry_code = (u32 *)&mips_cps_core_entry;
+	UASM_i_LA(&entry_code, 3, (long)_gcmp_base);
+	blast_dcache_range((unsigned long)&mips_cps_core_entry,
+			   (unsigned long)entry_code);
+	bc_wback_inv((unsigned long)&mips_cps_core_entry,
+		     (void *)entry_code - (void *)&mips_cps_core_entry);
+	__sync();
 
 	/* Detect the number of cores */
 	ncores = ((GCMPGCB(GC) & GCMP_GCB_GC_NUMCORES_MSK) >>
