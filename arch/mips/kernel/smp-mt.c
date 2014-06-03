@@ -119,10 +119,12 @@ static void vsmp_send_ipi_single(int cpu, unsigned int action)
 	unsigned long flags;
 	int vpflags;
 
+#ifdef CONFIG_MIPS_GIC_IPI
 	if (gic_present) {
 		gic_send_ipi_single(cpu, action);
 		return;
 	}
+#endif
 	local_irq_save(flags);
 
 	vpflags = dvpe();	/* can't access the other CPU's registers whilst MVPE enabled */
