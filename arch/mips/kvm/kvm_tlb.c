@@ -36,7 +36,8 @@
 #define PRIx64 "llx"
 
 /* Use VZ EntryHi.EHINV to invalidate TLB entries */
-#define UNIQUE_ENTRYHI(idx) (CKSEG0 + ((idx) << (PAGE_SHIFT + 1)))
+#define UNIQUE_ENTRYHI(idx) (cpu_has_tlbinv ? ((CKSEG0 + ((idx) << (PAGE_SHIFT + 1))) | MIPS_EHINV) : \
+			     (CKSEG0 + ((idx) << (PAGE_SHIFT + 1))))
 
 atomic_t kvm_mips_instance;
 EXPORT_SYMBOL(kvm_mips_instance);
