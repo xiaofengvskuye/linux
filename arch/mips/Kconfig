@@ -2111,6 +2111,7 @@ config MIPS_CPUIDLE_CPS
 	select MIPS_CPS_PM
 
 config MIPS_CPS_PM
+	select MIPS_CPC
 	bool
 
 config SB1_PASS_1_WORKAROUNDS
