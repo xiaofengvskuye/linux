@@ -85,6 +85,11 @@ struct cpuinfo_mips {
 	unsigned int            segctl0; /* Memory Segmentation Control 0 */
 	unsigned int            segctl1; /* Memory Segmentation Control 1 */
 	unsigned int            segctl2; /* Memory Segmentation Control 2 */
+	/*
+	 * Cache Coherency attribute for write-combine memory writes.
+	 * (shifted by _CACHE_SHIFT)
+	 */
+	unsigned int		writecombine;
 } __attribute__((aligned(SMP_CACHE_BYTES)));
 
 extern struct cpuinfo_mips cpu_data[];
