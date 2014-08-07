@@ -150,6 +150,14 @@ L:	linux-scsi@vger.kernel.org
 S:	Maintained
 F:	drivers/scsi/53c700*
 
+6LOWPAN GENERIC (BTLE/IEEE 802.15.4)
+M:	Alexander Aring <alex.aring@gmail.com>
+L:	linux-zigbee-devel@lists.sourceforge.net (moderated for non-subscribers)
+L:	linux-bluetooth@vger.kernel.org
+S:	Maintained
+F:	net/6lowpan/
+F:	include/net/6lowpan.h
+
 6PACK NETWORK DRIVER FOR AX.25
 M:	Andreas Koensgen <ajk@comnets.uni-bremen.de>
 L:	linux-hams@vger.kernel.org
@@ -515,6 +523,16 @@ L:	linux-aio@kvack.org
 S:	Supported
 F:	fs/aio.c
 F:	include/linux/*aio*.h
+
+AIRSPY MEDIA DRIVER
+M:	Antti Palosaari <crope@iki.fi>
+L:	linux-media@vger.kernel.org
+W:	http://linuxtv.org/
+W:	http://palosaari.fi/linux/
+Q:	http://patchwork.linuxtv.org/project/linux-media/list/
+T:	git git://linuxtv.org/anttip/media_tree.git
+S:	Maintained
+F:	drivers/media/usb/airspy/
 
 ALCATEL SPEEDTOUCH USB DRIVER
 M:	Duncan Sands <duncan.sands@free.fr>
@@ -1921,6 +1939,13 @@ S:	Supported
 F:	drivers/net/bonding/
 F:	include/uapi/linux/if_bonding.h
 
+BPF (Safe dynamic programs and tools)
+M:	Alexei Starovoitov <ast@kernel.org>
+L:	netdev@vger.kernel.org
+L:	linux-kernel@vger.kernel.org
+S:	Supported
+F:	kernel/bpf/
+
 BROADCOM B44 10/100 ETHERNET DRIVER
 M:	Gary Zambrano <zambrano@broadcom.com>
 L:	netdev@vger.kernel.org
@@ -1934,7 +1959,8 @@ S:	Supported
 F:	drivers/net/ethernet/broadcom/genet/
 
 BROADCOM BNX2 GIGABIT ETHERNET DRIVER
-M:	Michael Chan <mchan@broadcom.com>
+M:	Sony Chacko <sony.chacko@qlogic.com>
+M:	Dept-HSGLinuxNICDev@qlogic.com
 L:	netdev@vger.kernel.org
 S:	Supported
 F:	drivers/net/ethernet/broadcom/bnx2.*
@@ -1979,7 +2005,7 @@ F:	arch/arm/boot/dts/bcm5301x.dtsi
 F:	arch/arm/boot/dts/bcm470*
 
 BROADCOM TG3 GIGABIT ETHERNET DRIVER
-M:	Nithin Nayak Sujir <nsujir@broadcom.com>
+M:	Prashant Sreedharan <prashant@broadcom.com>
 M:	Michael Chan <mchan@broadcom.com>
 L:	netdev@vger.kernel.org
 S:	Supported
@@ -1996,13 +2022,13 @@ S:	Supported
 F:	drivers/net/wireless/brcm80211/
 
 BROADCOM BNX2FC 10 GIGABIT FCOE DRIVER
-M:	Eddie Wai <eddie.wai@broadcom.com>
+M:	QLogic-Storage-Upstream@qlogic.com
 L:	linux-scsi@vger.kernel.org
 S:	Supported
 F:	drivers/scsi/bnx2fc/
 
 BROADCOM BNX2I 1/10 GIGABIT iSCSI DRIVER
-M:	Eddie Wai <eddie.wai@broadcom.com>
+M:	QLogic-Storage-Upstream@qlogic.com
 L:	linux-scsi@vger.kernel.org
 S:	Supported
 F:	drivers/scsi/bnx2i/
@@ -2530,8 +2556,8 @@ F:	arch/x86/kernel/cpuid.c
 F:	arch/x86/kernel/msr.c
 
 CPU POWER MONITORING SUBSYSTEM
-M:	Dominik Brodowski <linux@dominikbrodowski.net>
 M:	Thomas Renninger <trenn@suse.de>
+L:	linux-pm@vger.kernel.org
 S:	Maintained
 F:	tools/power/cpupower/
 
@@ -3993,6 +4019,12 @@ F:	Documentation/isdn/README.gigaset
 F:	drivers/isdn/gigaset/
 F:	include/uapi/linux/gigaset_dev.h
 
+GO7007 MPEG CODEC
+M:	Hans Verkuil <hans.verkuil@cisco.com>
+L:	linux-media@vger.kernel.org
+S:	Maintained
+F:	drivers/media/usb/go7007/
+
 GPIO SUBSYSTEM
 M:	Linus Walleij <linus.walleij@linaro.org>
 M:	Alexandre Courbot <gnurou@gmail.com>
@@ -4221,7 +4253,7 @@ L:	linux-kernel@vger.kernel.org
 T:	git git://git.kernel.org/pub/scm/linux/kernel/git/tip/tip.git timers/core
 S:	Maintained
 F:	Documentation/timers/
-F:	kernel/hrtimer.c
+F:	kernel/time/hrtimer.c
 F:	kernel/time/clockevents.c
 F:	kernel/time/tick*.*
 F:	kernel/time/timer_*.c
@@ -5665,16 +5697,6 @@ F:	Documentation/networking/mac80211-injection.txt
 F:	include/net/mac80211.h
 F:	net/mac80211/
 
-MAC80211 PID RATE CONTROL
-M:	Stefano Brivio <stefano.brivio@polimi.it>
-M:	Mattias Nissler <mattias.nissler@gmx.de>
-L:	linux-wireless@vger.kernel.org
-W:	http://wireless.kernel.org/en/developers/Documentation/mac80211/RateControl/PID
-T:	git git://git.kernel.org/pub/scm/linux/kernel/git/jberg/mac80211.git
-T:	git git://git.kernel.org/pub/scm/linux/kernel/git/jberg/mac80211-next.git
-S:	Maintained
-F:	net/mac80211/rc80211_pid*
-
 MACVLAN DRIVER
 M:	Patrick McHardy <kaber@trash.net>
 L:	netdev@vger.kernel.org
@@ -5719,7 +5741,8 @@ S:	Maintained
 F:	drivers/net/ethernet/marvell/mvneta.*
 
 MARVELL MWIFIEX WIRELESS DRIVER
-M:	Bing Zhao <bzhao@marvell.com>
+M:	Amitkumar Karwar <akarwar@marvell.com>
+M:	Avinash Patil <patila@marvell.com>
 L:	linux-wireless@vger.kernel.org
 S:	Maintained
 F:	drivers/net/wireless/mwifiex/
@@ -5965,9 +5988,9 @@ W:	http://palosaari.fi/linux/
 Q:	http://patchwork.linuxtv.org/project/linux-media/list/
 T:	git git://linuxtv.org/anttip/media_tree.git
 S:	Maintained
-F:	drivers/staging/media/msi3101/msi001*
+F:	drivers/media/tuners/msi001*
 
-MSI3101 MEDIA DRIVER
+MSI2500 MEDIA DRIVER
 M:	Antti Palosaari <crope@iki.fi>
 L:	linux-media@vger.kernel.org
 W:	http://linuxtv.org/
@@ -5975,7 +5998,7 @@ W:	http://palosaari.fi/linux/
 Q:	http://patchwork.linuxtv.org/project/linux-media/list/
 T:	git git://linuxtv.org/anttip/media_tree.git
 S:	Maintained
-F:	drivers/staging/media/msi3101/sdr-msi3101*
+F:	drivers/media/usb/msi2500/
 
 MT9M032 APTINA SENSOR DRIVER
 M:	Laurent Pinchart <laurent.pinchart@ideasonboard.com>
@@ -6499,11 +6522,12 @@ L:	linux-omap@vger.kernel.org
 S:	Maintained
 F:	arch/arm/mach-omap2/omap_hwmod_44xx_data.c
 
-OMAP IMAGE SIGNAL PROCESSOR (ISP)
+OMAP IMAGING SUBSYSTEM (OMAP3 ISP and OMAP4 ISS)
 M:	Laurent Pinchart <laurent.pinchart@ideasonboard.com>
 L:	linux-media@vger.kernel.org
 S:	Maintained
 F:	drivers/media/platform/omap3isp/
+F:	drivers/staging/media/omap4iss/
 
 OMAP USB SUPPORT
 M:	Felipe Balbi <balbi@ti.com>
@@ -7036,14 +7060,16 @@ POSIX CLOCKS and TIMERS
 M:	Thomas Gleixner <tglx@linutronix.de>
 L:	linux-kernel@vger.kernel.org
 T:	git git://git.kernel.org/pub/scm/linux/kernel/git/tip/tip.git timers/core
-S:	Supported
+S:	Maintained
 F:	fs/timerfd.c
 F:	include/linux/timer*
-F:	kernel/*timer*
+F:	kernel/time/*timer*
 
 POWER SUPPLY CLASS/SUBSYSTEM and DRIVERS
+M:	Sebastian Reichel <sre@kernel.org>
 M:	Dmitry Eremin-Solenikov <dbaryshkov@gmail.com>
 M:	David Woodhouse <dwmw2@infradead.org>
+L:	linux-pm@vger.kernel.org
 T:	git git://git.infradead.org/battery-2.6.git
 S:	Maintained
 F:	include/linux/power_supply.h
@@ -7502,6 +7528,13 @@ F:	drivers/rtc/
 F:	include/linux/rtc.h
 F:	include/uapi/linux/rtc.h
 
+REALTEK AUDIO CODECS
+M:	Bard Liao <bardliao@realtek.com>
+M:	Oder Chiou <oder_chiou@realtek.com>
+S:	Maintained
+F:	sound/soc/codecs/rt*
+F:	include/sound/rt*.h
+
 REISERFS FILE SYSTEM
 L:	reiserfs-devel@vger.kernel.org
 S:	Supported
@@ -7611,7 +7644,7 @@ W:	http://palosaari.fi/linux/
 Q:	http://patchwork.linuxtv.org/project/linux-media/list/
 T:	git git://linuxtv.org/anttip/media_tree.git
 S:	Maintained
-F:	drivers/staging/media/rtl2832u_sdr/rtl2832_sdr*
+F:	drivers/media/dvb-frontends/rtl2832_sdr*
 
 RTL8180 WIRELESS DRIVER
 M:	"John W. Linville" <linville@tuxdriver.com>
@@ -7984,6 +8017,16 @@ T:	git git://git.kernel.org/pub/scm/linux/kernel/git/cjb/mmc.git
 S:	Maintained
 F:	drivers/mmc/host/sdhci.*
 F:	drivers/mmc/host/sdhci-pltfm.[ch]
+
+SECURE COMPUTING
+M:	Kees Cook <keescook@chromium.org>
+T:	git git://git.kernel.org/pub/scm/linux/kernel/git/kees/linux.git seccomp
+S:	Supported
+F:	kernel/seccomp.c
+F:	include/uapi/linux/seccomp.h
+F:	include/linux/seccomp.h
+K:	\bsecure_computing
+K:	\bTIF_SECCOMP\b
 
 SECURE DIGITAL HOST CONTROLLER INTERFACE, OPEN FIRMWARE BINDINGS (SDHCI-OF)
 M:	Anton Vorontsov <anton@enomsg.org>
@@ -8380,6 +8423,12 @@ M:	Chris Boot <bootc@bootc.net>
 S:	Maintained
 F:	drivers/leds/leds-net48xx.c
 
+SOFTLOGIC 6x10 MPEG CODEC
+M:	Ismael Luceno <ismael.luceno@corp.bluecherry.net>
+L:	linux-media@vger.kernel.org
+S:	Supported
+F:	drivers/media/pci/solo6x10/
+
 SOFTWARE RAID (Multiple Disks) SUPPORT
 M:	Neil Brown <neilb@suse.de>
 L:	linux-raid@vger.kernel.org
@@ -8586,11 +8635,6 @@ M:	Marek Belisko <marek.belisko@gmail.com>
 S:	Odd Fixes
 F:	drivers/staging/ft1000/
 
-STAGING - GO7007 MPEG CODEC
-M:	Hans Verkuil <hans.verkuil@cisco.com>
-S:	Maintained
-F:	drivers/staging/media/go7007/
-
 STAGING - INDUSTRIAL IO
 M:	Jonathan Cameron <jic23@kernel.org>
 L:	linux-iio@vger.kernel.org
@@ -8647,11 +8691,6 @@ M:	Lior Dotan <liodot@gmail.com>
 M:	Christopher Harrer <charrer@alacritech.com>
 S:	Odd Fixes
 F:	drivers/staging/slicoss/
-
-STAGING - SOFTLOGIC 6x10 MPEG CODEC
-M:	Ismael Luceno <ismael.luceno@corp.bluecherry.net>
-S:	Supported
-F:	drivers/staging/media/solo6x10/
 
 STAGING - SPEAKUP CONSOLE SPEECH DRIVER
 M:	William Hubbs <w.d.hubbs@gmail.com>
@@ -9518,15 +9557,6 @@ M:	Steve Glendinning <steve.glendinning@shawell.net>
 L:	netdev@vger.kernel.org
 S:	Maintained
 F:	drivers/net/usb/smsc95xx.*
-
-USB SN9C1xx DRIVER
-M:	Luca Risolia <luca.risolia@studio.unibo.it>
-L:	linux-usb@vger.kernel.org
-L:	linux-media@vger.kernel.org
-T:	git git://linuxtv.org/media_tree.git
-W:	http://www.linux-projects.org
-S:	Maintained
-F:	drivers/staging/media/sn9c102/
 
 USB SUBSYSTEM
 M:	Greg Kroah-Hartman <gregkh@linuxfoundation.org>
