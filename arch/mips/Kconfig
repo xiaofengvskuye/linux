@@ -2058,6 +2058,7 @@ config MIPS_CPS
 	  support is unavailable.
 
 config MIPS_CPS_PM
+	depends on MIPS_CPS
 	bool
 
 config MIPS_GIC_IPI
