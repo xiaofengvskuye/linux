@@ -560,6 +560,8 @@ core-$(CONFIG_SIBYTE_SWARM)	+= arch/mips/sibyte/swarm/
 load-$(CONFIG_SIBYTE_SWARM)	:= 0xffffffff80100000
 core-$(CONFIG_SIBYTE_BIGSUR)	+= arch/mips/sibyte/swarm/
 load-$(CONFIG_SIBYTE_BIGSUR)	:= 0xffffffff80100000
+core-$(CONFIG_SIBYTE_LITTLESUR)	+= arch/mips/sibyte/swarm/
+load-$(CONFIG_SIBYTE_LITTLESUR)	:= 0xffffffff80100000
 
 #
 # Broadcom BCM47XX boards
