@@ -786,33 +786,39 @@ static inline void rm7k_erratum31(void)
 	}
 }
 
-static inline void alias_74k_erratum(struct cpuinfo_mips *c)
+static inline int alias_74k_erratum(struct cpuinfo_mips *c)
 {
 	unsigned int imp = c->processor_id & PRID_IMP_MASK;
 	unsigned int rev = c->processor_id & PRID_REV_MASK;
+	int present = 0;
 
 	/*
 	 * Early versions of the 74K do not update the cache tags on a
 	 * vtag miss/ptag hit which can occur in the case of KSEG0/KUSEG
-	 * aliases. In this case it is better to treat the cache as always
-	 * having aliases.
+	 * aliases.  In this case it is better to treat the cache as always
+	 * having aliases.  Also disable the synonym tag update feature
+	 * where available.  In this case no opportunistic tag update will
+	 * happen where a load causes a virtual address miss but a physical
+	 * address hit during a D-cache look-up.
 	 */
 	switch (imp) {
 	case PRID_IMP_74K:
 		if (rev <= PRID_REV_ENCODE_332(2, 4, 0))
-			c->dcache.flags |= MIPS_CACHE_VTAG;
+			present = 1;
 		if (rev == PRID_REV_ENCODE_332(2, 4, 0))
 			write_c0_config6(read_c0_config6() | MIPS_CONF6_SYND);
 		break;
 	case PRID_IMP_1074K:
 		if (rev <= PRID_REV_ENCODE_332(1, 1, 0)) {
-			c->dcache.flags |= MIPS_CACHE_VTAG;
+			present = 1;
 			write_c0_config6(read_c0_config6() | MIPS_CONF6_SYND);
 		}
 		break;
 	default:
 		BUG();
 	}
+
+	return present;
 }
 
 static char *way_string[] = { NULL, "direct mapped", "2-way",
@@ -824,6 +830,7 @@ static void probe_pcache(void)
 	struct cpuinfo_mips *c = &current_cpu_data;
 	unsigned int config = read_c0_config();
 	unsigned int prid = read_c0_prid();
+	int has_74k_erratum = 0;
 	unsigned long config1;
 	unsigned int lsize;
 
@@ -1078,11 +1085,13 @@ static void probe_pcache(void)
 	case CPU_R14000:
 		break;
 
+	case CPU_74K:
+		has_74k_erratum = alias_74k_erratum(c);
+		/* Fall through. */
 	case CPU_M14KC:
 	case CPU_M14KEC:
 	case CPU_24K:
 	case CPU_34K:
-	case CPU_74K:
 	case CPU_1004K:
 		if (current_cpu_type() == CPU_74K)
 			alias_74k_erratum(c);
@@ -1093,7 +1102,7 @@ static void probe_pcache(void)
 			break;
 		}
 	default:
-		if (c->dcache.waysize > PAGE_SIZE)
+		if (has_74k_erratum || c->dcache.waysize > PAGE_SIZE)
 			c->dcache.flags |= MIPS_CACHE_ALIASES;
 	}
 
