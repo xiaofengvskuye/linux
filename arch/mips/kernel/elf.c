@@ -68,6 +68,15 @@ int arch_check_elf(void *_ehdr, bool has_interpreter,
 	struct elf32_hdr *ehdr = _ehdr;
 	unsigned fp_abi, interp_fp_abi, abi0, abi1;
 
+	if (!config_enabled(CONFIG_MIPS_O32_FP64_SUPPORT)) {
+		/*
+		 * Temporarily bypass this logic when the o32 FP64 support is
+		 * not enabled, until all compatibility issues are resolved.
+		 */
+		state->overall_abi = MIPS_ABI_FP_DOUBLE;
+		return 0;
+	}
+
 	/* Ignore non-O32 binaries */
 	if (config_enabled(CONFIG_64BIT) &&
 	    (ehdr->e_ident[EI_CLASS] != ELFCLASS32))
