@@ -799,6 +799,8 @@ asmlinkage void syscall_trace_enter(struct pt_regs *regs)
 	long ret = 0;
 	user_exit();
 
+	current_thread_info()->syscall = syscall;
+
 	/* do the secure computing check first */
 	secure_computing_strict(regs->regs[2]);
 
