@@ -229,7 +229,7 @@ endif
 #
 # Board-dependent options and extra files
 #
-include $(srctree)/arch/mips/Kbuild.platforms
+include arch/mips/Kbuild.platforms
 
 ifdef CONFIG_PHYSICAL_START
 load-y					= $(CONFIG_PHYSICAL_START)
