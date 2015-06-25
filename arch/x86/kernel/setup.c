@@ -836,7 +836,7 @@ dump_kernel_offset(struct notifier_block *self, unsigned long v, void *p)
 {
 	if (kaslr_enabled()) {
 		pr_emerg("Kernel Offset: 0x%lx from 0x%lx (relocation range: 0x%lx-0x%lx)\n",
-			 (unsigned long)&_text - __START_KERNEL,
+			 kaslr_offset(),
 			 __START_KERNEL,
 			 __START_KERNEL_map,
 			 MODULES_VADDR-1);
@@ -1104,6 +1104,9 @@ void __init setup_arch(char **cmdline_p)
 
 	memblock_set_current_limit(ISA_END_ADDRESS);
 	memblock_x86_fill();
+
+	if (efi_enabled(EFI_BOOT))
+		efi_find_mirror();
 
 	/*
 	 * The EFI specification says that boot service code won't be called
