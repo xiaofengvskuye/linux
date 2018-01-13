@@ -118,6 +118,9 @@ static enum drm_mode_status sun4i_rgb_mode_valid(struct drm_encoder *crtc,
 	if (!rgb->bridge)
 		goto out;
 
+	if(connector->connector_type == DRM_MODE_CONNECTOR_Unknown)
+		goto out;
+
 	tcon->dclk_min_div = 6;
 	tcon->dclk_max_div = 127;
 	rounded_rate = clk_round_rate(tcon->dclk, rate);
