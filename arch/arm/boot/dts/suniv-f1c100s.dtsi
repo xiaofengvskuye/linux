@@ -160,6 +160,11 @@
 			#interrupt-cells = <3>;
 			#gpio-cells = <3>;
 
+			spi0_pins_a: spi0-pins-pc {
+				pins = "PC0", "PC1", "PC2", "PC3";
+				function = "spi0";
+			};
+
 			uart0_pe_pins: uart0-pe-pins {
 				pins = "PE0", "PE1";
 				function = "uart0";
