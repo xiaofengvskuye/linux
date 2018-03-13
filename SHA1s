@@ -1,0 +1,33 @@
+v4.14.26 9d760dedb949debdbc7c810196932da570e83139
+  remotes/origin/hhunt/eng/4.14/ci20-ethernet            8bf38c81feb4 MIPS: Ci20: Add support for rootfs on NFS to defconfig
+  remotes/origin/jhogan/eng/4.14/kvm/guest               031176445cbc MIPS: Fix uImage targets condition
+  remotes/origin/jhogan/eng/4.14/kvm/micromips           47360e6b2b6f KVM: MIPS: Cope better on microMIPS kernels
+  remotes/origin/jhogan/eng/4.14/kvm/sign_extend         d10c589b1ae7 KVM: MIPS: Sign extend KVM_GET_REGS fields
+  remotes/origin/jhogan/eng/4.14/kvm/vz                  81633cde40fe KVM: MIPS/VZ: Emulate GINVI instruction
+  remotes/origin/jhogan/eng/4.14/mips/generic/ni169445   f67ef8d58ddd MIPS: generic: Fix NI 169445 its build
+  remotes/origin/jhogan/eng/4.14/mips/parse_reg          9bb47412e218 MIPS: MSA: Update helpers to use new asm macros
+  remotes/origin/jhogan/eng/4.14/mips/split64            2becc7c28c76 MIPS: Fix input modify in __write_64bit_c0_split()
+  remotes/origin/jhogan/eng/4.14/pch_gbe                 02991f39fdfb pch_gbe: Fix transmit hangs when tx_ring is busy
+  remotes/origin/mnowakowski/eng/4.14/crc                0489ec1ca743 MIPS: crypto: Add crc32 and crc32c hw accelerated module
+  remotes/origin/mnowakowski/eng/4.14/flags              8eb0bf2fe043 MIPS: kernel/proc: expose elf_hwcap flags through cpuinfo
+  remotes/origin/mnowakowski/eng/4.14/generic            6cc737d4f3d7 MIPS: generic: set default NR_IRQS to 256
+  remotes/origin/mnowakowski/eng/4.14/hotplug            dab41ae393d0 MIPS: smp: increase cpu_up completion timeout
+  remotes/origin/mnowakowski/eng/4.14/mmid               0ab520a861a3 MIPS: add GINVI instruction support
+  remotes/origin/mpredfearn/eng/4.14/misc                d2766ee0aede MIPS: c-r4k: instruction_hazard should immediately follow cache op
+  remotes/origin/mpredfearn/eng/4.14/thread_info_in_task c6451d8e2cf1 MIPS: Activate CONFIG_THREAD_INFO_IN_TASK
+  remotes/origin/mpredfearn/eng/4.14/usercopy            b8f21ffe126f MIPS: usercopy: Implement stack frame object validation
+  remotes/origin/pburton/eng/4.14/cm-target              65209d3aa19e MIPS: Fix CM region target definitions
+  remotes/origin/pburton/eng/4.14/console                a4bf96c681dc console: keep bootcon until DT-specified stdout-path registers
+  remotes/origin/pburton/eng/4.14/eng-kernels            01623af471e3 MIPS: Add engineering kernel configurations
+  remotes/origin/pburton/eng/4.14/fp                     994a14422ad7 MIPS: Schedule on CPUs we need to lose FPU for a mode switch
+  remotes/origin/pburton/eng/4.14/gic-userpage           68a09e2e6ea4 MIPS: Only show CM error info when dumping registers
+  remotes/origin/pburton/eng/4.14/kconfig                0baffeb22fe1 MIPS: CPS: Select CONFIG_WEAK_REORDERING_BEYOND_LLSC
+  remotes/origin/pburton/eng/4.14/malta                  483294e33c7e MIPS: generic: Initial Malta board support
+  remotes/origin/pburton/eng/4.14/multicluster           6547f913b3a2 MIPS: CPS: Boot CPUs in secondary clusters
+  remotes/origin/pburton/eng/4.14/pch_dma                440c2f0d955d dmaengine: pch_dma: Allow build on MIPS platforms
+  remotes/origin/pburton/eng/4.14/pch_gbe                54e63bfb1529 net: pch_gbe: Ensure DMA is ordered with descriptor writes
+  remotes/origin/pburton/eng/4.14/pch_i2c                c792057e6489 i2c: eg20t: implement MSI support
+  remotes/origin/pburton/eng/4.14/prid-rev               50d0946ff92e MIPS: proc: Print revision for recent IMG CPUs correctly
+  remotes/origin/pburton/eng/4.14/ptp_pch                e9b28c34ba60 ptp: pch: Use module_pci_driver()
+  remotes/origin/pburton/eng/4.14/sdhci                  8506dfffd268 mmc: sdhci-pci: Support MSI interrupts
+  remotes/origin/pburton/eng/4.14/traps                  88182e574366 MIPS: reserve exception vector memory
