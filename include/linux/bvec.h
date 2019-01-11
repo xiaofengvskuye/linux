@@ -23,6 +23,7 @@
 #include <linux/kernel.h>
 #include <linux/bug.h>
 #include <linux/errno.h>
+#include <linux/mm.h>
 
 /*
  * was unsigned short, but we might as well be ready for > 64kB I/O pages
@@ -50,15 +51,31 @@ struct bvec_iter {
  */
 #define __bvec_iter_bvec(bvec, iter)	(&(bvec)[(iter).bi_idx])
 
-#define segment_iter_page(bvec, iter)				\
+/* multi-page (segment) helpers */
+#define bvec_iter_page(bvec, iter)				\
 	(__bvec_iter_bvec((bvec), (iter))->bv_page)
 
-#define segment_iter_len(bvec, iter)				\
+#define bvec_iter_len(bvec, iter)				\
 	min((iter).bi_size,					\
 	    __bvec_iter_bvec((bvec), (iter))->bv_len - (iter).bi_bvec_done)
 
-#define segment_iter_offset(bvec, iter)				\
+#define bvec_iter_offset(bvec, iter)				\
 	(__bvec_iter_bvec((bvec), (iter))->bv_offset + (iter).bi_bvec_done)
+
+#define bvec_iter_page_idx(bvec, iter)			\
+	(bvec_iter_offset((bvec), (iter)) / PAGE_SIZE)
+
+/* For building single-page bvec(segment) in flight */
+ #define segment_iter_offset(bvec, iter)				\
+	(bvec_iter_offset((bvec), (iter)) % PAGE_SIZE)
+
+#define segment_iter_len(bvec, iter)				\
+	min_t(unsigned, bvec_iter_len((bvec), (iter)),		\
+	      PAGE_SIZE - segment_iter_offset((bvec), (iter)))
+
+#define segment_iter_page(bvec, iter)				\
+	nth_page(bvec_iter_page((bvec), (iter)),		\
+		 bvec_iter_page_idx((bvec), (iter)))
 
 #define segment_iter_bvec(bvec, iter)				\
 ((struct bio_vec) {						\
@@ -66,8 +83,6 @@ struct bvec_iter {
 	.bv_len		= segment_iter_len((bvec), (iter)),	\
 	.bv_offset	= segment_iter_offset((bvec), (iter)),	\
 })
-
-#define bvec_iter_len  segment_iter_len
 
 static inline bool bvec_iter_advance(const struct bio_vec *bv,
 		struct bvec_iter *iter, unsigned bytes)
