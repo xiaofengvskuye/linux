@@ -65,6 +65,13 @@ struct bvec_iter {
 #define bvec_iter_page_idx(bvec, iter)			\
 	(bvec_iter_offset((bvec), (iter)) / PAGE_SIZE)
 
+#define bvec_iter_bvec(bvec, iter)				\
+((struct bio_vec) {						\
+	.bv_page	= bvec_iter_page((bvec), (iter)),	\
+	.bv_len		= bvec_iter_len((bvec), (iter)),	\
+	.bv_offset	= bvec_iter_offset((bvec), (iter)),	\
+})
+
 /* For building single-page bvec(segment) in flight */
  #define segment_iter_offset(bvec, iter)				\
 	(bvec_iter_offset((bvec), (iter)) % PAGE_SIZE)
