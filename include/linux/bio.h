@@ -48,14 +48,14 @@
 #define bio_set_prio(bio, prio)		((bio)->bi_ioprio = prio)
 
 #define bio_iter_iovec(bio, iter)				\
-	bvec_iter_bvec((bio)->bi_io_vec, (iter))
+	segment_iter_bvec((bio)->bi_io_vec, (iter))
 
 #define bio_iter_page(bio, iter)				\
-	bvec_iter_page((bio)->bi_io_vec, (iter))
+	segment_iter_page((bio)->bi_io_vec, (iter))
 #define bio_iter_len(bio, iter)					\
-	bvec_iter_len((bio)->bi_io_vec, (iter))
+	segment_iter_len((bio)->bi_io_vec, (iter))
 #define bio_iter_offset(bio, iter)				\
-	bvec_iter_offset((bio)->bi_io_vec, (iter))
+	segment_iter_offset((bio)->bi_io_vec, (iter))
 
 #define bio_page(bio)		bio_iter_page((bio), (bio)->bi_iter)
 #define bio_offset(bio)		bio_iter_offset((bio), (bio)->bi_iter)
@@ -738,7 +738,7 @@ static inline bool bioset_initialized(struct bio_set *bs)
 #if defined(CONFIG_BLK_DEV_INTEGRITY)
 
 #define bip_for_each_vec(bvl, bip, iter)				\
-	for_each_bvec(bvl, (bip)->bip_vec, iter, (bip)->bip_iter)
+	for_each_segment(bvl, (bip)->bip_vec, iter, (bip)->bip_iter)
 
 #define bio_for_each_integrity_vec(_bvl, _bio, _iter)			\
 	for_each_bio(_bio)						\

@@ -1574,7 +1574,7 @@ retry_kmap:
 				char *tag_ptr = journal_entry_tag(ic, je);
 
 				if (bip) do {
-					struct bio_vec biv = bvec_iter_bvec(bip->bip_vec, bip->bip_iter);
+					struct bio_vec biv = segment_iter_bvec(bip->bip_vec, bip->bip_iter);
 					unsigned tag_now = min(biv.bv_len, tag_todo);
 					char *tag_addr;
 					BUG_ON(PageHighMem(biv.bv_page));

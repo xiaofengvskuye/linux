@@ -120,7 +120,7 @@ ForEachMacros:
   - 'for_each_available_child_of_node'
   - 'for_each_bio'
   - 'for_each_board_func_rsrc'
-  - 'for_each_bvec'
+  - 'for_each_segment'
   - 'for_each_child_of_node'
   - 'for_each_clear_bit'
   - 'for_each_clear_bit_from'
