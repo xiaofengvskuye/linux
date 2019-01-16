@@ -878,17 +878,17 @@ static void ceph_msg_data_bvecs_cursor_init(struct ceph_msg_data_cursor *cursor,
 	cursor->bvec_iter = data->bvec_pos.iter;
 	cursor->bvec_iter.bi_size = cursor->resid;
 
-	BUG_ON(cursor->resid < bvec_iter_len(bvecs, cursor->bvec_iter));
+	BUG_ON(cursor->resid < segment_iter_len(bvecs, cursor->bvec_iter));
 	cursor->last_piece =
-	    cursor->resid == bvec_iter_len(bvecs, cursor->bvec_iter);
+	    cursor->resid == segment_iter_len(bvecs, cursor->bvec_iter);
 }
 
 static struct page *ceph_msg_data_bvecs_next(struct ceph_msg_data_cursor *cursor,
 						size_t *page_offset,
 						size_t *length)
 {
-	struct bio_vec bv = bvec_iter_bvec(cursor->data->bvec_pos.bvecs,
-					   cursor->bvec_iter);
+	struct bio_vec bv = segment_iter_bvec(cursor->data->bvec_pos.bvecs,
+					      cursor->bvec_iter);
 
 	*page_offset = bv.bv_offset;
 	*length = bv.bv_len;
@@ -901,7 +901,7 @@ static bool ceph_msg_data_bvecs_advance(struct ceph_msg_data_cursor *cursor,
 	struct bio_vec *bvecs = cursor->data->bvec_pos.bvecs;
 
 	BUG_ON(bytes > cursor->resid);
-	BUG_ON(bytes > bvec_iter_len(bvecs, cursor->bvec_iter));
+	BUG_ON(bytes > segment_iter_len(bvecs, cursor->bvec_iter));
 	cursor->resid -= bytes;
 	bvec_iter_advance(bvecs, &cursor->bvec_iter, bytes);
 
@@ -914,9 +914,9 @@ static bool ceph_msg_data_bvecs_advance(struct ceph_msg_data_cursor *cursor,
 		return false;	/* more bytes to process in this segment */
 
 	BUG_ON(cursor->last_piece);
-	BUG_ON(cursor->resid < bvec_iter_len(bvecs, cursor->bvec_iter));
+	BUG_ON(cursor->resid < segment_iter_len(bvecs, cursor->bvec_iter));
 	cursor->last_piece =
-	    cursor->resid == bvec_iter_len(bvecs, cursor->bvec_iter);
+	    cursor->resid == segment_iter_len(bvecs, cursor->bvec_iter);
 	return true;
 }
 

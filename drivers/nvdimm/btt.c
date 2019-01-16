@@ -1154,9 +1154,9 @@ static int btt_rw_integrity(struct btt *btt, struct bio_integrity_payload *bip,
 		struct bio_vec bv;
 		void *mem;
 
-		bv = bvec_iter_bvec(bip->bip_vec, bip->bip_iter);
+		bv = segment_iter_bvec(bip->bip_vec, bip->bip_iter);
 		/*
-		 * The 'bv' obtained from bvec_iter_bvec has its .bv_len and
+		 * The 'bv' obtained from segment_iter_bvec has its .bv_len and
 		 * .bv_offset already adjusted for iter->bi_bvec_done, and we
 		 * can use those directly
 		 */

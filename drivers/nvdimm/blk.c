@@ -89,9 +89,9 @@ static int nd_blk_rw_integrity(struct nd_namespace_blk *nsblk,
 		struct bio_vec bv;
 		void *iobuf;
 
-		bv = bvec_iter_bvec(bip->bip_vec, bip->bip_iter);
+		bv = segment_iter_bvec(bip->bip_vec, bip->bip_iter);
 		/*
-		 * The 'bv' obtained from bvec_iter_bvec has its .bv_len and
+		 * The 'bv' obtained from segment_iter_bvec has its .bv_len and
 		 * .bv_offset already adjusted for iter->bi_bvec_done, and we
 		 * can use those directly
 		 */

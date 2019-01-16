@@ -208,8 +208,8 @@ static void list_dp_init(struct dpages *dp, struct page_list *pl, unsigned offse
 static void bio_get_page(struct dpages *dp, struct page **p,
 			 unsigned long *len, unsigned *offset)
 {
-	struct bio_vec bvec = bvec_iter_bvec((struct bio_vec *)dp->context_ptr,
-					     dp->context_bi);
+	struct bio_vec bvec = segment_iter_bvec((struct bio_vec *)dp->context_ptr,
+						dp->context_bi);
 
 	*p = bvec.bv_page;
 	*len = bvec.bv_len;

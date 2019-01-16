@@ -387,7 +387,7 @@ xs_flush_bvec(const struct bio_vec *bvec, size_t count, size_t seek)
 	struct bio_vec bv;
 
 	bvec_iter_advance(bvec, &bi, seek & PAGE_MASK);
-	for_each_bvec(bv, bvec, bi, bi)
+	for_each_segment(bv, bvec, bi, bi)
 		flush_dcache_page(bv.bv_page);
 }
 #else

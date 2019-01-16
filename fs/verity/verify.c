@@ -266,15 +266,16 @@ void fsverity_verify_bio(struct bio *bio)
 	struct ahash_request *req;
 	struct bio_vec *bv;
 	int i;
+	struct bvec_iter_all iter_all;
 
 	req = ahash_request_alloc(vi->hash_alg->tfm, GFP_KERNEL);
 	if (unlikely(!req)) {
-		bio_for_each_segment_all(bv, bio, i)
+		bio_for_each_segment_all(bv, bio, i, iter_all)
 			SetPageError(bv->bv_page);
 		return;
 	}
 
-	bio_for_each_segment_all(bv, bio, i) {
+	bio_for_each_segment_all(bv, bio, i, iter_all) {
 		struct page *page = bv->bv_page;
 
 		if (!PageError(page) && !verify_page(inode, vi, req, page))

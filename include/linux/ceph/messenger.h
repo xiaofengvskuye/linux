@@ -155,7 +155,7 @@ struct ceph_bvec_iter {
 									      \
 		__cur_iter = (it)->iter;				      \
 		__cur_iter.bi_size = (n);				      \
-		for_each_bvec(bv, (it)->bvecs, __cur_iter, __cur_iter)	      \
+		for_each_segment(bv, (it)->bvecs, __cur_iter, __cur_iter)     \
 			(void)(BVEC_STEP);				      \
 	}))
 
