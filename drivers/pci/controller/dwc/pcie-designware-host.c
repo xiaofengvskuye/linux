@@ -612,14 +612,20 @@ static int dw_pcie_rd_conf(struct pci_bus *bus, u32 devfn, int where,
 			   int size, u32 *val)
 {
 	struct pcie_port *pp = bus->sysdata;
+	struct dw_pcie *pci;
 
 	if (!dw_pcie_valid_device(pp, bus, PCI_SLOT(devfn))) {
 		*val = 0xffffffff;
 		return PCIBIOS_DEVICE_NOT_FOUND;
 	}
 
-	if (bus->number == pp->root_bus_nr)
+	if (bus->number == pp->root_bus_nr) {
+		pci = to_dw_pcie_from_pp(pp);
+		if (pci->dbi_length && where + size > pci->dbi_length)
+			return PCIBIOS_BAD_REGISTER_NUMBER;
+
 		return dw_pcie_rd_own_conf(pp, where, size, val);
+	}
 
 	return dw_pcie_rd_other_conf(pp, bus, devfn, where, size, val);
 }
@@ -628,12 +634,18 @@ static int dw_pcie_wr_conf(struct pci_bus *bus, u32 devfn,
 			   int where, int size, u32 val)
 {
 	struct pcie_port *pp = bus->sysdata;
+	struct dw_pcie *pci;
 
 	if (!dw_pcie_valid_device(pp, bus, PCI_SLOT(devfn)))
 		return PCIBIOS_DEVICE_NOT_FOUND;
 
-	if (bus->number == pp->root_bus_nr)
+	if (bus->number == pp->root_bus_nr) {
+		pci = to_dw_pcie_from_pp(pp);
+		if (pci->dbi_length && where + size > pci->dbi_length)
+			return PCIBIOS_BAD_REGISTER_NUMBER;
+
 		return dw_pcie_wr_own_conf(pp, where, size, val);
+	}
 
 	return dw_pcie_wr_other_conf(pp, bus, devfn, where, size, val);
 }
