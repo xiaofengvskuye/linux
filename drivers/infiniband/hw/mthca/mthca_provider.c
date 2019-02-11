@@ -318,7 +318,7 @@ static struct ib_ucontext *mthca_alloc_ucontext(struct ib_device *ibdev,
 	else
 		uresp.uarc_size = 0;
 
-	context = kmalloc(sizeof *context, GFP_KERNEL);
+	context = kzalloc(sizeof(*context), GFP_KERNEL);
 	if (!context)
 		return ERR_PTR(-ENOMEM);
 
@@ -374,40 +374,30 @@ static int mthca_mmap_uar(struct ib_ucontext *context,
 	return 0;
 }
 
-static struct ib_pd *mthca_alloc_pd(struct ib_device *ibdev,
-				    struct ib_ucontext *context,
-				    struct ib_udata *udata)
+static int mthca_alloc_pd(struct ib_pd *ibpd, struct ib_ucontext *context,
+			  struct ib_udata *udata)
 {
-	struct mthca_pd *pd;
+	struct ib_device *ibdev = ibpd->device;
+	struct mthca_pd *pd = to_mpd(ibpd);
 	int err;
 
-	pd = kmalloc(sizeof *pd, GFP_KERNEL);
-	if (!pd)
-		return ERR_PTR(-ENOMEM);
-
 	err = mthca_pd_alloc(to_mdev(ibdev), !context, pd);
-	if (err) {
-		kfree(pd);
-		return ERR_PTR(err);
-	}
+	if (err)
+		return err;
 
 	if (context) {
 		if (ib_copy_to_udata(udata, &pd->pd_num, sizeof (__u32))) {
 			mthca_pd_free(to_mdev(ibdev), pd);
-			kfree(pd);
-			return ERR_PTR(-EFAULT);
+			return -EFAULT;
 		}
 	}
 
-	return &pd->ibpd;
+	return 0;
 }
 
-static int mthca_dealloc_pd(struct ib_pd *pd)
+static void mthca_dealloc_pd(struct ib_pd *pd)
 {
 	mthca_pd_free(to_mdev(pd->device), to_mpd(pd));
-	kfree(pd);
-
-	return 0;
 }
 
 static struct ib_ah *mthca_ah_create(struct ib_pd *pd,
@@ -684,7 +674,7 @@ static struct ib_cq *mthca_create_cq(struct ib_device *ibdev,
 			goto err_unmap_set;
 	}
 
-	cq = kmalloc(sizeof *cq, GFP_KERNEL);
+	cq = kzalloc(sizeof(*cq), GFP_KERNEL);
 	if (!cq) {
 		err = -ENOMEM;
 		goto err_unmap_arm;
@@ -931,7 +921,7 @@ static struct ib_mr *mthca_reg_user_mr(struct ib_pd *pd, u64 start, u64 length,
 	if (!mr)
 		return ERR_PTR(-ENOMEM);
 
-	mr->umem = ib_umem_get(pd->uobject->context, start, length, acc,
+	mr->umem = ib_umem_get(udata, start, length, acc,
 			       ucmd.mr_attrs & MTHCA_MR_DMASYNC);
 
 	if (IS_ERR(mr->umem)) {
@@ -1081,7 +1071,8 @@ static ssize_t hw_rev_show(struct device *device,
 			   struct device_attribute *attr, char *buf)
 {
 	struct mthca_dev *dev =
-		container_of(device, struct mthca_dev, ib_dev.dev);
+		rdma_device_to_drv_device(device, struct mthca_dev, ib_dev);
+
 	return sprintf(buf, "%x\n", dev->rev_id);
 }
 static DEVICE_ATTR_RO(hw_rev);
@@ -1090,7 +1081,8 @@ static ssize_t hca_type_show(struct device *device,
 			     struct device_attribute *attr, char *buf)
 {
 	struct mthca_dev *dev =
-		container_of(device, struct mthca_dev, ib_dev.dev);
+		rdma_device_to_drv_device(device, struct mthca_dev, ib_dev);
+
 	switch (dev->pdev->device) {
 	case PCI_DEVICE_ID_MELLANOX_TAVOR:
 		return sprintf(buf, "MT23108\n");
@@ -1111,7 +1103,8 @@ static ssize_t board_id_show(struct device *device,
 			     struct device_attribute *attr, char *buf)
 {
 	struct mthca_dev *dev =
-		container_of(device, struct mthca_dev, ib_dev.dev);
+		rdma_device_to_drv_device(device, struct mthca_dev, ib_dev);
+
 	return sprintf(buf, "%.*s\n", MTHCA_BOARD_ID_LEN, dev->board_id);
 }
 static DEVICE_ATTR_RO(board_id);
@@ -1225,6 +1218,7 @@ static const struct ib_device_ops mthca_dev_ops = {
 	.query_qp = mthca_query_qp,
 	.reg_user_mr = mthca_reg_user_mr,
 	.resize_cq = mthca_resize_cq,
+	INIT_RDMA_OBJ_SIZE(ib_pd, mthca_pd, ibpd),
 };
 
 static const struct ib_device_ops mthca_dev_arbel_srq_ops = {
@@ -1338,7 +1332,7 @@ int mthca_register_device(struct mthca_dev *dev)
 
 	rdma_set_device_sysfs_group(&dev->ib_dev, &mthca_attr_group);
 	dev->ib_dev.driver_id = RDMA_DRIVER_MTHCA;
-	ret = ib_register_device(&dev->ib_dev, "mthca%d", NULL);
+	ret = ib_register_device(&dev->ib_dev, "mthca%d");
 	if (ret)
 		return ret;
 

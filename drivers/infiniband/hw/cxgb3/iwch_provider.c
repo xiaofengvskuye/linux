@@ -370,7 +370,7 @@ static int iwch_mmap(struct ib_ucontext *context, struct vm_area_struct *vma)
 	return ret;
 }
 
-static int iwch_deallocate_pd(struct ib_pd *pd)
+static void iwch_deallocate_pd(struct ib_pd *pd)
 {
 	struct iwch_dev *rhp;
 	struct iwch_pd *php;
@@ -379,15 +379,13 @@ static int iwch_deallocate_pd(struct ib_pd *pd)
 	rhp = php->rhp;
 	pr_debug("%s ibpd %p pdid 0x%x\n", __func__, pd, php->pdid);
 	cxio_hal_put_pdid(rhp->rdev.rscp, php->pdid);
-	kfree(php);
-	return 0;
 }
 
-static struct ib_pd *iwch_allocate_pd(struct ib_device *ibdev,
-			       struct ib_ucontext *context,
-			       struct ib_udata *udata)
+static int iwch_allocate_pd(struct ib_pd *pd, struct ib_ucontext *context,
+			    struct ib_udata *udata)
 {
-	struct iwch_pd *php;
+	struct iwch_pd *php = to_iwch_pd(pd);
+	struct ib_device *ibdev = pd->device;
 	u32 pdid;
 	struct iwch_dev *rhp;
 
@@ -395,12 +393,8 @@ static struct ib_pd *iwch_allocate_pd(struct ib_device *ibdev,
 	rhp = (struct iwch_dev *) ibdev;
 	pdid = cxio_hal_get_pdid(rhp->rdev.rscp);
 	if (!pdid)
-		return ERR_PTR(-EINVAL);
-	php = kzalloc(sizeof(*php), GFP_KERNEL);
-	if (!php) {
-		cxio_hal_put_pdid(rhp->rdev.rscp, pdid);
-		return ERR_PTR(-ENOMEM);
-	}
+		return -EINVAL;
+
 	php->pdid = pdid;
 	php->rhp = rhp;
 	if (context) {
@@ -408,11 +402,11 @@ static struct ib_pd *iwch_allocate_pd(struct ib_device *ibdev,
 
 		if (ib_copy_to_udata(udata, &resp, sizeof(resp))) {
 			iwch_deallocate_pd(&php->ibpd);
-			return ERR_PTR(-EFAULT);
+			return -EFAULT;
 		}
 	}
 	pr_debug("%s pdid 0x%0x ptr 0x%p\n", __func__, pdid, php);
-	return &php->ibpd;
+	return 0;
 }
 
 static int iwch_dereg_mr(struct ib_mr *ib_mr)
@@ -540,7 +534,7 @@ static struct ib_mr *iwch_reg_user_mr(struct ib_pd *pd, u64 start, u64 length,
 
 	mhp->rhp = rhp;
 
-	mhp->umem = ib_umem_get(pd->uobject->context, start, length, acc, 0);
+	mhp->umem = ib_umem_get(udata, start, length, acc, 0);
 	if (IS_ERR(mhp->umem)) {
 		err = PTR_ERR(mhp->umem);
 		kfree(mhp);
@@ -1130,8 +1124,9 @@ static int iwch_query_port(struct ib_device *ibdev,
 static ssize_t hw_rev_show(struct device *dev,
 			   struct device_attribute *attr, char *buf)
 {
-	struct iwch_dev *iwch_dev = container_of(dev, struct iwch_dev,
-						 ibdev.dev);
+	struct iwch_dev *iwch_dev =
+			rdma_device_to_drv_device(dev, struct iwch_dev, ibdev);
+
 	pr_debug("%s dev 0x%p\n", __func__, dev);
 	return sprintf(buf, "%d\n", iwch_dev->rdev.t3cdev_p->type);
 }
@@ -1140,8 +1135,8 @@ static DEVICE_ATTR_RO(hw_rev);
 static ssize_t hca_type_show(struct device *dev,
 			     struct device_attribute *attr, char *buf)
 {
-	struct iwch_dev *iwch_dev = container_of(dev, struct iwch_dev,
-						 ibdev.dev);
+	struct iwch_dev *iwch_dev =
+			rdma_device_to_drv_device(dev, struct iwch_dev, ibdev);
 	struct ethtool_drvinfo info;
 	struct net_device *lldev = iwch_dev->rdev.t3cdev_p->lldev;
 
@@ -1154,8 +1149,9 @@ static DEVICE_ATTR_RO(hca_type);
 static ssize_t board_id_show(struct device *dev,
 			     struct device_attribute *attr, char *buf)
 {
-	struct iwch_dev *iwch_dev = container_of(dev, struct iwch_dev,
-						 ibdev.dev);
+	struct iwch_dev *iwch_dev =
+			rdma_device_to_drv_device(dev, struct iwch_dev, ibdev);
+
 	pr_debug("%s dev 0x%p\n", __func__, dev);
 	return sprintf(buf, "%x.%x\n", iwch_dev->rdev.rnic_info.pdev->vendor,
 		       iwch_dev->rdev.rnic_info.pdev->device);
@@ -1348,6 +1344,7 @@ static const struct ib_device_ops iwch_dev_ops = {
 	.reg_user_mr = iwch_reg_user_mr,
 	.req_notify_cq = iwch_arm_cq,
 	.resize_cq = iwch_resize_cq,
+	INIT_RDMA_OBJ_SIZE(ib_pd, iwch_pd, ibpd),
 };
 
 int iwch_register_device(struct iwch_dev *dev)
@@ -1391,7 +1388,7 @@ int iwch_register_device(struct iwch_dev *dev)
 	dev->ibdev.dev.parent = &dev->rdev.rnic_info.pdev->dev;
 	dev->ibdev.uverbs_abi_ver = IWCH_UVERBS_ABI_VERSION;
 
-	dev->ibdev.iwcm = kmalloc(sizeof(struct iw_cm_verbs), GFP_KERNEL);
+	dev->ibdev.iwcm = kzalloc(sizeof(struct iw_cm_verbs), GFP_KERNEL);
 	if (!dev->ibdev.iwcm)
 		return -ENOMEM;
 
@@ -1409,7 +1406,7 @@ int iwch_register_device(struct iwch_dev *dev)
 	dev->ibdev.driver_id = RDMA_DRIVER_CXGB3;
 	rdma_set_device_sysfs_group(&dev->ibdev, &iwch_attr_group);
 	ib_set_device_ops(&dev->ibdev, &iwch_dev_ops);
-	ret = ib_register_device(&dev->ibdev, "cxgb3_%d", NULL);
+	ret = ib_register_device(&dev->ibdev, "cxgb3_%d");
 	if (ret)
 		kfree(dev->ibdev.iwcm);
 	return ret;
