@@ -212,7 +212,7 @@ static void read_arc_build_cfg_regs(void)
 	READ_BCR(ARC_REG_AP_BCR, ap);
 	if (ap.ver) {
 		cpu->extn.ap_num = 2 << ap.num;
-		cpu->extn.ap_full = !!ap.min;
+		cpu->extn.ap_full = !ap.min;
 	}
 
 	READ_BCR(ARC_REG_SMART_BCR, bcr);
@@ -462,42 +462,44 @@ void setup_processor(void)
 	arc_chk_core_config();
 }
 
-static inline int is_kernel(unsigned long addr)
-{
-	if (addr >= (unsigned long)_stext && addr <= (unsigned long)_end)
-		return 1;
-	return 0;
-}
-
 void __init setup_arch(char **cmdline_p)
 {
-#ifdef CONFIG_ARC_UBOOT_SUPPORT
-	/* make sure that uboot passed pointer to cmdline/dtb is valid */
-	if (uboot_tag && is_kernel((unsigned long)uboot_arg))
-		panic("Invalid uboot arg\n");
+	bool use_embedded_dtb = true;
 
-	/* See if u-boot passed an external Device Tree blob */
-	machine_desc = setup_machine_fdt(uboot_arg);	/* uboot_tag == 2 */
-	if (!machine_desc)
-#endif
-	{
-		/* No, so try the embedded one */
+	if (IS_ENABLED(CONFIG_ARC_UBOOT_SUPPORT) && uboot_tag) {
+
+		/*
+		 * ensure any u-boot passed pointer (cmdline/dtb) is valid:
+		 *   - is a valid untranslated address (although MMU is not
+		 *     enabled yet, it being a high address ensures this is
+		 *     not by fluke)
+		 *   - doesn't clobber resident kernel image
+		 */
+		if ((unsigned long)uboot_arg < (unsigned long)_end)
+			panic("Invalid uboot arg\n");
+
+		/* Try to use u-boot passed external Device Tree blob */
+		if (uboot_tag == 2) {
+			machine_desc = setup_machine_fdt(uboot_arg);
+			if (machine_desc)
+				use_embedded_dtb = false;
+		}
+	}
+
+	if (use_embedded_dtb) 	{
 		machine_desc = setup_machine_fdt(__dtb_start);
 		if (!machine_desc)
 			panic("Embedded DT invalid\n");
+	}
 
-		/*
-		 * If we are here, it is established that @uboot_arg didn't
-		 * point to DT blob. Instead if u-boot says it is cmdline,
-		 * append to embedded DT cmdline.
-		 * setup_machine_fdt() would have populated @boot_command_line
-		 */
-		if (uboot_tag == 1) {
-			/* Ensure a whitespace between the 2 cmdlines */
-			strlcat(boot_command_line, " ", COMMAND_LINE_SIZE);
-			strlcat(boot_command_line, uboot_arg,
-				COMMAND_LINE_SIZE);
-		}
+	/*
+	 * append u-boot cmdline to embedded DT cmdline.
+	 * setup_machine_fdt() would have populated @boot_command_line
+	 */
+	if (IS_ENABLED(CONFIG_ARC_UBOOT_SUPPORT) && uboot_tag == 1) {
+		/* Ensure a whitespace between the 2 cmdlines */
+		strlcat(boot_command_line, " ", COMMAND_LINE_SIZE);
+		strlcat(boot_command_line, uboot_arg, COMMAND_LINE_SIZE);
 	}
 
 	/* Save unparsed command line copy for /proc/cmdline */
