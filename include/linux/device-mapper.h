@@ -315,6 +315,11 @@ struct dm_target {
 	 * whether or not its underlying devices have support.
 	 */
 	bool discards_supported:1;
+
+	/*
+	 * The target can process bios without cloning them.
+	 */
+	bool no_clone:1;
 };
 
 /* Each target can link one of these into the table */
