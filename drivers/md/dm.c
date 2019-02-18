@@ -158,13 +158,6 @@ struct table_device {
 	struct dm_dev dm_dev;
 };
 
-struct dm_noclone {
-	struct mapped_device *md;
-	bio_end_io_t *orig_bi_end_io;
-	void *orig_bi_private;
-	unsigned long start_time;
-};
-
 static struct kmem_cache *_rq_tio_cache;
 static struct kmem_cache *_rq_cache;
 static struct kmem_cache *_noclone_cache;
@@ -1802,13 +1795,15 @@ static blk_qc_t dm_process_bio(struct mapped_device *md,
 			if (unlikely(!noclone))
 				goto no_fast_path;
 
+			noclone->magic = DM_NOCLONE_MAGIC;
 			noclone->md = md;
 			noclone->start_time = jiffies;
 			noclone->orig_bi_end_io = bio->bi_end_io;
 			noclone->orig_bi_private = bio->bi_private;
 			bio->bi_end_io = noclone_endio;
 			bio->bi_private = noclone;
-		}
+		} else
+			noclone = bio->bi_private;
 
 		start_io_acct(md, bio);
 		r = ti->type->map(ti, bio);
@@ -1821,6 +1816,11 @@ static blk_qc_t dm_process_bio(struct mapped_device *md,
 				ret = direct_make_request(bio);
 			else
 				ret = generic_make_request(bio);
+			break;
+		case DM_MAPIO_NOCLONE_FAILED:
+			end_io_acct(md, bio, noclone->start_time);
+			kmem_cache_free(_noclone_cache, noclone);
+			goto no_fast_path;
 			break;
 		case DM_MAPIO_KILL:
 			bio_io_error(bio);
