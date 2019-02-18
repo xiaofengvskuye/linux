@@ -46,4 +46,8 @@ struct bio_vec;
 bool xen_biovec_phys_mergeable(const struct bio_vec *vec1,
 		const struct bio_vec *vec2);
 
+#ifdef CONFIG_MEMORY_HOTPLUG
+extern u64 xen_saved_max_mem_size;
+#endif
+
 #endif	/* _XEN_XEN_H */
