@@ -318,7 +318,6 @@ static int lbtf_op_start(struct ieee80211_hw *hw)
 		goto err_prog_firmware;
 	}
 
-	printk(KERN_INFO "libertastf: Marvell WLAN 802.11 thinfirm adapter\n");
 	lbtf_deb_leave(LBTF_DEB_MACOPS);
 	return 0;
 
@@ -551,7 +550,6 @@ int lbtf_rx(struct lbtf_private *priv, struct sk_buff *skb)
 	struct ieee80211_rx_status stats;
 	struct rxpd *prxpd;
 	int need_padding;
-	unsigned int flags;
 	struct ieee80211_hdr *hdr;
 
 	lbtf_deb_enter(LBTF_DEB_RX);
@@ -563,7 +561,7 @@ int lbtf_rx(struct lbtf_private *priv, struct sk_buff *skb)
 		stats.flag |= RX_FLAG_FAILED_FCS_CRC;
 	stats.freq = priv->cur_freq;
 	stats.band = NL80211_BAND_2GHZ;
-	stats.signal = prxpd->snr;
+	stats.signal = prxpd->snr - prxpd->nf;
 	priv->noise = prxpd->nf;
 	/* Marvell rate index has a hole at value 4 */
 	if (prxpd->rx_rate > 4)
@@ -572,7 +570,6 @@ int lbtf_rx(struct lbtf_private *priv, struct sk_buff *skb)
 	skb_pull(skb, sizeof(struct rxpd));
 
 	hdr = (struct ieee80211_hdr *)skb->data;
-	flags = le32_to_cpu(*(__le32 *)(skb->data + 4));
 
 	need_padding = ieee80211_is_data_qos(hdr->frame_control);
 	need_padding ^= ieee80211_has_a4(hdr->frame_control);
@@ -627,6 +624,7 @@ struct lbtf_private *lbtf_add_card(void *card, struct device *dmdev)
 
 	hw->queues = 1;
 	ieee80211_hw_set(hw, HOST_BROADCAST_PS_BUFFERING);
+	ieee80211_hw_set(hw, SIGNAL_DBM);
 	hw->extra_tx_headroom = sizeof(struct txpd);
 	memcpy(priv->channels, lbtf_channels, sizeof(lbtf_channels));
 	memcpy(priv->rates, lbtf_rates, sizeof(lbtf_rates));
@@ -649,6 +647,7 @@ struct lbtf_private *lbtf_add_card(void *card, struct device *dmdev)
 	if (ieee80211_register_hw(hw))
 		goto err_init_adapter;
 
+	dev_info(dmdev, "libertastf: Marvell WLAN 802.11 thinfirm adapter\n");
 	goto done;
 
 err_init_adapter:

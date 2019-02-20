@@ -103,6 +103,10 @@ static const struct brcmf_feat_fwfeat brcmf_feat_fwfeat_map[] = {
 	{ "01-6cb8e269", BIT(BRCMF_FEAT_MONITOR) },
 	/* brcmfmac4366b-pcie.bin from linux-firmware.git commit 52442afee990 */
 	{ "01-c47a91a4", BIT(BRCMF_FEAT_MONITOR) },
+	/* brcmfmac4366b-pcie.bin from linux-firmware.git commit 211de1679a68 */
+	{ "01-801fb449", BIT(BRCMF_FEAT_MONITOR_FMT_HW_RX_HDR) },
+	/* brcmfmac4366c-pcie.bin from linux-firmware.git commit 211de1679a68 */
+	{ "01-d2cbb8fd", BIT(BRCMF_FEAT_MONITOR_FMT_HW_RX_HDR) },
 };
 
 static void brcmf_feat_firmware_overrides(struct brcmf_pub *drv)
@@ -268,9 +272,15 @@ void brcmf_feat_attach(struct brcmf_pub *drvr)
 					BIT(BRCMF_FEAT_WOWL_GTK);
 		}
 	}
-	/* MBSS does not work for 43362 */
-	if (drvr->bus_if->chip == BRCM_CC_43362_CHIP_ID)
+	/* MBSS does not work for all chips */
+	switch (drvr->bus_if->chip) {
+	case BRCM_CC_4330_CHIP_ID:
+	case BRCM_CC_43362_CHIP_ID:
 		ifp->drvr->feat_flags &= ~BIT(BRCMF_FEAT_MBSS);
+		break;
+	default:
+		break;
+	}
 	brcmf_feat_iovar_int_get(ifp, BRCMF_FEAT_RSDB, "rsdb_mode");
 	brcmf_feat_iovar_int_get(ifp, BRCMF_FEAT_TDLS, "tdls_enable");
 	brcmf_feat_iovar_int_get(ifp, BRCMF_FEAT_MFP, "mfp");
