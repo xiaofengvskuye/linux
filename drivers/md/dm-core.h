@@ -87,6 +87,7 @@ struct mapped_device {
 	 */
 	struct bio_set io_bs;
 	struct bio_set bs;
+	struct kmem_cache *noclone_cache;
 
 	/*
 	 * Processing queue (flush)

@@ -317,11 +317,26 @@ struct dm_target {
 	bool discards_supported:1;
 
 	/*
-	 * Set if the target required discard bios to be split
-	 * on max_io_len boundary.
+	 * The target can process bios without cloning them.
 	 */
-	bool split_discard_bios:1;
+	bool no_clone:1;
 };
+
+#define DM_NOCLONE_MAGIC 9693664
+struct dm_noclone {
+	unsigned magic;
+	struct mapped_device *md;
+	bio_end_io_t *orig_bi_end_io;
+	void *orig_bi_private;
+	void *noclone_private;
+	unsigned long start_time;
+};
+
+static inline struct dm_noclone *dm_get_noclone_from_bio(struct bio *bio)
+{
+	struct dm_noclone *noclone = bio->bi_private;
+	return (noclone && noclone->magic == DM_NOCLONE_MAGIC) ? noclone : NULL;
+}
 
 /* Each target can link one of these into the table */
 struct dm_target_callbacks {
@@ -573,6 +588,7 @@ do {									\
 #define DM_MAPIO_REQUEUE	DM_ENDIO_REQUEUE
 #define DM_MAPIO_DELAY_REQUEUE	DM_ENDIO_DELAY_REQUEUE
 #define DM_MAPIO_KILL		4
+#define DM_MAPIO_NOCLONE_FAILED	5
 
 #define dm_sector_div64(x, y)( \
 { \
