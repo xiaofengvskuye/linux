@@ -106,18 +106,14 @@ struct intel_uncore {
 	enum forcewake_domains fw_domains_active;
 	enum forcewake_domains fw_domains_saved; /* user domains saved for S3 */
 
-	u32 fw_set;
-	u32 fw_clear;
-	u32 fw_reset;
-
 	struct intel_uncore_forcewake_domain {
 		enum forcewake_domain_id id;
 		enum forcewake_domains mask;
 		unsigned int wake_count;
 		bool active;
 		struct hrtimer timer;
-		i915_reg_t reg_set;
-		i915_reg_t reg_ack;
+		u32 __iomem *reg_set;
+		u32 __iomem *reg_ack;
 	} fw_domain[FW_DOMAIN_ID_COUNT];
 
 	struct {
@@ -138,6 +134,11 @@ struct intel_uncore {
 #define for_each_fw_domain(domain__, dev_priv__, tmp__) \
 	for_each_fw_domain_masked(domain__, (dev_priv__)->uncore.fw_domains, dev_priv__, tmp__)
 
+static inline struct intel_uncore *
+forcewake_domain_to_uncore(const struct intel_uncore_forcewake_domain *d)
+{
+	return container_of(d, struct intel_uncore, fw_domain[d->id]);
+}
 
 void intel_uncore_sanitize(struct drm_i915_private *dev_priv);
 void intel_uncore_init(struct drm_i915_private *dev_priv);
