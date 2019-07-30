@@ -1,12 +1,8 @@
+// SPDX-License-Identifier: GPL-2.0-only
 /*
  * Line 6 Linux USB driver
  *
  * Copyright (C) 2004-2010 Markus Grabner (grabner@icg.tugraz.at)
- *
- *	This program is free software; you can redistribute it and/or
- *	modify it under the terms of the GNU General Public License as
- *	published by the Free Software Foundation, version 2.
- *
  */
 
 #include <linux/slab.h>
@@ -174,7 +170,7 @@ static const char pod_version_header[] = {
 };
 
 /* forward declarations: */
-static void pod_startup2(unsigned long data);
+static void pod_startup2(struct timer_list *t);
 static void pod_startup3(struct usb_line6_pod *pod);
 
 static char *pod_alloc_sysex_buffer(struct usb_line6_pod *pod, int code,
@@ -286,13 +282,12 @@ static void pod_startup1(struct usb_line6_pod *pod)
 	CHECK_STARTUP_PROGRESS(pod->startup_progress, POD_STARTUP_INIT);
 
 	/* delay startup procedure: */
-	line6_start_timer(&pod->startup_timer, POD_STARTUP_DELAY, pod_startup2,
-			  (unsigned long)pod);
+	line6_start_timer(&pod->startup_timer, POD_STARTUP_DELAY, pod_startup2);
 }
 
-static void pod_startup2(unsigned long data)
+static void pod_startup2(struct timer_list *t)
 {
-	struct usb_line6_pod *pod = (struct usb_line6_pod *)data;
+	struct usb_line6_pod *pod = from_timer(pod, t, startup_timer);
 	struct usb_line6 *line6 = &pod->line6;
 
 	CHECK_STARTUP_PROGRESS(pod->startup_progress, POD_STARTUP_VERSIONREQ);
@@ -321,7 +316,8 @@ static void pod_startup4(struct work_struct *work)
 	line6_read_serial_number(&pod->line6, &pod->serial_number);
 
 	/* ALSA audio interface: */
-	snd_card_register(line6->card);
+	if (snd_card_register(line6->card))
+		dev_err(line6->ifcdev, "Failed to register POD card.\n");
 }
 
 /* POD special files: */
@@ -380,7 +376,7 @@ static int snd_pod_control_monitor_put(struct snd_kcontrol *kcontrol,
 }
 
 /* control definition */
-static struct snd_kcontrol_new pod_control_monitor = {
+static const struct snd_kcontrol_new pod_control_monitor = {
 	.iface = SNDRV_CTL_ELEM_IFACE_MIXER,
 	.name = "Monitor Playback Volume",
 	.index = 0,
@@ -413,7 +409,7 @@ static int pod_init(struct usb_line6 *line6,
 	line6->process_message = line6_pod_process_message;
 	line6->disconnect = line6_pod_disconnect;
 
-	init_timer(&pod->startup_timer);
+	timer_setup(&pod->startup_timer, NULL, 0);
 	INIT_WORK(&pod->startup_work, pod_startup4);
 
 	/* create sysfs entries: */

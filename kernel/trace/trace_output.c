@@ -1,10 +1,10 @@
+// SPDX-License-Identifier: GPL-2.0
 /*
  * trace_output.c
  *
  * Copyright (C) 2008 Red Hat Inc, Steven Rostedt <srostedt@redhat.com>
  *
  */
-
 #include <linux/module.h>
 #include <linux/mutex.h>
 #include <linux/ftrace.h>
@@ -339,33 +339,24 @@ static inline const char *kretprobed(const char *name)
 #endif /* CONFIG_KRETPROBES */
 
 static void
-seq_print_sym_short(struct trace_seq *s, const char *fmt, unsigned long address)
+seq_print_sym(struct trace_seq *s, unsigned long address, bool offset)
 {
 #ifdef CONFIG_KALLSYMS
 	char str[KSYM_SYMBOL_LEN];
 	const char *name;
 
-	kallsyms_lookup(address, NULL, NULL, NULL, str);
-
+	if (offset)
+		sprint_symbol(str, address);
+	else
+		kallsyms_lookup(address, NULL, NULL, NULL, str);
 	name = kretprobed(str);
 
-	trace_seq_printf(s, fmt, name);
+	if (name && strlen(name)) {
+		trace_seq_puts(s, name);
+		return;
+	}
 #endif
-}
-
-static void
-seq_print_sym_offset(struct trace_seq *s, const char *fmt,
-		     unsigned long address)
-{
-#ifdef CONFIG_KALLSYMS
-	char str[KSYM_SYMBOL_LEN];
-	const char *name;
-
-	sprint_symbol(str, address);
-	name = kretprobed(str);
-
-	trace_seq_printf(s, fmt, name);
-#endif
+	trace_seq_printf(s, "0x%08lx", address);
 }
 
 #ifndef CONFIG_64BIT
@@ -414,10 +405,7 @@ seq_print_ip_sym(struct trace_seq *s, unsigned long ip, unsigned long sym_flags)
 		goto out;
 	}
 
-	if (sym_flags & TRACE_ITER_SYM_OFFSET)
-		seq_print_sym_offset(s, "%s", ip);
-	else
-		seq_print_sym_short(s, "%s", ip);
+	seq_print_sym(s, ip, sym_flags & TRACE_ITER_SYM_OFFSET);
 
 	if (sym_flags & TRACE_ITER_SYM_ADDR)
 		trace_seq_printf(s, " <" IP_FMT ">", ip);
@@ -585,8 +573,18 @@ int trace_print_context(struct trace_iterator *iter)
 
 	trace_find_cmdline(entry->pid, comm);
 
-	trace_seq_printf(s, "%16s-%-5d [%03d] ",
-			       comm, entry->pid, iter->cpu);
+	trace_seq_printf(s, "%16s-%-5d ", comm, entry->pid);
+
+	if (tr->trace_flags & TRACE_ITER_RECORD_TGID) {
+		unsigned int tgid = trace_find_tgid(entry->pid);
+
+		if (!tgid)
+			trace_seq_printf(s, "(-----) ");
+		else
+			trace_seq_printf(s, "(%5d) ", tgid);
+	}
+
+	trace_seq_printf(s, "[%03d] ", iter->cpu);
 
 	if (tr->trace_flags & TRACE_ITER_IRQ_INFO)
 		trace_print_lat_fmt(s, entry);
@@ -636,15 +634,6 @@ int trace_print_lat_context(struct trace_iterator *iter)
 	lat_print_timestamp(iter, next_ts);
 
 	return !trace_seq_has_overflowed(s);
-}
-
-static const char state_to_char[] = TASK_STATE_TO_CHAR_STR;
-
-static int task_state_char(unsigned long state)
-{
-	int bit = state ? __ffs(state) + 1 : 0;
-
-	return bit < sizeof(state_to_char) - 1 ? state_to_char[bit] : '?';
 }
 
 /**
@@ -912,8 +901,8 @@ static enum print_line_t trace_ctxwake_print(struct trace_iterator *iter,
 
 	trace_assign_type(field, iter->ent);
 
-	T = task_state_char(field->next_state);
-	S = task_state_char(field->prev_state);
+	T = task_index_to_char(field->next_state);
+	S = task_index_to_char(field->prev_state);
 	trace_find_cmdline(field->next_pid, comm);
 	trace_seq_printf(&iter->seq,
 			 " %5d:%3d:%c %s [%03d] %5d:%3d:%c %s\n",
@@ -948,8 +937,8 @@ static int trace_ctxwake_raw(struct trace_iterator *iter, char S)
 	trace_assign_type(field, iter->ent);
 
 	if (!S)
-		S = task_state_char(field->prev_state);
-	T = task_state_char(field->next_state);
+		S = task_index_to_char(field->prev_state);
+	T = task_index_to_char(field->next_state);
 	trace_seq_printf(&iter->seq, "%d %d %c %d %d %d %c\n",
 			 field->prev_pid,
 			 field->prev_prio,
@@ -984,8 +973,8 @@ static int trace_ctxwake_hex(struct trace_iterator *iter, char S)
 	trace_assign_type(field, iter->ent);
 
 	if (!S)
-		S = task_state_char(field->prev_state);
-	T = task_state_char(field->next_state);
+		S = task_index_to_char(field->prev_state);
+	T = task_index_to_char(field->next_state);
 
 	SEQ_PUT_HEX_FIELD(s, field->prev_pid);
 	SEQ_PUT_HEX_FIELD(s, field->prev_prio);
@@ -1068,7 +1057,7 @@ static enum print_line_t trace_stack_print(struct trace_iterator *iter,
 
 	trace_seq_puts(s, "<stack trace>\n");
 
-	for (p = field->caller; p && *p != ULONG_MAX && p < end; p++) {
+	for (p = field->caller; p && p < end && *p != ULONG_MAX; p++) {
 
 		if (trace_seq_has_overflowed(s))
 			break;
@@ -1161,11 +1150,11 @@ trace_hwlat_print(struct trace_iterator *iter, int flags,
 
 	trace_assign_type(field, entry);
 
-	trace_seq_printf(s, "#%-5u inner/outer(us): %4llu/%-5llu ts:%ld.%09ld",
+	trace_seq_printf(s, "#%-5u inner/outer(us): %4llu/%-5llu ts:%lld.%09ld",
 			 field->seqnum,
 			 field->duration,
 			 field->outer_duration,
-			 field->timestamp.tv_sec,
+			 (long long)field->timestamp.tv_sec,
 			 field->timestamp.tv_nsec);
 
 	if (field->nmi_count) {
@@ -1195,10 +1184,10 @@ trace_hwlat_raw(struct trace_iterator *iter, int flags,
 
 	trace_assign_type(field, iter->ent);
 
-	trace_seq_printf(s, "%llu %lld %ld %09ld %u\n",
+	trace_seq_printf(s, "%llu %lld %lld %09ld %u\n",
 			 field->duration,
 			 field->outer_duration,
-			 field->timestamp.tv_sec,
+			 (long long)field->timestamp.tv_sec,
 			 field->timestamp.tv_nsec,
 			 field->seqnum);
 

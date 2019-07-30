@@ -23,13 +23,18 @@
 #ifndef __DRM_FRAMEBUFFER_H__
 #define __DRM_FRAMEBUFFER_H__
 
-#include <linux/list.h>
 #include <linux/ctype.h>
+#include <linux/list.h>
+#include <linux/sched.h>
+
 #include <drm/drm_mode_object.h>
 
-struct drm_framebuffer;
-struct drm_file;
+struct drm_clip_rect;
 struct drm_device;
+struct drm_file;
+struct drm_format_info;
+struct drm_framebuffer;
+struct drm_gem_object;
 
 /**
  * struct drm_framebuffer_funcs - framebuffer hooks
@@ -101,8 +106,8 @@ struct drm_framebuffer_funcs {
  * cleanup (like releasing the reference(s) on the backing GEM bo(s))
  * should be deferred.  In cases like this, the driver would like to
  * hold a ref to the fb even though it has already been removed from
- * userspace perspective. See drm_framebuffer_reference() and
- * drm_framebuffer_unreference().
+ * userspace perspective. See drm_framebuffer_get() and
+ * drm_framebuffer_put().
  *
  * The refcount is stored inside the mode object @base.
  */
@@ -121,6 +126,12 @@ struct drm_framebuffer {
 	 * @base: base modeset object structure, contains the reference count.
 	 */
 	struct drm_mode_object base;
+
+	/**
+	 * @comm: Name of the process allocating the fb, used for fb dumping.
+	 */
+	char comm[TASK_COMM_LEN];
+
 	/**
 	 * @format: framebuffer format information
 	 */
@@ -190,6 +201,13 @@ struct drm_framebuffer {
 	 * @filp_head: Placed on &drm_file.fbs, protected by &drm_file.fbs_lock.
 	 */
 	struct list_head filp_head;
+	/**
+	 * @obj: GEM objects backing the framebuffer, one per plane (optional).
+	 *
+	 * This is used by the GEM framebuffer helpers, see e.g.
+	 * drm_gem_fb_create().
+	 */
+	struct drm_gem_object *obj[4];
 };
 
 #define obj_to_fb(x) container_of(x, struct drm_framebuffer, base)
@@ -198,31 +216,33 @@ int drm_framebuffer_init(struct drm_device *dev,
 			 struct drm_framebuffer *fb,
 			 const struct drm_framebuffer_funcs *funcs);
 struct drm_framebuffer *drm_framebuffer_lookup(struct drm_device *dev,
+					       struct drm_file *file_priv,
 					       uint32_t id);
 void drm_framebuffer_remove(struct drm_framebuffer *fb);
 void drm_framebuffer_cleanup(struct drm_framebuffer *fb);
 void drm_framebuffer_unregister_private(struct drm_framebuffer *fb);
 
 /**
- * drm_framebuffer_reference - incr the fb refcnt
- * @fb: framebuffer
+ * drm_framebuffer_get - acquire a framebuffer reference
+ * @fb: DRM framebuffer
  *
- * This functions increments the fb's refcount.
+ * This function increments the framebuffer's reference count.
  */
-static inline void drm_framebuffer_reference(struct drm_framebuffer *fb)
+static inline void drm_framebuffer_get(struct drm_framebuffer *fb)
 {
-	drm_mode_object_reference(&fb->base);
+	drm_mode_object_get(&fb->base);
 }
 
 /**
- * drm_framebuffer_unreference - unref a framebuffer
- * @fb: framebuffer to unref
+ * drm_framebuffer_put - release a framebuffer reference
+ * @fb: DRM framebuffer
  *
- * This functions decrements the fb's refcount and frees it if it drops to zero.
+ * This function decrements the framebuffer's reference count and frees the
+ * framebuffer if the reference count drops to zero.
  */
-static inline void drm_framebuffer_unreference(struct drm_framebuffer *fb)
+static inline void drm_framebuffer_put(struct drm_framebuffer *fb)
 {
-	drm_mode_object_unreference(&fb->base);
+	drm_mode_object_put(&fb->base);
 }
 
 /**
@@ -231,7 +251,7 @@ static inline void drm_framebuffer_unreference(struct drm_framebuffer *fb)
  *
  * This functions returns the framebuffer's reference count.
  */
-static inline uint32_t drm_framebuffer_read_refcount(struct drm_framebuffer *fb)
+static inline uint32_t drm_framebuffer_read_refcount(const struct drm_framebuffer *fb)
 {
 	return kref_read(&fb->base.refcount);
 }
@@ -248,9 +268,9 @@ static inline void drm_framebuffer_assign(struct drm_framebuffer **p,
 					  struct drm_framebuffer *fb)
 {
 	if (fb)
-		drm_framebuffer_reference(fb);
+		drm_framebuffer_get(fb);
 	if (*p)
-		drm_framebuffer_unreference(*p);
+		drm_framebuffer_put(*p);
 	*p = fb;
 }
 

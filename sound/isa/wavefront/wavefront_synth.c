@@ -1,11 +1,8 @@
+// SPDX-License-Identifier: GPL-2.0-only
 /* Copyright (C) by Paul Barton-Davis 1998-1999
  *
  * Some portions of this file are taken from work that is
  * copyright (C) by Hannu Savolainen 1993-1996
- *
- * This program is distributed under the GNU GENERAL PUBLIC LICENSE (GPL)
- * Version 2 (June 1991). See the "COPYING" file distributed with this software
- * for more info.  
  */
 
 /*  
@@ -1782,7 +1779,7 @@ wavefront_should_cause_interrupt (snd_wavefront_t *dev,
 				  int val, int port, unsigned long timeout)
 
 {
-	wait_queue_t wait;
+	wait_queue_entry_t wait;
 
 	init_waitqueue_entry(&wait, current);
 	spin_lock_irq(&dev->irq_lock);

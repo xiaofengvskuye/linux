@@ -1,14 +1,10 @@
+// SPDX-License-Identifier: GPL-2.0-or-later
 /*
  * GPIO driver for Fintek Super-I/O F71869, F71869A, F71882, F71889 and F81866
  *
  * Copyright (C) 2010-2013 LaCie
  *
  * Author: Simon Guinot <simon.guinot@sequanux.org>
- *
- * This program is free software; you can redistribute it and/or modify
- * it under the terms of the GNU General Public License as published by
- * the Free Software Foundation; either version 2 of the License, or
- * (at your option) any later version.
  */
 
 #include <linux/module.h>
@@ -37,16 +33,21 @@
 #define SIO_F71869A_ID		0x1007	/* F71869A chipset ID */
 #define SIO_F71882_ID		0x0541	/* F71882 chipset ID */
 #define SIO_F71889_ID		0x0909	/* F71889 chipset ID */
+#define SIO_F71889A_ID		0x1005	/* F71889A chipset ID */
 #define SIO_F81866_ID		0x1010	/* F81866 chipset ID */
+#define SIO_F81804_ID		0x1502  /* F81804 chipset ID, same for f81966 */
 
-enum chips { f71869, f71869a, f71882fg, f71889f, f81866 };
+
+enum chips { f71869, f71869a, f71882fg, f71889a, f71889f, f81866, f81804 };
 
 static const char * const f7188x_names[] = {
 	"f71869",
 	"f71869a",
 	"f71882fg",
+	"f71889a",
 	"f71889f",
 	"f81866",
+	"f81804",
 };
 
 struct f7188x_sio {
@@ -187,6 +188,17 @@ static struct f7188x_gpio_bank f71882_gpio_bank[] = {
 	F7188X_GPIO_BANK(40, 4, 0xB0),
 };
 
+static struct f7188x_gpio_bank f71889a_gpio_bank[] = {
+	F7188X_GPIO_BANK(0, 7, 0xF0),
+	F7188X_GPIO_BANK(10, 7, 0xE0),
+	F7188X_GPIO_BANK(20, 8, 0xD0),
+	F7188X_GPIO_BANK(30, 8, 0xC0),
+	F7188X_GPIO_BANK(40, 8, 0xB0),
+	F7188X_GPIO_BANK(50, 5, 0xA0),
+	F7188X_GPIO_BANK(60, 8, 0x90),
+	F7188X_GPIO_BANK(70, 8, 0x80),
+};
+
 static struct f7188x_gpio_bank f71889_gpio_bank[] = {
 	F7188X_GPIO_BANK(0, 7, 0xF0),
 	F7188X_GPIO_BANK(10, 7, 0xE0),
@@ -209,6 +221,18 @@ static struct f7188x_gpio_bank f81866_gpio_bank[] = {
 	F7188X_GPIO_BANK(70, 8, 0x80),
 	F7188X_GPIO_BANK(80, 8, 0x88),
 };
+
+
+static struct f7188x_gpio_bank f81804_gpio_bank[] = {
+	F7188X_GPIO_BANK(0, 8, 0xF0),
+	F7188X_GPIO_BANK(10, 8, 0xE0),
+	F7188X_GPIO_BANK(20, 8, 0xD0),
+	F7188X_GPIO_BANK(50, 8, 0xA0),
+	F7188X_GPIO_BANK(60, 8, 0x90),
+	F7188X_GPIO_BANK(70, 8, 0x80),
+	F7188X_GPIO_BANK(90, 8, 0x98),
+};
+
 
 static int f7188x_gpio_get_direction(struct gpio_chip *chip, unsigned offset)
 {
@@ -382,6 +406,10 @@ static int f7188x_gpio_probe(struct platform_device *pdev)
 		data->nr_bank = ARRAY_SIZE(f71882_gpio_bank);
 		data->bank = f71882_gpio_bank;
 		break;
+	case f71889a:
+		data->nr_bank = ARRAY_SIZE(f71889a_gpio_bank);
+		data->bank = f71889a_gpio_bank;
+		break;
 	case f71889f:
 		data->nr_bank = ARRAY_SIZE(f71889_gpio_bank);
 		data->bank = f71889_gpio_bank;
@@ -389,6 +417,10 @@ static int f7188x_gpio_probe(struct platform_device *pdev)
 	case f81866:
 		data->nr_bank = ARRAY_SIZE(f81866_gpio_bank);
 		data->bank = f81866_gpio_bank;
+		break;
+	case  f81804:
+		data->nr_bank = ARRAY_SIZE(f81804_gpio_bank);
+		data->bank = f81804_gpio_bank;
 		break;
 	default:
 		return -ENODEV;
@@ -443,11 +475,17 @@ static int __init f7188x_find(int addr, struct f7188x_sio *sio)
 	case SIO_F71882_ID:
 		sio->type = f71882fg;
 		break;
+	case SIO_F71889A_ID:
+		sio->type = f71889a;
+		break;
 	case SIO_F71889_ID:
 		sio->type = f71889f;
 		break;
 	case SIO_F81866_ID:
 		sio->type = f81866;
+		break;
+	case SIO_F81804_ID:
+		sio->type = f81804;
 		break;
 	default:
 		pr_info(DRVNAME ": Unsupported Fintek device 0x%04x\n", devid);
@@ -538,6 +576,6 @@ static void __exit f7188x_gpio_exit(void)
 }
 module_exit(f7188x_gpio_exit);
 
-MODULE_DESCRIPTION("GPIO driver for Super-I/O chips F71869, F71869A, F71882FG, F71889F and F81866");
+MODULE_DESCRIPTION("GPIO driver for Super-I/O chips F71869, F71869A, F71882FG, F71889A, F71889F and F81866");
 MODULE_AUTHOR("Simon Guinot <simon.guinot@sequanux.org>");
 MODULE_LICENSE("GPL");

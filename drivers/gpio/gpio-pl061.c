@@ -1,11 +1,8 @@
+// SPDX-License-Identifier: GPL-2.0-only
 /*
  * Copyright (C) 2008, 2009 Provigent Ltd.
  *
  * Author: Baruch Siach <baruch@tkos.co.il>
- *
- * This program is free software; you can redistribute it and/or modify
- * it under the terms of the GNU General Public License version 2 as
- * published by the Free Software Foundation.
  *
  * Driver for the ARM PrimeCell(tm) General Purpose Input/Output (PL061)
  *
@@ -20,7 +17,7 @@
 #include <linux/irq.h>
 #include <linux/irqchip/chained_irq.h>
 #include <linux/bitops.h>
-#include <linux/gpio.h>
+#include <linux/gpio/driver.h>
 #include <linux/device.h>
 #include <linux/amba/bus.h>
 #include <linux/slab.h>
@@ -50,10 +47,11 @@ struct pl061_context_save_regs {
 #endif
 
 struct pl061 {
-	spinlock_t		lock;
+	raw_spinlock_t		lock;
 
 	void __iomem		*base;
 	struct gpio_chip	gc;
+	struct irq_chip		irq_chip;
 	int			parent_irq;
 
 #ifdef CONFIG_PM
@@ -74,11 +72,11 @@ static int pl061_direction_input(struct gpio_chip *gc, unsigned offset)
 	unsigned long flags;
 	unsigned char gpiodir;
 
-	spin_lock_irqsave(&pl061->lock, flags);
+	raw_spin_lock_irqsave(&pl061->lock, flags);
 	gpiodir = readb(pl061->base + GPIODIR);
 	gpiodir &= ~(BIT(offset));
 	writeb(gpiodir, pl061->base + GPIODIR);
-	spin_unlock_irqrestore(&pl061->lock, flags);
+	raw_spin_unlock_irqrestore(&pl061->lock, flags);
 
 	return 0;
 }
@@ -90,7 +88,7 @@ static int pl061_direction_output(struct gpio_chip *gc, unsigned offset,
 	unsigned long flags;
 	unsigned char gpiodir;
 
-	spin_lock_irqsave(&pl061->lock, flags);
+	raw_spin_lock_irqsave(&pl061->lock, flags);
 	writeb(!!value << offset, pl061->base + (BIT(offset + 2)));
 	gpiodir = readb(pl061->base + GPIODIR);
 	gpiodir |= BIT(offset);
@@ -101,7 +99,7 @@ static int pl061_direction_output(struct gpio_chip *gc, unsigned offset,
 	 * a gpio pin before configuring it in OUT mode.
 	 */
 	writeb(!!value << offset, pl061->base + (BIT(offset + 2)));
-	spin_unlock_irqrestore(&pl061->lock, flags);
+	raw_spin_unlock_irqrestore(&pl061->lock, flags);
 
 	return 0;
 }
@@ -143,7 +141,7 @@ static int pl061_irq_type(struct irq_data *d, unsigned trigger)
 	}
 
 
-	spin_lock_irqsave(&pl061->lock, flags);
+	raw_spin_lock_irqsave(&pl061->lock, flags);
 
 	gpioiev = readb(pl061->base + GPIOIEV);
 	gpiois = readb(pl061->base + GPIOIS);
@@ -203,7 +201,7 @@ static int pl061_irq_type(struct irq_data *d, unsigned trigger)
 	writeb(gpioibe, pl061->base + GPIOIBE);
 	writeb(gpioiev, pl061->base + GPIOIEV);
 
-	spin_unlock_irqrestore(&pl061->lock, flags);
+	raw_spin_unlock_irqrestore(&pl061->lock, flags);
 
 	return 0;
 }
@@ -221,7 +219,7 @@ static void pl061_irq_handler(struct irq_desc *desc)
 	pending = readb(pl061->base + GPIOMIS);
 	if (pending) {
 		for_each_set_bit(offset, &pending, PL061_GPIO_NR)
-			generic_handle_irq(irq_find_mapping(gc->irqdomain,
+			generic_handle_irq(irq_find_mapping(gc->irq.domain,
 							    offset));
 	}
 
@@ -235,10 +233,10 @@ static void pl061_irq_mask(struct irq_data *d)
 	u8 mask = BIT(irqd_to_hwirq(d) % PL061_GPIO_NR);
 	u8 gpioie;
 
-	spin_lock(&pl061->lock);
+	raw_spin_lock(&pl061->lock);
 	gpioie = readb(pl061->base + GPIOIE) & ~mask;
 	writeb(gpioie, pl061->base + GPIOIE);
-	spin_unlock(&pl061->lock);
+	raw_spin_unlock(&pl061->lock);
 }
 
 static void pl061_irq_unmask(struct irq_data *d)
@@ -248,10 +246,10 @@ static void pl061_irq_unmask(struct irq_data *d)
 	u8 mask = BIT(irqd_to_hwirq(d) % PL061_GPIO_NR);
 	u8 gpioie;
 
-	spin_lock(&pl061->lock);
+	raw_spin_lock(&pl061->lock);
 	gpioie = readb(pl061->base + GPIOIE) | mask;
 	writeb(gpioie, pl061->base + GPIOIE);
-	spin_unlock(&pl061->lock);
+	raw_spin_unlock(&pl061->lock);
 }
 
 /**
@@ -268,9 +266,9 @@ static void pl061_irq_ack(struct irq_data *d)
 	struct pl061 *pl061 = gpiochip_get_data(gc);
 	u8 mask = BIT(irqd_to_hwirq(d) % PL061_GPIO_NR);
 
-	spin_lock(&pl061->lock);
+	raw_spin_lock(&pl061->lock);
 	writeb(mask, pl061->base + GPIOIC);
-	spin_unlock(&pl061->lock);
+	raw_spin_unlock(&pl061->lock);
 }
 
 static int pl061_irq_set_wake(struct irq_data *d, unsigned int state)
@@ -280,15 +278,6 @@ static int pl061_irq_set_wake(struct irq_data *d, unsigned int state)
 
 	return irq_set_irq_wake(pl061->parent_irq, state);
 }
-
-static struct irq_chip pl061_irqchip = {
-	.name		= "pl061",
-	.irq_ack	= pl061_irq_ack,
-	.irq_mask	= pl061_irq_mask,
-	.irq_unmask	= pl061_irq_unmask,
-	.irq_set_type	= pl061_irq_type,
-	.irq_set_wake	= pl061_irq_set_wake,
-};
 
 static int pl061_probe(struct amba_device *adev, const struct amba_id *id)
 {
@@ -304,7 +293,7 @@ static int pl061_probe(struct amba_device *adev, const struct amba_id *id)
 	if (IS_ERR(pl061->base))
 		return PTR_ERR(pl061->base);
 
-	spin_lock_init(&pl061->lock);
+	raw_spin_lock_init(&pl061->lock);
 	if (of_property_read_bool(dev->of_node, "gpio-ranges")) {
 		pl061->gc.request = gpiochip_generic_request;
 		pl061->gc.free = gpiochip_generic_free;
@@ -328,6 +317,13 @@ static int pl061_probe(struct amba_device *adev, const struct amba_id *id)
 	/*
 	 * irq_chip support
 	 */
+	pl061->irq_chip.name = dev_name(dev);
+	pl061->irq_chip.irq_ack	= pl061_irq_ack;
+	pl061->irq_chip.irq_mask = pl061_irq_mask;
+	pl061->irq_chip.irq_unmask = pl061_irq_unmask;
+	pl061->irq_chip.irq_set_type = pl061_irq_type;
+	pl061->irq_chip.irq_set_wake = pl061_irq_set_wake;
+
 	writeb(0, pl061->base + GPIOIE); /* disable irqs */
 	irq = adev->irq[0];
 	if (irq < 0) {
@@ -336,14 +332,14 @@ static int pl061_probe(struct amba_device *adev, const struct amba_id *id)
 	}
 	pl061->parent_irq = irq;
 
-	ret = gpiochip_irqchip_add(&pl061->gc, &pl061_irqchip,
+	ret = gpiochip_irqchip_add(&pl061->gc, &pl061->irq_chip,
 				   0, handle_bad_irq,
 				   IRQ_TYPE_NONE);
 	if (ret) {
 		dev_info(&adev->dev, "could not add irqchip\n");
 		return ret;
 	}
-	gpiochip_set_chained_irqchip(&pl061->gc, &pl061_irqchip,
+	gpiochip_set_chained_irqchip(&pl061->gc, &pl061->irq_chip,
 				     irq, pl061_irq_handler);
 
 	amba_set_drvdata(adev, pl061);
@@ -405,7 +401,7 @@ static const struct dev_pm_ops pl061_dev_pm_ops = {
 };
 #endif
 
-static struct amba_id pl061_ids[] = {
+static const struct amba_id pl061_ids[] = {
 	{
 		.id	= 0x00041061,
 		.mask	= 0x000fffff,

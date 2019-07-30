@@ -21,7 +21,11 @@
 #include <linux/of_net.h>
 #include "bgmac.h"
 
+#define NICPM_PADRING_CFG		0x00000004
 #define NICPM_IOMUX_CTRL		0x00000008
+
+#define NICPM_PADRING_CFG_INIT_VAL	0x74000000
+#define NICPM_IOMUX_CTRL_INIT_VAL_AX	0x21880000
 
 #define NICPM_IOMUX_CTRL_INIT_VAL	0x3196e000
 #define NICPM_IOMUX_CTRL_SPD_SHIFT	10
@@ -46,11 +50,14 @@ static u32 platform_bgmac_idm_read(struct bgmac *bgmac, u16 offset)
 
 static void platform_bgmac_idm_write(struct bgmac *bgmac, u16 offset, u32 value)
 {
-	return writel(value, bgmac->plat.idm_base + offset);
+	writel(value, bgmac->plat.idm_base + offset);
 }
 
 static bool platform_bgmac_clk_enabled(struct bgmac *bgmac)
 {
+	if (!bgmac->plat.idm_base)
+		return true;
+
 	if ((bgmac_idm_read(bgmac, BCMA_IOCTL) & BGMAC_CLK_EN) != BGMAC_CLK_EN)
 		return false;
 	if (bgmac_idm_read(bgmac, BCMA_RESET_CTL) & BCMA_RESET_CTL_RESET)
@@ -61,6 +68,9 @@ static bool platform_bgmac_clk_enabled(struct bgmac *bgmac)
 static void platform_bgmac_clk_enable(struct bgmac *bgmac, u32 flags)
 {
 	u32 val;
+
+	if (!bgmac->plat.idm_base)
+		return;
 
 	/* The Reset Control register only contains a single bit to show if the
 	 * controller is currently in reset.  Do a sanity check here, just in
@@ -113,10 +123,15 @@ static void bgmac_nicpm_speed_set(struct net_device *net_dev)
 	if (!bgmac->plat.nicpm_base)
 		return;
 
+	/* SET RGMII IO CONFIG */
+	writel(NICPM_PADRING_CFG_INIT_VAL,
+	       bgmac->plat.nicpm_base + NICPM_PADRING_CFG);
+
 	val = NICPM_IOMUX_CTRL_INIT_VAL;
 	switch (bgmac->net_dev->phydev->speed) {
 	default:
 		netdev_err(net_dev, "Unsupported speed. Defaulting to 1000Mb\n");
+		/* fall through */
 	case SPEED_1000:
 		val |= NICPM_IOMUX_CTRL_SPD_1000M << NICPM_IOMUX_CTRL_SPD_SHIFT;
 		break;
@@ -172,12 +187,13 @@ static int bgmac_probe(struct platform_device *pdev)
 	bgmac->feature_flags |= BGMAC_FEAT_CMDCFG_SR_REV4;
 	bgmac->feature_flags |= BGMAC_FEAT_TX_MASK_SETUP;
 	bgmac->feature_flags |= BGMAC_FEAT_RX_MASK_SETUP;
+	bgmac->feature_flags |= BGMAC_FEAT_IDM_MASK;
 
 	bgmac->dev = &pdev->dev;
 	bgmac->dma_dev = &pdev->dev;
 
 	mac_addr = of_get_mac_address(np);
-	if (mac_addr)
+	if (!IS_ERR(mac_addr))
 		ether_addr_copy(bgmac->net_dev->dev_addr, mac_addr);
 	else
 		dev_warn(&pdev->dev, "MAC address not present in device tree\n");
@@ -199,14 +215,12 @@ static int bgmac_probe(struct platform_device *pdev)
 		return PTR_ERR(bgmac->plat.base);
 
 	regs = platform_get_resource_byname(pdev, IORESOURCE_MEM, "idm_base");
-	if (!regs) {
-		dev_err(&pdev->dev, "Unable to obtain idm resource\n");
-		return -EINVAL;
+	if (regs) {
+		bgmac->plat.idm_base = devm_ioremap_resource(&pdev->dev, regs);
+		if (IS_ERR(bgmac->plat.idm_base))
+			return PTR_ERR(bgmac->plat.idm_base);
+		bgmac->feature_flags &= ~BGMAC_FEAT_IDM_MASK;
 	}
-
-	bgmac->plat.idm_base = devm_ioremap_resource(&pdev->dev, regs);
-	if (IS_ERR(bgmac->plat.idm_base))
-		return PTR_ERR(bgmac->plat.idm_base);
 
 	regs = platform_get_resource_byname(pdev, IORESOURCE_MEM, "nicpm_base");
 	if (regs) {
@@ -244,6 +258,31 @@ static int bgmac_remove(struct platform_device *pdev)
 	return 0;
 }
 
+#ifdef CONFIG_PM
+static int bgmac_suspend(struct device *dev)
+{
+	struct bgmac *bgmac = dev_get_drvdata(dev);
+
+	return bgmac_enet_suspend(bgmac);
+}
+
+static int bgmac_resume(struct device *dev)
+{
+	struct bgmac *bgmac = dev_get_drvdata(dev);
+
+	return bgmac_enet_resume(bgmac);
+}
+
+static const struct dev_pm_ops bgmac_pm_ops = {
+	.suspend = bgmac_suspend,
+	.resume = bgmac_resume
+};
+
+#define BGMAC_PM_OPS (&bgmac_pm_ops)
+#else
+#define BGMAC_PM_OPS NULL
+#endif /* CONFIG_PM */
+
 static const struct of_device_id bgmac_of_enet_match[] = {
 	{.compatible = "brcm,amac",},
 	{.compatible = "brcm,nsp-amac",},
@@ -257,6 +296,7 @@ static struct platform_driver bgmac_enet_driver = {
 	.driver = {
 		.name  = "bgmac-enet",
 		.of_match_table = bgmac_of_enet_match,
+		.pm = BGMAC_PM_OPS
 	},
 	.probe = bgmac_probe,
 	.remove = bgmac_remove,

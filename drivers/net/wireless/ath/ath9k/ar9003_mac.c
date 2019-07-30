@@ -480,7 +480,7 @@ EXPORT_SYMBOL(ath9k_hw_addrxbuf_edma);
 int ath9k_hw_process_rxdesc_edma(struct ath_hw *ah, struct ath_rx_status *rxs,
 				 void *buf_addr)
 {
-	struct ar9003_rxs *rxsp = (struct ar9003_rxs *) buf_addr;
+	struct ar9003_rxs *rxsp = buf_addr;
 	unsigned int phyerr;
 
 	if ((rxsp->status11 & AR_RxDone) == 0)
@@ -494,7 +494,8 @@ int ath9k_hw_process_rxdesc_edma(struct ath_hw *ah, struct ath_rx_status *rxs,
 
 	rxs->rs_status = 0;
 	rxs->rs_flags =  0;
-	rxs->flag =  0;
+	rxs->enc_flags = 0;
+	rxs->bw = RATE_INFO_BW_20;
 
 	rxs->rs_datalen = rxsp->status2 & AR_DataLen;
 	rxs->rs_tstamp =  rxsp->status3;
@@ -520,8 +521,8 @@ int ath9k_hw_process_rxdesc_edma(struct ath_hw *ah, struct ath_rx_status *rxs,
 	rxs->rs_isaggr = (rxsp->status11 & AR_RxAggr) ? 1 : 0;
 	rxs->rs_moreaggr = (rxsp->status11 & AR_RxMoreAggr) ? 1 : 0;
 	rxs->rs_antenna = (MS(rxsp->status4, AR_RxAntenna) & 0x7);
-	rxs->flag  |= (rxsp->status4 & AR_GI) ? RX_FLAG_SHORT_GI : 0;
-	rxs->flag  |= (rxsp->status4 & AR_2040) ? RX_FLAG_40MHZ : 0;
+	rxs->enc_flags |= (rxsp->status4 & AR_GI) ? RX_ENC_FLAG_SHORT_GI : 0;
+	rxs->bw = (rxsp->status4 & AR_2040) ? RATE_INFO_BW_40 : RATE_INFO_BW_20;
 
 	rxs->evm0 = rxsp->status6;
 	rxs->evm1 = rxsp->status7;
@@ -609,7 +610,7 @@ void ath9k_hw_setup_statusring(struct ath_hw *ah, void *ts_start,
 	ah->ts_paddr_start = ts_paddr_start;
 	ah->ts_paddr_end = ts_paddr_start + (size * sizeof(struct ar9003_txs));
 	ah->ts_size = size;
-	ah->ts_ring = (struct ar9003_txs *) ts_start;
+	ah->ts_ring = ts_start;
 
 	ath9k_hw_reset_txstatus_ring(ah);
 }

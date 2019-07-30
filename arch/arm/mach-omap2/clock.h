@@ -1,3 +1,4 @@
+/* SPDX-License-Identifier: GPL-2.0-only */
 /*
  *  linux/arch/arm/mach-omap2/clock.h
  *
@@ -7,10 +8,6 @@
  *  Contacts:
  *  Richard Woodruff <r-woodruff2@ti.com>
  *  Paul Walmsley
- *
- * This program is free software; you can redistribute it and/or modify
- * it under the terms of the GNU General Public License version 2 as
- * published by the Free Software Foundation.
  */
 
 #ifndef __ARCH_ARM_MACH_OMAP2_CLOCK_H
@@ -63,6 +60,8 @@
 #define OMAP4XXX_EN_DPLL_LPBYPASS		0x5
 #define OMAP4XXX_EN_DPLL_FRBYPASS		0x6
 #define OMAP4XXX_EN_DPLL_LOCKED			0x7
+
+extern struct ti_clk_ll_ops omap_clk_ll_ops;
 
 extern u16 cpu_mask;
 

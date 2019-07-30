@@ -1,9 +1,8 @@
+/* SPDX-License-Identifier: GPL-2.0-only */
 /*
  * bebob.h - a part of driver for BeBoB based devices
  *
  * Copyright (c) 2013-2014 Takashi Sakamoto
- *
- * Licensed under the terms of the GNU General Public License, version 2.
  */
 
 #ifndef SOUND_BEBOB_H_INCLUDED
@@ -58,7 +57,7 @@ enum snd_bebob_clock_type {
 struct snd_bebob_clock_spec {
 	unsigned int num;
 	const char *const *labels;
-	enum snd_bebob_clock_type *types;
+	const enum snd_bebob_clock_type *types;
 	int (*get)(struct snd_bebob *bebob, unsigned int *id);
 };
 struct snd_bebob_rate_spec {

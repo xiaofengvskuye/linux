@@ -1,13 +1,5 @@
+// SPDX-License-Identifier: GPL-2.0-only
 /* Copyright (c) 2013-2016, The Linux Foundation. All rights reserved.
- *
- * This program is free software; you can redistribute it and/or modify
- * it under the terms of the GNU General Public License version 2 and
- * only version 2 as published by the Free Software Foundation.
- *
- * This program is distributed in the hope that it will be useful,
- * but WITHOUT ANY WARRANTY; without even the implied warranty of
- * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
- * GNU General Public License for more details.
  */
 
 /* Qualcomm Technologies, Inc. EMAC Gigabit Ethernet Driver */
@@ -50,29 +42,13 @@
 #define DMAR_DLY_CNT_DEF				    15
 #define DMAW_DLY_CNT_DEF				     4
 
-#define IMR_NORMAL_MASK         (\
-		ISR_ERROR       |\
-		ISR_GPHY_LINK   |\
-		ISR_TX_PKT      |\
-		GPHY_WAKEUP_INT)
-
-#define IMR_EXTENDED_MASK       (\
-		SW_MAN_INT      |\
-		ISR_OVER        |\
-		ISR_ERROR       |\
-		ISR_GPHY_LINK   |\
-		ISR_TX_PKT      |\
-		GPHY_WAKEUP_INT)
+#define IMR_NORMAL_MASK		(ISR_ERROR | ISR_OVER | ISR_TX_PKT)
 
 #define ISR_TX_PKT      (\
 	TX_PKT_INT      |\
 	TX_PKT_INT1     |\
 	TX_PKT_INT2     |\
 	TX_PKT_INT3)
-
-#define ISR_GPHY_LINK        (\
-	GPHY_LINK_UP_INT     |\
-	GPHY_LINK_DOWN_INT)
 
 #define ISR_OVER        (\
 	RFD0_UR_INT     |\
@@ -146,7 +122,7 @@ static int emac_start_xmit(struct sk_buff *skb, struct net_device *netdev)
 	return emac_mac_tx_buf_send(adpt, &adpt->tx_q, skb);
 }
 
-irqreturn_t emac_isr(int _irq, void *data)
+static irqreturn_t emac_isr(int _irq, void *data)
 {
 	struct emac_irq *irq = data;
 	struct emac_adapter *adpt =
@@ -164,9 +140,8 @@ irqreturn_t emac_isr(int _irq, void *data)
 		goto exit;
 
 	if (status & ISR_ERROR) {
-		netif_warn(adpt,  intr, adpt->netdev,
-			   "warning: error irq status 0x%lx\n",
-			   status & ISR_ERROR);
+		net_err_ratelimited("%s: error interrupt 0x%lx\n",
+				    adpt->netdev->name, status & ISR_ERROR);
 		/* reset MAC */
 		schedule_work(&adpt->work_thread);
 	}
@@ -185,11 +160,8 @@ irqreturn_t emac_isr(int _irq, void *data)
 		emac_mac_tx_process(adpt, &adpt->tx_q);
 
 	if (status & ISR_OVER)
-		net_warn_ratelimited("warning: TX/RX overflow\n");
-
-	/* link event */
-	if (status & ISR_GPHY_LINK)
-		phy_mac_interrupt(adpt->phydev, !!(status & GPHY_LINK_UP_INT));
+		net_warn_ratelimited("%s: TX/RX overflow interrupt\n",
+				     adpt->netdev->name);
 
 exit:
 	/* enable the interrupt */
@@ -273,18 +245,18 @@ static int emac_open(struct net_device *netdev)
 		return ret;
 	}
 
-	ret = emac_mac_up(adpt);
+	ret = emac_sgmii_open(adpt);
 	if (ret) {
 		emac_mac_rx_tx_rings_free_all(adpt);
 		free_irq(irq->irq, irq);
 		return ret;
 	}
 
-	ret = adpt->phy.open(adpt);
+	ret = emac_mac_up(adpt);
 	if (ret) {
-		emac_mac_down(adpt);
 		emac_mac_rx_tx_rings_free_all(adpt);
 		free_irq(irq->irq, irq);
+		emac_sgmii_close(adpt);
 		return ret;
 	}
 
@@ -298,7 +270,7 @@ static int emac_close(struct net_device *netdev)
 
 	mutex_lock(&adpt->reset_lock);
 
-	adpt->phy.close(adpt);
+	emac_sgmii_close(adpt);
 	emac_mac_down(adpt);
 	emac_mac_rx_tx_rings_free_all(adpt);
 
@@ -463,6 +435,9 @@ static void emac_init_adapter(struct emac_adapter *adpt)
 
 	/* default to automatic flow control */
 	adpt->automatic = true;
+
+	/* Disable single-pause-frame mode by default */
+	adpt->single_pause_mode = false;
 }
 
 /* Get the clock */
@@ -632,20 +607,14 @@ static int emac_probe(struct platform_device *pdev)
 	u32 reg;
 	int ret;
 
-	/* The EMAC itself is capable of 64-bit DMA, so try that first. */
-	ret = dma_set_mask_and_coherent(&pdev->dev, DMA_BIT_MASK(64));
+	/* The TPD buffer address is limited to:
+	 * 1. PTP:	45bits. (Driver doesn't support yet.)
+	 * 2. NON-PTP:	46bits.
+	 */
+	ret = dma_set_mask_and_coherent(&pdev->dev, DMA_BIT_MASK(46));
 	if (ret) {
-		/* Some platforms may restrict the EMAC's address bus to less
-		 * then the size of DDR. In this case, we need to try a
-		 * smaller mask.  We could try every possible smaller mask,
-		 * but that's overkill.  Instead, just fall to 32-bit, which
-		 * should always work.
-		 */
-		ret = dma_set_mask_and_coherent(&pdev->dev, DMA_BIT_MASK(32));
-		if (ret) {
-			dev_err(&pdev->dev, "could not set DMA mask\n");
-			return ret;
-		}
+		dev_err(&pdev->dev, "could not set DMA mask\n");
+		return ret;
 	}
 
 	netdev = alloc_etherdev(sizeof(struct emac_adapter));
@@ -702,8 +671,6 @@ static int emac_probe(struct platform_device *pdev)
 		dev_err(&pdev->dev, "could not initialize clocks\n");
 		goto err_undo_mdiobus;
 	}
-
-	emac_mac_reset(adpt);
 
 	/* set hw features */
 	netdev->features = NETIF_F_SG | NETIF_F_HW_CSUM | NETIF_F_RXCSUM |
@@ -782,6 +749,20 @@ static int emac_remove(struct platform_device *pdev)
 	return 0;
 }
 
+static void emac_shutdown(struct platform_device *pdev)
+{
+	struct net_device *netdev = dev_get_drvdata(&pdev->dev);
+	struct emac_adapter *adpt = netdev_priv(netdev);
+
+	if (netdev->flags & IFF_UP) {
+		/* Closing the SGMII turns off its interrupts */
+		emac_sgmii_close(adpt);
+
+		/* Resetting the MAC turns off all DMA and its interrupts */
+		emac_mac_reset(adpt);
+	}
+}
+
 static struct platform_driver emac_platform_driver = {
 	.probe	= emac_probe,
 	.remove	= emac_remove,
@@ -790,6 +771,7 @@ static struct platform_driver emac_platform_driver = {
 		.of_match_table = emac_dt_match,
 		.acpi_match_table = ACPI_PTR(emac_acpi_match),
 	},
+	.shutdown = emac_shutdown,
 };
 
 module_platform_driver(emac_platform_driver);

@@ -258,6 +258,7 @@ static const struct pci_device_id rtl8139_pci_tbl[] = {
 	{0x126c, 0x1211, PCI_ANY_ID, PCI_ANY_ID, 0, 0, RTL8139 },
 	{0x1743, 0x8139, PCI_ANY_ID, PCI_ANY_ID, 0, 0, RTL8139 },
 	{0x021b, 0x8139, PCI_ANY_ID, PCI_ANY_ID, 0, 0, RTL8139 },
+	{0x16ec, 0xab06, PCI_ANY_ID, PCI_ANY_ID, 0, 0, RTL8139 },
 
 #ifdef CONFIG_SH_SECUREEDGE5410
 	/* Bogus 8139 silicon reports 8129 without external PROM :-( */
@@ -1104,7 +1105,6 @@ static int rtl8139_init_one(struct pci_dev *pdev,
 	return 0;
 
 err_out:
-	netif_napi_del(&tp->napi);
 	__rtl8139_cleanup_dev (dev);
 	pci_disable_device (pdev);
 	return i;
@@ -1119,7 +1119,6 @@ static void rtl8139_remove_one(struct pci_dev *pdev)
 	assert (dev != NULL);
 
 	cancel_delayed_work_sync(&tp->thread);
-	netif_napi_del(&tp->napi);
 
 	unregister_netdev (dev);
 
@@ -1663,7 +1662,7 @@ static void rtl8139_tx_timeout_task (struct work_struct *work)
 
 	napi_disable(&tp->napi);
 	netif_stop_queue(dev);
-	synchronize_sched();
+	synchronize_rcu();
 
 	netdev_dbg(dev, "Transmit timeout, status %02x %04x %04x media %02x\n",
 		   RTL_R8(ChipCmd), RTL_R16(IntrStatus),
@@ -2135,11 +2134,12 @@ static int rtl8139_poll(struct napi_struct *napi, int budget)
 	if (likely(RTL_R16(IntrStatus) & RxAckBits))
 		work_done += rtl8139_rx(dev, tp, budget);
 
-	if (work_done < budget && napi_complete_done(napi, work_done)) {
+	if (work_done < budget) {
 		unsigned long flags;
 
 		spin_lock_irqsave(&tp->lock, flags);
-		RTL_W16_F(IntrMask, rtl8139_intr_mask);
+		if (napi_complete_done(napi, work_done))
+			RTL_W16_F(IntrMask, rtl8139_intr_mask);
 		spin_unlock_irqrestore(&tp->lock, flags);
 	}
 	spin_unlock(&tp->rx_lock);
@@ -2223,7 +2223,7 @@ static void rtl8139_poll_controller(struct net_device *dev)
 	struct rtl8139_private *tp = netdev_priv(dev);
 	const int irq = tp->pci_dev->irq;
 
-	disable_irq(irq);
+	disable_irq_nosync(irq);
 	rtl8139_interrupt(irq, dev);
 	enable_irq(irq);
 }
@@ -2384,21 +2384,23 @@ static void rtl8139_get_drvinfo(struct net_device *dev, struct ethtool_drvinfo *
 	strlcpy(info->bus_info, pci_name(tp->pci_dev), sizeof(info->bus_info));
 }
 
-static int rtl8139_get_settings(struct net_device *dev, struct ethtool_cmd *cmd)
+static int rtl8139_get_link_ksettings(struct net_device *dev,
+				      struct ethtool_link_ksettings *cmd)
 {
 	struct rtl8139_private *tp = netdev_priv(dev);
 	spin_lock_irq(&tp->lock);
-	mii_ethtool_gset(&tp->mii, cmd);
+	mii_ethtool_get_link_ksettings(&tp->mii, cmd);
 	spin_unlock_irq(&tp->lock);
 	return 0;
 }
 
-static int rtl8139_set_settings(struct net_device *dev, struct ethtool_cmd *cmd)
+static int rtl8139_set_link_ksettings(struct net_device *dev,
+				      const struct ethtool_link_ksettings *cmd)
 {
 	struct rtl8139_private *tp = netdev_priv(dev);
 	int rc;
 	spin_lock_irq(&tp->lock);
-	rc = mii_ethtool_sset(&tp->mii, cmd);
+	rc = mii_ethtool_set_link_ksettings(&tp->mii, cmd);
 	spin_unlock_irq(&tp->lock);
 	return rc;
 }
@@ -2480,8 +2482,6 @@ static void rtl8139_get_strings(struct net_device *dev, u32 stringset, u8 *data)
 
 static const struct ethtool_ops rtl8139_ethtool_ops = {
 	.get_drvinfo		= rtl8139_get_drvinfo,
-	.get_settings		= rtl8139_get_settings,
-	.set_settings		= rtl8139_set_settings,
 	.get_regs_len		= rtl8139_get_regs_len,
 	.get_regs		= rtl8139_get_regs,
 	.nway_reset		= rtl8139_nway_reset,
@@ -2493,6 +2493,8 @@ static const struct ethtool_ops rtl8139_ethtool_ops = {
 	.get_strings		= rtl8139_get_strings,
 	.get_sset_count		= rtl8139_get_sset_count,
 	.get_ethtool_stats	= rtl8139_get_ethtool_stats,
+	.get_link_ksettings	= rtl8139_get_link_ksettings,
+	.set_link_ksettings	= rtl8139_set_link_ksettings,
 };
 
 static int netdev_ioctl(struct net_device *dev, struct ifreq *rq, int cmd)

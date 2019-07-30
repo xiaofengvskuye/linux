@@ -31,13 +31,13 @@
 #include <linux/module.h>
 #include <linux/console.h>
 
-#include "drmP.h"
-#include "drm/drm.h"
-#include "drm_crtc_helper.h"
+#include <drm/drmP.h>
+#include <drm/drm.h>
+#include <drm/drm_modeset_helper.h>
+#include <drm/drm_probe_helper.h>
 #include "qxl_drv.h"
 #include "qxl_object.h"
 
-extern int qxl_max_ioctls;
 static const struct pci_device_id pciidlist[] = {
 	{ 0x1b36, 0x100, PCI_ANY_ID, PCI_ANY_ID, PCI_CLASS_DISPLAY_VGA << 8,
 	  0xffff00, 0 },
@@ -79,17 +79,17 @@ qxl_pci_probe(struct pci_dev *pdev, const struct pci_device_id *ent)
 	if (ret)
 		goto free_dev;
 
-	ret = qxl_device_init(qdev, &qxl_driver, pdev, ent->driver_data);
+	ret = drm_fb_helper_remove_conflicting_pci_framebuffers(pdev, 0, "qxl");
 	if (ret)
 		goto disable_pci;
 
-	ret = drm_vblank_init(&qdev->ddev, 1);
+	ret = qxl_device_init(qdev, &qxl_driver, pdev);
 	if (ret)
-		goto unload;
+		goto disable_pci;
 
 	ret = qxl_modeset_init(qdev);
 	if (ret)
-		goto vblank_cleanup;
+		goto unload;
 
 	drm_kms_helper_poll_init(&qdev->ddev);
 
@@ -98,12 +98,11 @@ qxl_pci_probe(struct pci_dev *pdev, const struct pci_device_id *ent)
 	if (ret)
 		goto modeset_cleanup;
 
+	drm_fbdev_generic_setup(&qdev->ddev, 32);
 	return 0;
 
 modeset_cleanup:
 	qxl_modeset_fini(qdev);
-vblank_cleanup:
-	drm_vblank_cleanup(&qdev->ddev);
 unload:
 	qxl_device_fini(qdev);
 disable_pci:
@@ -126,7 +125,7 @@ qxl_pci_remove(struct pci_dev *pdev)
 
 	dev->dev_private = NULL;
 	kfree(qdev);
-	drm_dev_unref(dev);
+	drm_dev_put(dev);
 }
 
 static const struct file_operations qxl_fops = {
@@ -143,20 +142,11 @@ static int qxl_drm_freeze(struct drm_device *dev)
 {
 	struct pci_dev *pdev = dev->pdev;
 	struct qxl_device *qdev = dev->dev_private;
-	struct drm_crtc *crtc;
+	int ret;
 
-	drm_kms_helper_poll_disable(dev);
-
-	console_lock();
-	qxl_fbdev_set_suspend(qdev, 1);
-	console_unlock();
-
-	/* unpin the front buffers */
-	list_for_each_entry(crtc, &dev->mode_config.crtc_list, head) {
-		const struct drm_crtc_helper_funcs *crtc_funcs = crtc->helper_private;
-		if (crtc->enabled)
-			(*crtc_funcs->disable)(crtc);
-	}
+	ret = drm_mode_config_helper_suspend(dev);
+	if (ret)
+		return ret;
 
 	qxl_destroy_monitors_object(qdev);
 	qxl_surf_evict(qdev);
@@ -182,14 +172,7 @@ static int qxl_drm_resume(struct drm_device *dev, bool thaw)
 	}
 
 	qxl_create_monitors_object(qdev);
-	drm_helper_resume_force_mode(dev);
-
-	console_lock();
-	qxl_fbdev_set_suspend(qdev, 0);
-	console_unlock();
-
-	drm_kms_helper_poll_enable(dev);
-	return 0;
+	return drm_mode_config_helper_resume(dev);
 }
 
 static int qxl_pm_suspend(struct device *dev)
@@ -247,21 +230,6 @@ static int qxl_pm_restore(struct device *dev)
 	return qxl_drm_resume(drm_dev, false);
 }
 
-static u32 qxl_noop_get_vblank_counter(struct drm_device *dev,
-				       unsigned int pipe)
-{
-	return 0;
-}
-
-static int qxl_noop_enable_vblank(struct drm_device *dev, unsigned int pipe)
-{
-	return 0;
-}
-
-static void qxl_noop_disable_vblank(struct drm_device *dev, unsigned int pipe)
-{
-}
-
 static const struct dev_pm_ops qxl_pm_ops = {
 	.suspend = qxl_pm_suspend,
 	.resume = qxl_pm_resume,
@@ -280,19 +248,12 @@ static struct pci_driver qxl_pci_driver = {
 
 static struct drm_driver qxl_driver = {
 	.driver_features = DRIVER_GEM | DRIVER_MODESET | DRIVER_PRIME |
-			   DRIVER_HAVE_IRQ | DRIVER_IRQ_SHARED,
-	.get_vblank_counter = qxl_noop_get_vblank_counter,
-	.enable_vblank = qxl_noop_enable_vblank,
-	.disable_vblank = qxl_noop_disable_vblank,
-
-	.set_busid = drm_pci_set_busid,
+			   DRIVER_ATOMIC,
 
 	.dumb_create = qxl_mode_dumb_create,
 	.dumb_map_offset = qxl_mode_dumb_mmap,
-	.dumb_destroy = drm_gem_dumb_destroy,
 #if defined(CONFIG_DEBUG_FS)
 	.debugfs_init = qxl_debugfs_init,
-	.debugfs_cleanup = qxl_debugfs_takedown,
 #endif
 	.prime_handle_to_fd = drm_gem_prime_handle_to_fd,
 	.prime_fd_to_handle = drm_gem_prime_fd_to_handle,
@@ -327,12 +288,12 @@ static int __init qxl_init(void)
 	if (qxl_modeset == 0)
 		return -EINVAL;
 	qxl_driver.num_ioctls = qxl_max_ioctls;
-	return drm_pci_init(&qxl_driver, &qxl_pci_driver);
+	return pci_register_driver(&qxl_pci_driver);
 }
 
 static void __exit qxl_exit(void)
 {
-	drm_pci_exit(&qxl_driver, &qxl_pci_driver);
+	pci_unregister_driver(&qxl_pci_driver);
 }
 
 module_init(qxl_init);

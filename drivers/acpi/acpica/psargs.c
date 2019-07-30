@@ -1,45 +1,11 @@
+// SPDX-License-Identifier: BSD-3-Clause OR GPL-2.0
 /******************************************************************************
  *
  * Module Name: psargs - Parse AML opcode arguments
  *
+ * Copyright (C) 2000 - 2019, Intel Corp.
+ *
  *****************************************************************************/
-
-/*
- * Copyright (C) 2000 - 2017, Intel Corp.
- * All rights reserved.
- *
- * Redistribution and use in source and binary forms, with or without
- * modification, are permitted provided that the following conditions
- * are met:
- * 1. Redistributions of source code must retain the above copyright
- *    notice, this list of conditions, and the following disclaimer,
- *    without modification.
- * 2. Redistributions in binary form must reproduce at minimum a disclaimer
- *    substantially similar to the "NO WARRANTY" disclaimer below
- *    ("Disclaimer") and any redistribution must be conditioned upon
- *    including a substantially similar Disclaimer requirement for further
- *    binary redistribution.
- * 3. Neither the names of the above-listed copyright holders nor the names
- *    of any contributors may be used to endorse or promote products derived
- *    from this software without specific prior written permission.
- *
- * Alternatively, this software may be distributed under the terms of the
- * GNU General Public License ("GPL") version 2 as published by the Free
- * Software Foundation.
- *
- * NO WARRANTY
- * THIS SOFTWARE IS PROVIDED BY THE COPYRIGHT HOLDERS AND CONTRIBUTORS
- * "AS IS" AND ANY EXPRESS OR IMPLIED WARRANTIES, INCLUDING, BUT NOT
- * LIMITED TO, THE IMPLIED WARRANTIES OF MERCHANTIBILITY AND FITNESS FOR
- * A PARTICULAR PURPOSE ARE DISCLAIMED. IN NO EVENT SHALL THE COPYRIGHT
- * HOLDERS OR CONTRIBUTORS BE LIABLE FOR SPECIAL, EXEMPLARY, OR CONSEQUENTIAL
- * DAMAGES (INCLUDING, BUT NOT LIMITED TO, PROCUREMENT OF SUBSTITUTE GOODS
- * OR SERVICES; LOSS OF USE, DATA, OR PROFITS; OR BUSINESS INTERRUPTION)
- * HOWEVER CAUSED AND ON ANY THEORY OF LIABILITY, WHETHER IN CONTRACT,
- * STRICT LIABILITY, OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING
- * IN ANY WAY OUT OF THE USE OF THIS SOFTWARE, EVEN IF ADVISED OF THE
- * POSSIBILITY OF SUCH DAMAGES.
- */
 
 #include <acpi/acpi.h>
 #include "accommon.h"
@@ -47,6 +13,7 @@
 #include "amlcode.h"
 #include "acnamesp.h"
 #include "acdispat.h"
+#include "acconvert.h"
 
 #define _COMPONENT          ACPI_PARSER
 ACPI_MODULE_NAME("psargs")
@@ -183,21 +150,21 @@ char *acpi_ps_get_next_namestring(struct acpi_parse_state *parser_state)
 
 		/* Two name segments */
 
-		end += 1 + (2 * ACPI_NAME_SIZE);
+		end += 1 + (2 * ACPI_NAMESEG_SIZE);
 		break;
 
-	case AML_MULTI_NAME_PREFIX_OP:
+	case AML_MULTI_NAME_PREFIX:
 
 		/* Multiple name segments, 4 chars each, count in next byte */
 
-		end += 2 + (*(end + 1) * ACPI_NAME_SIZE);
+		end += 2 + (*(end + 1) * ACPI_NAMESEG_SIZE);
 		break;
 
 	default:
 
 		/* Single name segment */
 
-		end += ACPI_NAME_SIZE;
+		end += ACPI_NAMESEG_SIZE;
 		break;
 	}
 
@@ -339,7 +306,7 @@ acpi_ps_get_next_namepath(struct acpi_walk_state *walk_state,
 		/* 2) not_found during a cond_ref_of(x) is ok by definition */
 
 		else if (walk_state->op->common.aml_opcode ==
-			 AML_COND_REF_OF_OP) {
+			 AML_CONDITIONAL_REF_OF_OP) {
 			status = AE_OK;
 		}
 
@@ -352,7 +319,7 @@ acpi_ps_get_next_namepath(struct acpi_walk_state *walk_state,
 			 ((arg->common.parent->common.aml_opcode ==
 			   AML_PACKAGE_OP)
 			  || (arg->common.parent->common.aml_opcode ==
-			      AML_VAR_PACKAGE_OP))) {
+			      AML_VARIABLE_PACKAGE_OP))) {
 			status = AE_OK;
 		}
 	}
@@ -360,7 +327,7 @@ acpi_ps_get_next_namepath(struct acpi_walk_state *walk_state,
 	/* Final exception check (may have been changed from code above) */
 
 	if (ACPI_FAILURE(status)) {
-		ACPI_ERROR_NAMESPACE(path, status);
+		ACPI_ERROR_NAMESPACE(walk_state->scope_info, path, status);
 
 		if ((walk_state->parse_flags & ACPI_PARSE_MODE_MASK) ==
 		    ACPI_PARSE_EXECUTE) {
@@ -502,6 +469,7 @@ static union acpi_parse_object *acpi_ps_get_next_field(struct acpi_parse_state
 
 	ACPI_FUNCTION_TRACE(ps_get_next_field);
 
+	ASL_CV_CAPTURE_COMMENTS_ONLY(parser_state);
 	aml = parser_state->aml;
 
 	/* Determine field type */
@@ -546,6 +514,7 @@ static union acpi_parse_object *acpi_ps_get_next_field(struct acpi_parse_state
 
 	/* Decode the field type */
 
+	ASL_CV_CAPTURE_COMMENTS_ONLY(parser_state);
 	switch (opcode) {
 	case AML_INT_NAMEDFIELD_OP:
 
@@ -553,7 +522,23 @@ static union acpi_parse_object *acpi_ps_get_next_field(struct acpi_parse_state
 
 		ACPI_MOVE_32_TO_32(&name, parser_state->aml);
 		acpi_ps_set_name(field, name);
-		parser_state->aml += ACPI_NAME_SIZE;
+		parser_state->aml += ACPI_NAMESEG_SIZE;
+
+		ASL_CV_CAPTURE_COMMENTS_ONLY(parser_state);
+
+#ifdef ACPI_ASL_COMPILER
+		/*
+		 * Because the package length isn't represented as a parse tree object,
+		 * take comments surrounding this and add to the previously created
+		 * parse node.
+		 */
+		if (field->common.inline_comment) {
+			field->common.name_comment =
+			    field->common.inline_comment;
+		}
+		field->common.inline_comment = acpi_gbl_current_inline_comment;
+		acpi_gbl_current_inline_comment = NULL;
+#endif
 
 		/* Get the length which is encoded as a package length */
 
@@ -609,11 +594,13 @@ static union acpi_parse_object *acpi_ps_get_next_field(struct acpi_parse_state
 		if (ACPI_GET8(parser_state->aml) == AML_BUFFER_OP) {
 			parser_state->aml++;
 
+			ASL_CV_CAPTURE_COMMENTS_ONLY(parser_state);
 			pkg_end = parser_state->aml;
 			pkg_length =
 			    acpi_ps_get_next_package_length(parser_state);
 			pkg_end += pkg_length;
 
+			ASL_CV_CAPTURE_COMMENTS_ONLY(parser_state);
 			if (parser_state->aml < pkg_end) {
 
 				/* Non-empty list */
@@ -630,6 +617,7 @@ static union acpi_parse_object *acpi_ps_get_next_field(struct acpi_parse_state
 				opcode = ACPI_GET8(parser_state->aml);
 				parser_state->aml++;
 
+				ASL_CV_CAPTURE_COMMENTS_ONLY(parser_state);
 				switch (opcode) {
 				case AML_BYTE_OP:	/* AML_BYTEDATA_ARG */
 
@@ -660,6 +648,7 @@ static union acpi_parse_object *acpi_ps_get_next_field(struct acpi_parse_state
 
 				/* Fill in bytelist data */
 
+				ASL_CV_CAPTURE_COMMENTS_ONLY(parser_state);
 				arg->named.value.size = buffer_length;
 				arg->named.data = parser_state->aml;
 			}
@@ -867,6 +856,10 @@ acpi_ps_get_next_arg(struct acpi_walk_state *walk_state,
 						      ACPI_POSSIBLE_METHOD_CALL);
 
 			if (arg->common.aml_opcode == AML_INT_METHODCALL_OP) {
+
+				/* Free method call op and corresponding namestring sub-ob */
+
+				acpi_ps_free_op(arg->common.value.arg);
 				acpi_ps_free_op(arg);
 				arg = NULL;
 				walk_state->arg_count = 1;

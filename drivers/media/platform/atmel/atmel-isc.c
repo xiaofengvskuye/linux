@@ -1,13 +1,10 @@
+// SPDX-License-Identifier: GPL-2.0-only
 /*
  * Atmel Image Sensor Controller (ISC) driver
  *
  * Copyright (C) 2016 Atmel
  *
  * Author: Songjun Wu <songjun.wu@microchip.com>
- *
- * This program is free software; you may redistribute it and/or modify
- * it under the terms of the GNU General Public License as published by
- * the Free Software Foundation; version 2 of the License.
  *
  * Sensor-->PFE-->WB-->CFA-->CC-->GAM-->CSC-->CBC-->SUB-->RLP-->DMA
  *
@@ -29,17 +26,21 @@
 #include <linux/clk-provider.h>
 #include <linux/delay.h>
 #include <linux/interrupt.h>
+#include <linux/math64.h>
 #include <linux/module.h>
 #include <linux/of.h>
+#include <linux/of_graph.h>
 #include <linux/platform_device.h>
 #include <linux/pm_runtime.h>
 #include <linux/regmap.h>
 #include <linux/videodev2.h>
 
+#include <media/v4l2-ctrls.h>
 #include <media/v4l2-device.h>
+#include <media/v4l2-event.h>
 #include <media/v4l2-image-sizes.h>
 #include <media/v4l2-ioctl.h>
-#include <media/v4l2-of.h>
+#include <media/v4l2-fwnode.h>
 #include <media/v4l2-subdev.h>
 #include <media/videobuf2-dma-contig.h>
 
@@ -61,6 +62,7 @@ struct isc_clk {
 	struct clk_hw   hw;
 	struct clk      *clk;
 	struct regmap   *regmap;
+	spinlock_t	lock;
 	u8		id;
 	u8		parent_id;
 	u32		div;
@@ -78,7 +80,6 @@ struct isc_subdev_entity {
 	struct v4l2_subdev		*sd;
 	struct v4l2_async_subdev	*asd;
 	struct v4l2_async_notifier      notifier;
-	struct v4l2_subdev_pad_config	*config;
 
 	u32 pfe_cfg0;
 
@@ -87,24 +88,91 @@ struct isc_subdev_entity {
 
 /*
  * struct isc_format - ISC media bus format information
+			This structure represents the interface between the ISC
+			and the sensor. It's the input format received by
+			the ISC.
  * @fourcc:		Fourcc code for this format
  * @mbus_code:		V4L2 media bus format code.
- * @bpp:		Bytes per pixel (when stored in memory)
- * @reg_bps:		reg value for bits per sample
- *			(when transferred over a bus)
- * @support:		Indicates format supported by subdev
+ * @cfa_baycfg:		If this format is RAW BAYER, indicate the type of bayer.
+			this is either BGBG, RGRG, etc.
+ * @pfe_cfg0_bps:	Number of hardware data lines connected to the ISC
  */
+
 struct isc_format {
 	u32	fourcc;
 	u32	mbus_code;
-	u8	bpp;
+	u32	cfa_baycfg;
 
-	u32	reg_bps;
-	u32	reg_rlp_mode;
-	u32	reg_dcfg_imode;
-	u32	reg_dctrl_dview;
+	bool	sd_support;
+	u32	pfe_cfg0_bps;
+};
 
-	bool	support;
+/* Pipeline bitmap */
+#define WB_ENABLE	BIT(0)
+#define CFA_ENABLE	BIT(1)
+#define CC_ENABLE	BIT(2)
+#define GAM_ENABLE	BIT(3)
+#define GAM_BENABLE	BIT(4)
+#define GAM_GENABLE	BIT(5)
+#define GAM_RENABLE	BIT(6)
+#define CSC_ENABLE	BIT(7)
+#define CBC_ENABLE	BIT(8)
+#define SUB422_ENABLE	BIT(9)
+#define SUB420_ENABLE	BIT(10)
+
+#define GAM_ENABLES	(GAM_RENABLE | GAM_GENABLE | GAM_BENABLE | GAM_ENABLE)
+
+/*
+ * struct fmt_config - ISC format configuration and internal pipeline
+			This structure represents the internal configuration
+			of the ISC.
+			It also holds the format that ISC will present to v4l2.
+ * @sd_format:		Pointer to an isc_format struct that holds the sensor
+			configuration.
+ * @fourcc:		Fourcc code for this format.
+ * @bpp:		Bytes per pixel in the current format.
+ * @rlp_cfg_mode:	Configuration of the RLP (rounding, limiting packaging)
+ * @dcfg_imode:		Configuration of the input of the DMA module
+ * @dctrl_dview:	Configuration of the output of the DMA module
+ * @bits_pipeline:	Configuration of the pipeline, which modules are enabled
+ */
+struct fmt_config {
+	struct isc_format	*sd_format;
+
+	u32			fourcc;
+	u8			bpp;
+
+	u32			rlp_cfg_mode;
+	u32			dcfg_imode;
+	u32			dctrl_dview;
+
+	u32			bits_pipeline;
+};
+
+#define HIST_ENTRIES		512
+#define HIST_BAYER		(ISC_HIS_CFG_MODE_B + 1)
+
+enum{
+	HIST_INIT = 0,
+	HIST_ENABLED,
+	HIST_DISABLED,
+};
+
+struct isc_ctrls {
+	struct v4l2_ctrl_handler handler;
+
+	u32 brightness;
+	u32 contrast;
+	u8 gamma_index;
+	u8 awb;
+
+	u32 r_gain;
+	u32 b_gain;
+
+	u32 hist_entry[HIST_ENTRIES];
+	u32 hist_count[HIST_BAYER];
+	u8 hist_id;
+	u8 hist_stat;
 };
 
 #define ISC_PIPE_LINE_NODE_NUM	11
@@ -130,7 +198,12 @@ struct isc_device {
 	struct v4l2_format	fmt;
 	struct isc_format	**user_formats;
 	unsigned int		num_user_formats;
-	const struct isc_format	*current_fmt;
+
+	struct fmt_config	config;
+	struct fmt_config	try_config;
+
+	struct isc_ctrls	ctrls;
+	struct work_struct	awb_work;
 
 	struct mutex		lock;
 
@@ -140,76 +213,259 @@ struct isc_device {
 	struct list_head		subdev_entities;
 };
 
-static struct isc_format isc_formats[] = {
-	{ V4L2_PIX_FMT_SBGGR8, MEDIA_BUS_FMT_SBGGR8_1X8,
-	  1, ISC_PFE_CFG0_BPS_EIGHT, ISC_RLP_CFG_MODE_DAT8,
-	  ISC_DCFG_IMODE_PACKED8, ISC_DCTRL_DVIEW_PACKED, false },
-	{ V4L2_PIX_FMT_SGBRG8, MEDIA_BUS_FMT_SGBRG8_1X8,
-	  1, ISC_PFE_CFG0_BPS_EIGHT, ISC_RLP_CFG_MODE_DAT8,
-	  ISC_DCFG_IMODE_PACKED8, ISC_DCTRL_DVIEW_PACKED, false },
-	{ V4L2_PIX_FMT_SGRBG8, MEDIA_BUS_FMT_SGRBG8_1X8,
-	  1, ISC_PFE_CFG0_BPS_EIGHT, ISC_RLP_CFG_MODE_DAT8,
-	  ISC_DCFG_IMODE_PACKED8, ISC_DCTRL_DVIEW_PACKED, false },
-	{ V4L2_PIX_FMT_SRGGB8, MEDIA_BUS_FMT_SRGGB8_1X8,
-	  1, ISC_PFE_CFG0_BPS_EIGHT, ISC_RLP_CFG_MODE_DAT8,
-	  ISC_DCFG_IMODE_PACKED8, ISC_DCTRL_DVIEW_PACKED, false },
-
-	{ V4L2_PIX_FMT_SBGGR10, MEDIA_BUS_FMT_SBGGR10_1X10,
-	  2, ISC_PFG_CFG0_BPS_TEN, ISC_RLP_CFG_MODE_DAT10,
-	  ISC_DCFG_IMODE_PACKED16, ISC_DCTRL_DVIEW_PACKED, false },
-	{ V4L2_PIX_FMT_SGBRG10, MEDIA_BUS_FMT_SGBRG10_1X10,
-	  2, ISC_PFG_CFG0_BPS_TEN, ISC_RLP_CFG_MODE_DAT10,
-	  ISC_DCFG_IMODE_PACKED16, ISC_DCTRL_DVIEW_PACKED, false },
-	{ V4L2_PIX_FMT_SGRBG10, MEDIA_BUS_FMT_SGRBG10_1X10,
-	  2, ISC_PFG_CFG0_BPS_TEN, ISC_RLP_CFG_MODE_DAT10,
-	  ISC_DCFG_IMODE_PACKED16, ISC_DCTRL_DVIEW_PACKED, false },
-	{ V4L2_PIX_FMT_SRGGB10, MEDIA_BUS_FMT_SRGGB10_1X10,
-	  2, ISC_PFG_CFG0_BPS_TEN, ISC_RLP_CFG_MODE_DAT10,
-	  ISC_DCFG_IMODE_PACKED16, ISC_DCTRL_DVIEW_PACKED, false },
-
-	{ V4L2_PIX_FMT_SBGGR12, MEDIA_BUS_FMT_SBGGR12_1X12,
-	  2, ISC_PFG_CFG0_BPS_TWELVE, ISC_RLP_CFG_MODE_DAT12,
-	  ISC_DCFG_IMODE_PACKED16, ISC_DCTRL_DVIEW_PACKED, false },
-	{ V4L2_PIX_FMT_SGBRG12, MEDIA_BUS_FMT_SGBRG12_1X12,
-	  2, ISC_PFG_CFG0_BPS_TWELVE, ISC_RLP_CFG_MODE_DAT12,
-	  ISC_DCFG_IMODE_PACKED16, ISC_DCTRL_DVIEW_PACKED, false },
-	{ V4L2_PIX_FMT_SGRBG12, MEDIA_BUS_FMT_SGRBG12_1X12,
-	  2, ISC_PFG_CFG0_BPS_TWELVE, ISC_RLP_CFG_MODE_DAT12,
-	  ISC_DCFG_IMODE_PACKED16, ISC_DCTRL_DVIEW_PACKED, false },
-	{ V4L2_PIX_FMT_SRGGB12, MEDIA_BUS_FMT_SRGGB12_1X12,
-	  2, ISC_PFG_CFG0_BPS_TWELVE, ISC_RLP_CFG_MODE_DAT12,
-	  ISC_DCFG_IMODE_PACKED16, ISC_DCTRL_DVIEW_PACKED, false },
-
-	{ V4L2_PIX_FMT_YUYV, MEDIA_BUS_FMT_YUYV8_2X8,
-	  2, ISC_PFE_CFG0_BPS_EIGHT, ISC_RLP_CFG_MODE_DAT8,
-	  ISC_DCFG_IMODE_PACKED8, ISC_DCTRL_DVIEW_PACKED, false },
+/* This is a list of the formats that the ISC can *output* */
+static struct isc_format controller_formats[] = {
+	{
+		.fourcc		= V4L2_PIX_FMT_ARGB444,
+	},
+	{
+		.fourcc		= V4L2_PIX_FMT_ARGB555,
+	},
+	{
+		.fourcc		= V4L2_PIX_FMT_RGB565,
+	},
+	{
+		.fourcc		= V4L2_PIX_FMT_ABGR32,
+	},
+	{
+		.fourcc		= V4L2_PIX_FMT_XBGR32,
+	},
+	{
+		.fourcc		= V4L2_PIX_FMT_YUV420,
+	},
+	{
+		.fourcc		= V4L2_PIX_FMT_YUYV,
+	},
+	{
+		.fourcc		= V4L2_PIX_FMT_YUV422P,
+	},
+	{
+		.fourcc		= V4L2_PIX_FMT_GREY,
+	},
 };
+
+/* This is a list of formats that the ISC can receive as *input* */
+static struct isc_format formats_list[] = {
+	{
+		.fourcc		= V4L2_PIX_FMT_SBGGR8,
+		.mbus_code	= MEDIA_BUS_FMT_SBGGR8_1X8,
+		.pfe_cfg0_bps	= ISC_PFE_CFG0_BPS_EIGHT,
+		.cfa_baycfg	= ISC_BAY_CFG_BGBG,
+	},
+	{
+		.fourcc		= V4L2_PIX_FMT_SGBRG8,
+		.mbus_code	= MEDIA_BUS_FMT_SGBRG8_1X8,
+		.pfe_cfg0_bps	= ISC_PFE_CFG0_BPS_EIGHT,
+		.cfa_baycfg	= ISC_BAY_CFG_GBGB,
+	},
+	{
+		.fourcc		= V4L2_PIX_FMT_SGRBG8,
+		.mbus_code	= MEDIA_BUS_FMT_SGRBG8_1X8,
+		.pfe_cfg0_bps	= ISC_PFE_CFG0_BPS_EIGHT,
+		.cfa_baycfg	= ISC_BAY_CFG_GRGR,
+	},
+	{
+		.fourcc		= V4L2_PIX_FMT_SRGGB8,
+		.mbus_code	= MEDIA_BUS_FMT_SRGGB8_1X8,
+		.pfe_cfg0_bps	= ISC_PFE_CFG0_BPS_EIGHT,
+		.cfa_baycfg	= ISC_BAY_CFG_RGRG,
+	},
+	{
+		.fourcc		= V4L2_PIX_FMT_SBGGR10,
+		.mbus_code	= MEDIA_BUS_FMT_SBGGR10_1X10,
+		.pfe_cfg0_bps	= ISC_PFG_CFG0_BPS_TEN,
+		.cfa_baycfg	= ISC_BAY_CFG_RGRG,
+	},
+	{
+		.fourcc		= V4L2_PIX_FMT_SGBRG10,
+		.mbus_code	= MEDIA_BUS_FMT_SGBRG10_1X10,
+		.pfe_cfg0_bps	= ISC_PFG_CFG0_BPS_TEN,
+		.cfa_baycfg	= ISC_BAY_CFG_GBGB,
+	},
+	{
+		.fourcc		= V4L2_PIX_FMT_SGRBG10,
+		.mbus_code	= MEDIA_BUS_FMT_SGRBG10_1X10,
+		.pfe_cfg0_bps	= ISC_PFG_CFG0_BPS_TEN,
+		.cfa_baycfg	= ISC_BAY_CFG_GRGR,
+	},
+	{
+		.fourcc		= V4L2_PIX_FMT_SRGGB10,
+		.mbus_code	= MEDIA_BUS_FMT_SRGGB10_1X10,
+		.pfe_cfg0_bps	= ISC_PFG_CFG0_BPS_TEN,
+		.cfa_baycfg	= ISC_BAY_CFG_RGRG,
+	},
+	{
+		.fourcc		= V4L2_PIX_FMT_SBGGR12,
+		.mbus_code	= MEDIA_BUS_FMT_SBGGR12_1X12,
+		.pfe_cfg0_bps	= ISC_PFG_CFG0_BPS_TWELVE,
+		.cfa_baycfg	= ISC_BAY_CFG_BGBG,
+	},
+	{
+		.fourcc		= V4L2_PIX_FMT_SGBRG12,
+		.mbus_code	= MEDIA_BUS_FMT_SGBRG12_1X12,
+		.pfe_cfg0_bps	= ISC_PFG_CFG0_BPS_TWELVE,
+		.cfa_baycfg	= ISC_BAY_CFG_GBGB,
+	},
+	{
+		.fourcc		= V4L2_PIX_FMT_SGRBG12,
+		.mbus_code	= MEDIA_BUS_FMT_SGRBG12_1X12,
+		.pfe_cfg0_bps	= ISC_PFG_CFG0_BPS_TWELVE,
+		.cfa_baycfg	= ISC_BAY_CFG_GRGR,
+	},
+	{
+		.fourcc		= V4L2_PIX_FMT_SRGGB12,
+		.mbus_code	= MEDIA_BUS_FMT_SRGGB12_1X12,
+		.pfe_cfg0_bps	= ISC_PFG_CFG0_BPS_TWELVE,
+		.cfa_baycfg	= ISC_BAY_CFG_RGRG,
+	},
+	{
+		.fourcc		= V4L2_PIX_FMT_GREY,
+		.mbus_code	= MEDIA_BUS_FMT_Y8_1X8,
+		.pfe_cfg0_bps	= ISC_PFE_CFG0_BPS_EIGHT,
+	},
+	{
+		.fourcc		= V4L2_PIX_FMT_YUYV,
+		.mbus_code	= MEDIA_BUS_FMT_YUYV8_2X8,
+		.pfe_cfg0_bps	= ISC_PFE_CFG0_BPS_EIGHT,
+	},
+	{
+		.fourcc		= V4L2_PIX_FMT_RGB565,
+		.mbus_code	= MEDIA_BUS_FMT_RGB565_2X8_LE,
+		.pfe_cfg0_bps	= ISC_PFE_CFG0_BPS_EIGHT,
+	},
+};
+
+#define GAMMA_MAX	2
+#define GAMMA_ENTRIES	64
+
+/* Gamma table with gamma 1/2.2 */
+static const u32 isc_gamma_table[GAMMA_MAX + 1][GAMMA_ENTRIES] = {
+	/* 0 --> gamma 1/1.8 */
+	{      0x65,  0x66002F,  0x950025,  0xBB0020,  0xDB001D,  0xF8001A,
+	  0x1130018, 0x12B0017, 0x1420016, 0x1580014, 0x16D0013, 0x1810012,
+	  0x1940012, 0x1A60012, 0x1B80011, 0x1C90010, 0x1DA0010, 0x1EA000F,
+	  0x1FA000F, 0x209000F, 0x218000F, 0x227000E, 0x235000E, 0x243000E,
+	  0x251000E, 0x25F000D, 0x26C000D, 0x279000D, 0x286000D, 0x293000C,
+	  0x2A0000C, 0x2AC000C, 0x2B8000C, 0x2C4000C, 0x2D0000B, 0x2DC000B,
+	  0x2E7000B, 0x2F3000B, 0x2FE000B, 0x309000B, 0x314000B, 0x31F000A,
+	  0x32A000A, 0x334000B, 0x33F000A, 0x349000A, 0x354000A, 0x35E000A,
+	  0x368000A, 0x372000A, 0x37C000A, 0x386000A, 0x3900009, 0x399000A,
+	  0x3A30009, 0x3AD0009, 0x3B60009, 0x3BF000A, 0x3C90009, 0x3D20009,
+	  0x3DB0009, 0x3E40009, 0x3ED0009, 0x3F60009 },
+
+	/* 1 --> gamma 1/2 */
+	{      0x7F,  0x800034,  0xB50028,  0xDE0021, 0x100001E, 0x11E001B,
+	  0x1390019, 0x1520017, 0x16A0015, 0x1800014, 0x1940014, 0x1A80013,
+	  0x1BB0012, 0x1CD0011, 0x1DF0010, 0x1EF0010, 0x200000F, 0x20F000F,
+	  0x21F000E, 0x22D000F, 0x23C000E, 0x24A000E, 0x258000D, 0x265000D,
+	  0x273000C, 0x27F000D, 0x28C000C, 0x299000C, 0x2A5000C, 0x2B1000B,
+	  0x2BC000C, 0x2C8000B, 0x2D3000C, 0x2DF000B, 0x2EA000A, 0x2F5000A,
+	  0x2FF000B, 0x30A000A, 0x314000B, 0x31F000A, 0x329000A, 0x333000A,
+	  0x33D0009, 0x3470009, 0x350000A, 0x35A0009, 0x363000A, 0x36D0009,
+	  0x3760009, 0x37F0009, 0x3880009, 0x3910009, 0x39A0009, 0x3A30009,
+	  0x3AC0008, 0x3B40009, 0x3BD0008, 0x3C60008, 0x3CE0008, 0x3D60009,
+	  0x3DF0008, 0x3E70008, 0x3EF0008, 0x3F70008 },
+
+	/* 2 --> gamma 1/2.2 */
+	{      0x99,  0x9B0038,  0xD4002A,  0xFF0023, 0x122001F, 0x141001B,
+	  0x15D0019, 0x1760017, 0x18E0015, 0x1A30015, 0x1B80013, 0x1CC0012,
+	  0x1DE0011, 0x1F00010, 0x2010010, 0x2110010, 0x221000F, 0x230000F,
+	  0x23F000E, 0x24D000E, 0x25B000D, 0x269000C, 0x276000C, 0x283000C,
+	  0x28F000C, 0x29B000C, 0x2A7000C, 0x2B3000B, 0x2BF000B, 0x2CA000B,
+	  0x2D5000B, 0x2E0000A, 0x2EB000A, 0x2F5000A, 0x2FF000A, 0x30A000A,
+	  0x3140009, 0x31E0009, 0x327000A, 0x3310009, 0x33A0009, 0x3440009,
+	  0x34D0009, 0x3560009, 0x35F0009, 0x3680008, 0x3710008, 0x3790009,
+	  0x3820008, 0x38A0008, 0x3930008, 0x39B0008, 0x3A30008, 0x3AB0008,
+	  0x3B30008, 0x3BB0008, 0x3C30008, 0x3CB0007, 0x3D20008, 0x3DA0007,
+	  0x3E20007, 0x3E90007, 0x3F00008, 0x3F80007 },
+};
+
+#define ISC_IS_FORMAT_RAW(mbus_code) \
+	(((mbus_code) & 0xf000) == 0x3000)
+
+static unsigned int debug;
+module_param(debug, int, 0644);
+MODULE_PARM_DESC(debug, "debug level (0-2)");
+
+static unsigned int sensor_preferred = 1;
+module_param(sensor_preferred, uint, 0644);
+MODULE_PARM_DESC(sensor_preferred,
+		 "Sensor is preferred to output the specified format (1-on 0-off), default 1");
+
+static int isc_wait_clk_stable(struct clk_hw *hw)
+{
+	struct isc_clk *isc_clk = to_isc_clk(hw);
+	struct regmap *regmap = isc_clk->regmap;
+	unsigned long timeout = jiffies + usecs_to_jiffies(1000);
+	unsigned int status;
+
+	while (time_before(jiffies, timeout)) {
+		regmap_read(regmap, ISC_CLKSR, &status);
+		if (!(status & ISC_CLKSR_SIP))
+			return 0;
+
+		usleep_range(10, 250);
+	}
+
+	return -ETIMEDOUT;
+}
+
+static int isc_clk_prepare(struct clk_hw *hw)
+{
+	struct isc_clk *isc_clk = to_isc_clk(hw);
+
+	if (isc_clk->id == ISC_ISPCK)
+		pm_runtime_get_sync(isc_clk->dev);
+
+	return isc_wait_clk_stable(hw);
+}
+
+static void isc_clk_unprepare(struct clk_hw *hw)
+{
+	struct isc_clk *isc_clk = to_isc_clk(hw);
+
+	isc_wait_clk_stable(hw);
+
+	if (isc_clk->id == ISC_ISPCK)
+		pm_runtime_put_sync(isc_clk->dev);
+}
 
 static int isc_clk_enable(struct clk_hw *hw)
 {
 	struct isc_clk *isc_clk = to_isc_clk(hw);
 	u32 id = isc_clk->id;
 	struct regmap *regmap = isc_clk->regmap;
+	unsigned long flags;
+	unsigned int status;
 
 	dev_dbg(isc_clk->dev, "ISC CLK: %s, div = %d, parent id = %d\n",
 		__func__, isc_clk->div, isc_clk->parent_id);
 
+	spin_lock_irqsave(&isc_clk->lock, flags);
 	regmap_update_bits(regmap, ISC_CLKCFG,
 			   ISC_CLKCFG_DIV_MASK(id) | ISC_CLKCFG_SEL_MASK(id),
 			   (isc_clk->div << ISC_CLKCFG_DIV_SHIFT(id)) |
 			   (isc_clk->parent_id << ISC_CLKCFG_SEL_SHIFT(id)));
 
 	regmap_write(regmap, ISC_CLKEN, ISC_CLK(id));
+	spin_unlock_irqrestore(&isc_clk->lock, flags);
 
-	return 0;
+	regmap_read(regmap, ISC_CLKSR, &status);
+	if (status & ISC_CLK(id))
+		return 0;
+	else
+		return -EINVAL;
 }
 
 static void isc_clk_disable(struct clk_hw *hw)
 {
 	struct isc_clk *isc_clk = to_isc_clk(hw);
 	u32 id = isc_clk->id;
+	unsigned long flags;
 
+	spin_lock_irqsave(&isc_clk->lock, flags);
 	regmap_write(isc_clk->regmap, ISC_CLKDIS, ISC_CLK(id));
+	spin_unlock_irqrestore(&isc_clk->lock, flags);
 }
 
 static int isc_clk_is_enabled(struct clk_hw *hw)
@@ -217,7 +473,13 @@ static int isc_clk_is_enabled(struct clk_hw *hw)
 	struct isc_clk *isc_clk = to_isc_clk(hw);
 	u32 status;
 
+	if (isc_clk->id == ISC_ISPCK)
+		pm_runtime_get_sync(isc_clk->dev);
+
 	regmap_read(isc_clk->regmap, ISC_CLKSR, &status);
+
+	if (isc_clk->id == ISC_ISPCK)
+		pm_runtime_put_sync(isc_clk->dev);
 
 	return status & ISC_CLK(isc_clk->id) ? 1 : 0;
 }
@@ -325,6 +587,8 @@ static int isc_clk_set_rate(struct clk_hw *hw,
 }
 
 static const struct clk_ops isc_clk_ops = {
+	.prepare	= isc_clk_prepare,
+	.unprepare	= isc_clk_unprepare,
 	.enable		= isc_clk_enable,
 	.disable	= isc_clk_disable,
 	.is_enabled	= isc_clk_is_enabled,
@@ -370,6 +634,7 @@ static int isc_clk_register(struct isc_device *isc, unsigned int id)
 	isc_clk->regmap		= regmap;
 	isc_clk->id		= id;
 	isc_clk->dev		= isc->dev;
+	spin_lock_init(&isc_clk->lock);
 
 	isc_clk->clk = clk_register(isc->dev, &isc_clk->hw);
 	if (IS_ERR(isc_clk->clk)) {
@@ -447,67 +712,202 @@ static int isc_buffer_prepare(struct vb2_buffer *vb)
 	return 0;
 }
 
-static inline void isc_start_dma(struct regmap *regmap,
-				  struct isc_buffer *frm, u32 dview)
+static void isc_start_dma(struct isc_device *isc)
 {
-	dma_addr_t addr;
+	struct regmap *regmap = isc->regmap;
+	u32 sizeimage = isc->fmt.fmt.pix.sizeimage;
+	u32 dctrl_dview;
+	dma_addr_t addr0;
+	u32 h, w;
 
-	addr = vb2_dma_contig_plane_dma_addr(&frm->vb.vb2_buf, 0);
+	h = isc->fmt.fmt.pix.height;
+	w = isc->fmt.fmt.pix.width;
 
-	regmap_write(regmap, ISC_DCTRL, dview | ISC_DCTRL_IE_IS);
-	regmap_write(regmap, ISC_DAD0, addr);
+	/*
+	 * In case the sensor is not RAW, it will output a pixel (12-16 bits)
+	 * with two samples on the ISC Data bus (which is 8-12)
+	 * ISC will count each sample, so, we need to multiply these values
+	 * by two, to get the real number of samples for the required pixels.
+	 */
+	if (!ISC_IS_FORMAT_RAW(isc->config.sd_format->mbus_code)) {
+		h <<= 1;
+		w <<= 1;
+	}
+
+	/*
+	 * We limit the column/row count that the ISC will output according
+	 * to the configured resolution that we want.
+	 * This will avoid the situation where the sensor is misconfigured,
+	 * sending more data, and the ISC will just take it and DMA to memory,
+	 * causing corruption.
+	 */
+	regmap_write(regmap, ISC_PFE_CFG1,
+		     (ISC_PFE_CFG1_COLMIN(0) & ISC_PFE_CFG1_COLMIN_MASK) |
+		     (ISC_PFE_CFG1_COLMAX(w - 1) & ISC_PFE_CFG1_COLMAX_MASK));
+
+	regmap_write(regmap, ISC_PFE_CFG2,
+		     (ISC_PFE_CFG2_ROWMIN(0) & ISC_PFE_CFG2_ROWMIN_MASK) |
+		     (ISC_PFE_CFG2_ROWMAX(h - 1) & ISC_PFE_CFG2_ROWMAX_MASK));
+
+	regmap_update_bits(regmap, ISC_PFE_CFG0,
+			   ISC_PFE_CFG0_COLEN | ISC_PFE_CFG0_ROWEN,
+			   ISC_PFE_CFG0_COLEN | ISC_PFE_CFG0_ROWEN);
+
+	addr0 = vb2_dma_contig_plane_dma_addr(&isc->cur_frm->vb.vb2_buf, 0);
+	regmap_write(regmap, ISC_DAD0, addr0);
+
+	switch (isc->config.fourcc) {
+	case V4L2_PIX_FMT_YUV420:
+		regmap_write(regmap, ISC_DAD1, addr0 + (sizeimage * 2) / 3);
+		regmap_write(regmap, ISC_DAD2, addr0 + (sizeimage * 5) / 6);
+		break;
+	case V4L2_PIX_FMT_YUV422P:
+		regmap_write(regmap, ISC_DAD1, addr0 + sizeimage / 2);
+		regmap_write(regmap, ISC_DAD2, addr0 + (sizeimage * 3) / 4);
+		break;
+	default:
+		break;
+	}
+
+	dctrl_dview = isc->config.dctrl_dview;
+
+	regmap_write(regmap, ISC_DCTRL, dctrl_dview | ISC_DCTRL_IE_IS);
 	regmap_write(regmap, ISC_CTRLEN, ISC_CTRL_CAPTURE);
 }
 
 static void isc_set_pipeline(struct isc_device *isc, u32 pipeline)
 {
-	u32 val;
+	struct regmap *regmap = isc->regmap;
+	struct isc_ctrls *ctrls = &isc->ctrls;
+	u32 val, bay_cfg;
+	const u32 *gamma;
 	unsigned int i;
 
+	/* WB-->CFA-->CC-->GAM-->CSC-->CBC-->SUB422-->SUB420 */
 	for (i = 0; i < ISC_PIPE_LINE_NODE_NUM; i++) {
 		val = pipeline & BIT(i) ? 1 : 0;
 		regmap_field_write(isc->pipeline[i], val);
+	}
+
+	if (!pipeline)
+		return;
+
+	bay_cfg = isc->config.sd_format->cfa_baycfg;
+
+	regmap_write(regmap, ISC_WB_CFG, bay_cfg);
+	regmap_write(regmap, ISC_WB_O_RGR, 0x0);
+	regmap_write(regmap, ISC_WB_O_BGR, 0x0);
+	regmap_write(regmap, ISC_WB_G_RGR, ctrls->r_gain | (0x1 << 25));
+	regmap_write(regmap, ISC_WB_G_BGR, ctrls->b_gain | (0x1 << 25));
+
+	regmap_write(regmap, ISC_CFA_CFG, bay_cfg | ISC_CFA_CFG_EITPOL);
+
+	gamma = &isc_gamma_table[ctrls->gamma_index][0];
+	regmap_bulk_write(regmap, ISC_GAM_BENTRY, gamma, GAMMA_ENTRIES);
+	regmap_bulk_write(regmap, ISC_GAM_GENTRY, gamma, GAMMA_ENTRIES);
+	regmap_bulk_write(regmap, ISC_GAM_RENTRY, gamma, GAMMA_ENTRIES);
+
+	/* Convert RGB to YUV */
+	regmap_write(regmap, ISC_CSC_YR_YG, 0x42 | (0x81 << 16));
+	regmap_write(regmap, ISC_CSC_YB_OY, 0x19 | (0x10 << 16));
+	regmap_write(regmap, ISC_CSC_CBR_CBG, 0xFDA | (0xFB6 << 16));
+	regmap_write(regmap, ISC_CSC_CBB_OCB, 0x70 | (0x80 << 16));
+	regmap_write(regmap, ISC_CSC_CRR_CRG, 0x70 | (0xFA2 << 16));
+	regmap_write(regmap, ISC_CSC_CRB_OCR, 0xFEE | (0x80 << 16));
+
+	regmap_write(regmap, ISC_CBC_BRIGHT, ctrls->brightness);
+	regmap_write(regmap, ISC_CBC_CONTRAST, ctrls->contrast);
+}
+
+static int isc_update_profile(struct isc_device *isc)
+{
+	struct regmap *regmap = isc->regmap;
+	u32 sr;
+	int counter = 100;
+
+	regmap_write(regmap, ISC_CTRLEN, ISC_CTRL_UPPRO);
+
+	regmap_read(regmap, ISC_CTRLSR, &sr);
+	while ((sr & ISC_CTRL_UPPRO) && counter--) {
+		usleep_range(1000, 2000);
+		regmap_read(regmap, ISC_CTRLSR, &sr);
+	}
+
+	if (counter < 0) {
+		v4l2_warn(&isc->v4l2_dev, "Time out to update profile\n");
+		return -ETIMEDOUT;
+	}
+
+	return 0;
+}
+
+static void isc_set_histogram(struct isc_device *isc, bool enable)
+{
+	struct regmap *regmap = isc->regmap;
+	struct isc_ctrls *ctrls = &isc->ctrls;
+
+	if (enable) {
+		regmap_write(regmap, ISC_HIS_CFG,
+			     ISC_HIS_CFG_MODE_R |
+			     (isc->config.sd_format->cfa_baycfg
+					<< ISC_HIS_CFG_BAYSEL_SHIFT) |
+					ISC_HIS_CFG_RAR);
+		regmap_write(regmap, ISC_HIS_CTRL, ISC_HIS_CTRL_EN);
+		regmap_write(regmap, ISC_INTEN, ISC_INT_HISDONE);
+		ctrls->hist_id = ISC_HIS_CFG_MODE_R;
+		isc_update_profile(isc);
+		regmap_write(regmap, ISC_CTRLEN, ISC_CTRL_HISREQ);
+
+		ctrls->hist_stat = HIST_ENABLED;
+	} else {
+		regmap_write(regmap, ISC_INTDIS, ISC_INT_HISDONE);
+		regmap_write(regmap, ISC_HIS_CTRL, ISC_HIS_CTRL_DIS);
+
+		ctrls->hist_stat = HIST_DISABLED;
 	}
 }
 
 static int isc_configure(struct isc_device *isc)
 {
 	struct regmap *regmap = isc->regmap;
-	const struct isc_format *current_fmt = isc->current_fmt;
+	u32 pfe_cfg0, rlp_mode, dcfg, mask, pipeline;
 	struct isc_subdev_entity *subdev = isc->current_subdev;
-	u32 val, mask;
-	int counter = 10;
 
-	val = current_fmt->reg_bps | subdev->pfe_cfg0 |
-	      ISC_PFE_CFG0_MODE_PROGRESSIVE;
+	pfe_cfg0 = isc->config.sd_format->pfe_cfg0_bps;
+	rlp_mode = isc->config.rlp_cfg_mode;
+	pipeline = isc->config.bits_pipeline;
+
+	dcfg = isc->config.dcfg_imode |
+		       ISC_DCFG_YMBSIZE_BEATS8 | ISC_DCFG_CMBSIZE_BEATS8;
+
+	pfe_cfg0  |= subdev->pfe_cfg0 | ISC_PFE_CFG0_MODE_PROGRESSIVE;
 	mask = ISC_PFE_CFG0_BPS_MASK | ISC_PFE_CFG0_HPOL_LOW |
 	       ISC_PFE_CFG0_VPOL_LOW | ISC_PFE_CFG0_PPOL_LOW |
-	       ISC_PFE_CFG0_MODE_MASK;
+	       ISC_PFE_CFG0_MODE_MASK | ISC_PFE_CFG0_CCIR_CRC |
+		   ISC_PFE_CFG0_CCIR656;
 
-	regmap_update_bits(regmap, ISC_PFE_CFG0, mask, val);
+	regmap_update_bits(regmap, ISC_PFE_CFG0, mask, pfe_cfg0);
 
 	regmap_update_bits(regmap, ISC_RLP_CFG, ISC_RLP_CFG_MODE_MASK,
-			   current_fmt->reg_rlp_mode);
+			   rlp_mode);
 
-	regmap_update_bits(regmap, ISC_DCFG, ISC_DCFG_IMODE_MASK,
-			   current_fmt->reg_dcfg_imode);
+	regmap_write(regmap, ISC_DCFG, dcfg);
 
-	/* Disable the pipeline */
-	isc_set_pipeline(isc, 0x0);
+	/* Set the pipeline */
+	isc_set_pipeline(isc, pipeline);
+
+	/*
+	 * The current implemented histogram is available for RAW R, B, GB
+	 * channels. We need to check if sensor is outputting RAW BAYER
+	 */
+	if (isc->ctrls.awb &&
+	    ISC_IS_FORMAT_RAW(isc->config.sd_format->mbus_code))
+		isc_set_histogram(isc, true);
+	else
+		isc_set_histogram(isc, false);
 
 	/* Update profile */
-	regmap_write(regmap, ISC_CTRLEN, ISC_CTRL_UPPRO);
-
-	regmap_read(regmap, ISC_CTRLSR, &val);
-	while ((val & ISC_CTRL_UPPRO) && counter--) {
-		usleep_range(1000, 2000);
-		regmap_read(regmap, ISC_CTRLSR, &val);
-	}
-
-	if (counter < 0)
-		return -ETIMEDOUT;
-
-	return 0;
+	return isc_update_profile(isc);
 }
 
 static int isc_start_streaming(struct vb2_queue *vq, unsigned int count)
@@ -517,22 +917,16 @@ static int isc_start_streaming(struct vb2_queue *vq, unsigned int count)
 	struct isc_buffer *buf;
 	unsigned long flags;
 	int ret;
-	u32 val;
 
 	/* Enable stream on the sub device */
 	ret = v4l2_subdev_call(isc->current_subdev->sd, video, s_stream, 1);
 	if (ret && ret != -ENOIOCTLCMD) {
-		v4l2_err(&isc->v4l2_dev, "stream on failed in subdev\n");
+		v4l2_err(&isc->v4l2_dev, "stream on failed in subdev %d\n",
+			 ret);
 		goto err_start_stream;
 	}
 
 	pm_runtime_get_sync(isc->dev);
-
-	/* Disable all the interrupts */
-	regmap_write(isc->regmap, ISC_INTDIS, (u32)~0UL);
-
-	/* Clean the interrupt status register */
-	regmap_read(regmap, ISC_INTSR, &val);
 
 	ret = isc_configure(isc);
 	if (unlikely(ret))
@@ -551,7 +945,7 @@ static int isc_start_streaming(struct vb2_queue *vq, unsigned int count)
 					struct isc_buffer, list);
 	list_del(&isc->cur_frm->list);
 
-	isc_start_dma(regmap, isc->cur_frm, isc->current_fmt->reg_dctrl_dview);
+	isc_start_dma(isc);
 
 	spin_unlock_irqrestore(&isc->dma_queue_lock, flags);
 
@@ -620,58 +1014,10 @@ static void isc_buffer_queue(struct vb2_buffer *vb)
 	if (!isc->cur_frm && list_empty(&isc->dma_queue) &&
 		vb2_is_streaming(vb->vb2_queue)) {
 		isc->cur_frm = buf;
-		isc_start_dma(isc->regmap, isc->cur_frm,
-			isc->current_fmt->reg_dctrl_dview);
+		isc_start_dma(isc);
 	} else
 		list_add_tail(&buf->list, &isc->dma_queue);
 	spin_unlock_irqrestore(&isc->dma_queue_lock, flags);
-}
-
-static struct vb2_ops isc_vb2_ops = {
-	.queue_setup		= isc_queue_setup,
-	.wait_prepare		= vb2_ops_wait_prepare,
-	.wait_finish		= vb2_ops_wait_finish,
-	.buf_prepare		= isc_buffer_prepare,
-	.start_streaming	= isc_start_streaming,
-	.stop_streaming		= isc_stop_streaming,
-	.buf_queue		= isc_buffer_queue,
-};
-
-static int isc_querycap(struct file *file, void *priv,
-			 struct v4l2_capability *cap)
-{
-	struct isc_device *isc = video_drvdata(file);
-
-	strcpy(cap->driver, ATMEL_ISC_NAME);
-	strcpy(cap->card, "Atmel Image Sensor Controller");
-	snprintf(cap->bus_info, sizeof(cap->bus_info),
-		 "platform:%s", isc->v4l2_dev.name);
-
-	return 0;
-}
-
-static int isc_enum_fmt_vid_cap(struct file *file, void *priv,
-				 struct v4l2_fmtdesc *f)
-{
-	struct isc_device *isc = video_drvdata(file);
-	u32 index = f->index;
-
-	if (index >= isc->num_user_formats)
-		return -EINVAL;
-
-	f->pixelformat = isc->user_formats[index]->fourcc;
-
-	return 0;
-}
-
-static int isc_g_fmt_vid_cap(struct file *file, void *priv,
-			      struct v4l2_format *fmt)
-{
-	struct isc_device *isc = video_drvdata(file);
-
-	*fmt = isc->fmt;
-
-	return 0;
 }
 
 static struct isc_format *find_format_by_fourcc(struct isc_device *isc,
@@ -690,26 +1036,364 @@ static struct isc_format *find_format_by_fourcc(struct isc_device *isc,
 	return NULL;
 }
 
-static int isc_try_fmt(struct isc_device *isc, struct v4l2_format *f,
-			struct isc_format **current_fmt)
+static const struct vb2_ops isc_vb2_ops = {
+	.queue_setup		= isc_queue_setup,
+	.wait_prepare		= vb2_ops_wait_prepare,
+	.wait_finish		= vb2_ops_wait_finish,
+	.buf_prepare		= isc_buffer_prepare,
+	.start_streaming	= isc_start_streaming,
+	.stop_streaming		= isc_stop_streaming,
+	.buf_queue		= isc_buffer_queue,
+};
+
+static int isc_querycap(struct file *file, void *priv,
+			 struct v4l2_capability *cap)
 {
-	struct isc_format *isc_fmt;
+	struct isc_device *isc = video_drvdata(file);
+
+	strscpy(cap->driver, ATMEL_ISC_NAME, sizeof(cap->driver));
+	strscpy(cap->card, "Atmel Image Sensor Controller", sizeof(cap->card));
+	snprintf(cap->bus_info, sizeof(cap->bus_info),
+		 "platform:%s", isc->v4l2_dev.name);
+
+	return 0;
+}
+
+static int isc_enum_fmt_vid_cap(struct file *file, void *priv,
+				 struct v4l2_fmtdesc *f)
+{
+	u32 index = f->index;
+	u32 i, supported_index;
+
+	if (index < ARRAY_SIZE(controller_formats)) {
+		f->pixelformat = controller_formats[index].fourcc;
+		return 0;
+	}
+
+	index -= ARRAY_SIZE(controller_formats);
+
+	i = 0;
+	supported_index = 0;
+
+	for (i = 0; i < ARRAY_SIZE(formats_list); i++) {
+		if (!ISC_IS_FORMAT_RAW(formats_list[i].mbus_code) ||
+		    !formats_list[i].sd_support)
+			continue;
+		if (supported_index == index) {
+			f->pixelformat = formats_list[i].fourcc;
+			return 0;
+		}
+		supported_index++;
+	}
+
+	return -EINVAL;
+}
+
+static int isc_g_fmt_vid_cap(struct file *file, void *priv,
+			      struct v4l2_format *fmt)
+{
+	struct isc_device *isc = video_drvdata(file);
+
+	*fmt = isc->fmt;
+
+	return 0;
+}
+
+/*
+ * Checks the current configured format, if ISC can output it,
+ * considering which type of format the ISC receives from the sensor
+ */
+static int isc_try_validate_formats(struct isc_device *isc)
+{
+	int ret;
+	bool bayer = false, yuv = false, rgb = false, grey = false;
+
+	/* all formats supported by the RLP module are OK */
+	switch (isc->try_config.fourcc) {
+	case V4L2_PIX_FMT_SBGGR8:
+	case V4L2_PIX_FMT_SGBRG8:
+	case V4L2_PIX_FMT_SGRBG8:
+	case V4L2_PIX_FMT_SRGGB8:
+	case V4L2_PIX_FMT_SBGGR10:
+	case V4L2_PIX_FMT_SGBRG10:
+	case V4L2_PIX_FMT_SGRBG10:
+	case V4L2_PIX_FMT_SRGGB10:
+	case V4L2_PIX_FMT_SBGGR12:
+	case V4L2_PIX_FMT_SGBRG12:
+	case V4L2_PIX_FMT_SGRBG12:
+	case V4L2_PIX_FMT_SRGGB12:
+		ret = 0;
+		bayer = true;
+		break;
+
+	case V4L2_PIX_FMT_YUV420:
+	case V4L2_PIX_FMT_YUV422P:
+	case V4L2_PIX_FMT_YUYV:
+		ret = 0;
+		yuv = true;
+		break;
+
+	case V4L2_PIX_FMT_RGB565:
+	case V4L2_PIX_FMT_ABGR32:
+	case V4L2_PIX_FMT_XBGR32:
+	case V4L2_PIX_FMT_ARGB444:
+	case V4L2_PIX_FMT_ARGB555:
+		ret = 0;
+		rgb = true;
+		break;
+	case V4L2_PIX_FMT_GREY:
+		ret = 0;
+		grey = true;
+		break;
+	default:
+	/* any other different formats are not supported */
+		ret = -EINVAL;
+	}
+
+	/* we cannot output RAW/Grey if we do not receive RAW */
+	if ((bayer || grey) &&
+	    !ISC_IS_FORMAT_RAW(isc->try_config.sd_format->mbus_code))
+		return -EINVAL;
+
+	v4l2_dbg(1, debug, &isc->v4l2_dev,
+		 "Format validation, requested rgb=%u, yuv=%u, grey=%u, bayer=%u\n",
+		 rgb, yuv, grey, bayer);
+
+	return ret;
+}
+
+/*
+ * Configures the RLP and DMA modules, depending on the output format
+ * configured for the ISC.
+ * If direct_dump == true, just dump raw data 8 bits.
+ */
+static int isc_try_configure_rlp_dma(struct isc_device *isc, bool direct_dump)
+{
+	if (direct_dump) {
+		isc->try_config.rlp_cfg_mode = ISC_RLP_CFG_MODE_DAT8;
+		isc->try_config.dcfg_imode = ISC_DCFG_IMODE_PACKED8;
+		isc->try_config.dctrl_dview = ISC_DCTRL_DVIEW_PACKED;
+		isc->try_config.bpp = 16;
+		return 0;
+	}
+
+	switch (isc->try_config.fourcc) {
+	case V4L2_PIX_FMT_SBGGR8:
+	case V4L2_PIX_FMT_SGBRG8:
+	case V4L2_PIX_FMT_SGRBG8:
+	case V4L2_PIX_FMT_SRGGB8:
+		isc->try_config.rlp_cfg_mode = ISC_RLP_CFG_MODE_DAT8;
+		isc->try_config.dcfg_imode = ISC_DCFG_IMODE_PACKED8;
+		isc->try_config.dctrl_dview = ISC_DCTRL_DVIEW_PACKED;
+		isc->try_config.bpp = 8;
+		break;
+	case V4L2_PIX_FMT_SBGGR10:
+	case V4L2_PIX_FMT_SGBRG10:
+	case V4L2_PIX_FMT_SGRBG10:
+	case V4L2_PIX_FMT_SRGGB10:
+		isc->try_config.rlp_cfg_mode = ISC_RLP_CFG_MODE_DAT10;
+		isc->try_config.dcfg_imode = ISC_DCFG_IMODE_PACKED16;
+		isc->try_config.dctrl_dview = ISC_DCTRL_DVIEW_PACKED;
+		isc->try_config.bpp = 16;
+		break;
+	case V4L2_PIX_FMT_SBGGR12:
+	case V4L2_PIX_FMT_SGBRG12:
+	case V4L2_PIX_FMT_SGRBG12:
+	case V4L2_PIX_FMT_SRGGB12:
+		isc->try_config.rlp_cfg_mode = ISC_RLP_CFG_MODE_DAT12;
+		isc->try_config.dcfg_imode = ISC_DCFG_IMODE_PACKED16;
+		isc->try_config.dctrl_dview = ISC_DCTRL_DVIEW_PACKED;
+		isc->try_config.bpp = 16;
+		break;
+	case V4L2_PIX_FMT_RGB565:
+		isc->try_config.rlp_cfg_mode = ISC_RLP_CFG_MODE_RGB565;
+		isc->try_config.dcfg_imode = ISC_DCFG_IMODE_PACKED16;
+		isc->try_config.dctrl_dview = ISC_DCTRL_DVIEW_PACKED;
+		isc->try_config.bpp = 16;
+		break;
+	case V4L2_PIX_FMT_ARGB444:
+		isc->try_config.rlp_cfg_mode = ISC_RLP_CFG_MODE_ARGB444;
+		isc->try_config.dcfg_imode = ISC_DCFG_IMODE_PACKED16;
+		isc->try_config.dctrl_dview = ISC_DCTRL_DVIEW_PACKED;
+		isc->try_config.bpp = 16;
+		break;
+	case V4L2_PIX_FMT_ARGB555:
+		isc->try_config.rlp_cfg_mode = ISC_RLP_CFG_MODE_ARGB555;
+		isc->try_config.dcfg_imode = ISC_DCFG_IMODE_PACKED16;
+		isc->try_config.dctrl_dview = ISC_DCTRL_DVIEW_PACKED;
+		isc->try_config.bpp = 16;
+		break;
+	case V4L2_PIX_FMT_ABGR32:
+	case V4L2_PIX_FMT_XBGR32:
+		isc->try_config.rlp_cfg_mode = ISC_RLP_CFG_MODE_ARGB32;
+		isc->try_config.dcfg_imode = ISC_DCFG_IMODE_PACKED32;
+		isc->try_config.dctrl_dview = ISC_DCTRL_DVIEW_PACKED;
+		isc->try_config.bpp = 32;
+		break;
+	case V4L2_PIX_FMT_YUV420:
+		isc->try_config.rlp_cfg_mode = ISC_RLP_CFG_MODE_YYCC;
+		isc->try_config.dcfg_imode = ISC_DCFG_IMODE_YC420P;
+		isc->try_config.dctrl_dview = ISC_DCTRL_DVIEW_PLANAR;
+		isc->try_config.bpp = 12;
+		break;
+	case V4L2_PIX_FMT_YUV422P:
+		isc->try_config.rlp_cfg_mode = ISC_RLP_CFG_MODE_YYCC;
+		isc->try_config.dcfg_imode = ISC_DCFG_IMODE_YC422P;
+		isc->try_config.dctrl_dview = ISC_DCTRL_DVIEW_PLANAR;
+		isc->try_config.bpp = 16;
+		break;
+	case V4L2_PIX_FMT_YUYV:
+		isc->try_config.rlp_cfg_mode = ISC_RLP_CFG_MODE_YYCC;
+		isc->try_config.dcfg_imode = ISC_DCFG_IMODE_PACKED32;
+		isc->try_config.dctrl_dview = ISC_DCTRL_DVIEW_PACKED;
+		isc->try_config.bpp = 16;
+		break;
+	case V4L2_PIX_FMT_GREY:
+		isc->try_config.rlp_cfg_mode = ISC_RLP_CFG_MODE_DATY8;
+		isc->try_config.dcfg_imode = ISC_DCFG_IMODE_PACKED8;
+		isc->try_config.dctrl_dview = ISC_DCTRL_DVIEW_PACKED;
+		isc->try_config.bpp = 8;
+		break;
+	default:
+		return -EINVAL;
+	}
+	return 0;
+}
+
+/*
+ * Configuring pipeline modules, depending on which format the ISC outputs
+ * and considering which format it has as input from the sensor.
+ */
+static int isc_try_configure_pipeline(struct isc_device *isc)
+{
+	switch (isc->try_config.fourcc) {
+	case V4L2_PIX_FMT_RGB565:
+	case V4L2_PIX_FMT_ARGB555:
+	case V4L2_PIX_FMT_ARGB444:
+	case V4L2_PIX_FMT_ABGR32:
+	case V4L2_PIX_FMT_XBGR32:
+		/* if sensor format is RAW, we convert inside ISC */
+		if (ISC_IS_FORMAT_RAW(isc->try_config.sd_format->mbus_code)) {
+			isc->try_config.bits_pipeline = CFA_ENABLE |
+				WB_ENABLE | GAM_ENABLES;
+		} else {
+			isc->try_config.bits_pipeline = 0x0;
+		}
+		break;
+	case V4L2_PIX_FMT_YUV420:
+		/* if sensor format is RAW, we convert inside ISC */
+		if (ISC_IS_FORMAT_RAW(isc->try_config.sd_format->mbus_code)) {
+			isc->try_config.bits_pipeline = CFA_ENABLE |
+				CSC_ENABLE | WB_ENABLE | GAM_ENABLES |
+				SUB420_ENABLE | SUB422_ENABLE | CBC_ENABLE;
+		} else {
+			isc->try_config.bits_pipeline = 0x0;
+		}
+		break;
+	case V4L2_PIX_FMT_YUV422P:
+		/* if sensor format is RAW, we convert inside ISC */
+		if (ISC_IS_FORMAT_RAW(isc->try_config.sd_format->mbus_code)) {
+			isc->try_config.bits_pipeline = CFA_ENABLE |
+				CSC_ENABLE | WB_ENABLE | GAM_ENABLES |
+				SUB422_ENABLE | CBC_ENABLE;
+		} else {
+			isc->try_config.bits_pipeline = 0x0;
+		}
+		break;
+	case V4L2_PIX_FMT_YUYV:
+		/* if sensor format is RAW, we convert inside ISC */
+		if (ISC_IS_FORMAT_RAW(isc->try_config.sd_format->mbus_code)) {
+			isc->try_config.bits_pipeline = CFA_ENABLE |
+				CSC_ENABLE | WB_ENABLE | GAM_ENABLES |
+				SUB422_ENABLE | CBC_ENABLE;
+		} else {
+			isc->try_config.bits_pipeline = 0x0;
+		}
+		break;
+	case V4L2_PIX_FMT_GREY:
+		if (ISC_IS_FORMAT_RAW(isc->try_config.sd_format->mbus_code)) {
+		/* if sensor format is RAW, we convert inside ISC */
+			isc->try_config.bits_pipeline = CFA_ENABLE |
+				CSC_ENABLE | WB_ENABLE | GAM_ENABLES |
+				CBC_ENABLE;
+		} else {
+			isc->try_config.bits_pipeline = 0x0;
+		}
+		break;
+	default:
+		isc->try_config.bits_pipeline = 0x0;
+	}
+	return 0;
+}
+
+static int isc_try_fmt(struct isc_device *isc, struct v4l2_format *f,
+			u32 *code)
+{
+	int i;
+	struct isc_format *sd_fmt = NULL, *direct_fmt = NULL;
 	struct v4l2_pix_format *pixfmt = &f->fmt.pix;
+	struct v4l2_subdev_pad_config pad_cfg;
 	struct v4l2_subdev_format format = {
 		.which = V4L2_SUBDEV_FORMAT_TRY,
 	};
+	u32 mbus_code;
 	int ret;
+	bool rlp_dma_direct_dump = false;
 
 	if (f->type != V4L2_BUF_TYPE_VIDEO_CAPTURE)
 		return -EINVAL;
 
-	isc_fmt = find_format_by_fourcc(isc, pixfmt->pixelformat);
-	if (!isc_fmt) {
-		v4l2_warn(&isc->v4l2_dev, "Format 0x%x not found\n",
-			  pixfmt->pixelformat);
-		isc_fmt = isc->user_formats[isc->num_user_formats - 1];
-		pixfmt->pixelformat = isc_fmt->fourcc;
+	/* Step 1: find a RAW format that is supported */
+	for (i = 0; i < isc->num_user_formats; i++) {
+		if (ISC_IS_FORMAT_RAW(isc->user_formats[i]->mbus_code)) {
+			sd_fmt = isc->user_formats[i];
+			break;
+		}
 	}
+	/* Step 2: We can continue with this RAW format, or we can look
+	 * for better: maybe sensor supports directly what we need.
+	 */
+	direct_fmt = find_format_by_fourcc(isc, pixfmt->pixelformat);
+
+	/* Step 3: We have both. We decide given the module parameter which
+	 * one to use.
+	 */
+	if (direct_fmt && sd_fmt && sensor_preferred)
+		sd_fmt = direct_fmt;
+
+	/* Step 4: we do not have RAW but we have a direct format. Use it. */
+	if (direct_fmt && !sd_fmt)
+		sd_fmt = direct_fmt;
+
+	/* Step 5: if we are using a direct format, we need to package
+	 * everything as 8 bit data and just dump it
+	 */
+	if (sd_fmt == direct_fmt)
+		rlp_dma_direct_dump = true;
+
+	/* Step 6: We have no format. This can happen if the userspace
+	 * requests some weird/invalid format.
+	 * In this case, default to whatever we have
+	 */
+	if (!sd_fmt && !direct_fmt) {
+		sd_fmt = isc->user_formats[isc->num_user_formats - 1];
+		v4l2_dbg(1, debug, &isc->v4l2_dev,
+			 "Sensor not supporting %.4s, using %.4s\n",
+			 (char *)&pixfmt->pixelformat, (char *)&sd_fmt->fourcc);
+	}
+
+	if (!sd_fmt) {
+		ret = -EINVAL;
+		goto isc_try_fmt_err;
+	}
+
+	/* Step 7: Print out what we decided for debugging */
+	v4l2_dbg(1, debug, &isc->v4l2_dev,
+		 "Preferring to have sensor using format %.4s\n",
+		 (char *)&sd_fmt->fourcc);
+
+	/* Step 8: at this moment we decided which format the subdev will use */
+	isc->try_config.sd_format = sd_fmt;
 
 	/* Limit to Atmel ISC hardware capabilities */
 	if (pixfmt->width > ISC_MAX_SUPPORT_WIDTH)
@@ -717,22 +1401,56 @@ static int isc_try_fmt(struct isc_device *isc, struct v4l2_format *f,
 	if (pixfmt->height > ISC_MAX_SUPPORT_HEIGHT)
 		pixfmt->height = ISC_MAX_SUPPORT_HEIGHT;
 
-	v4l2_fill_mbus_format(&format.format, pixfmt, isc_fmt->mbus_code);
+	/*
+	 * The mbus format is the one the subdev outputs.
+	 * The pixels will be transferred in this format Sensor -> ISC
+	 */
+	mbus_code = sd_fmt->mbus_code;
+
+	/*
+	 * Validate formats. If the required format is not OK, default to raw.
+	 */
+
+	isc->try_config.fourcc = pixfmt->pixelformat;
+
+	if (isc_try_validate_formats(isc)) {
+		pixfmt->pixelformat = isc->try_config.fourcc = sd_fmt->fourcc;
+		/* Re-try to validate the new format */
+		ret = isc_try_validate_formats(isc);
+		if (ret)
+			goto isc_try_fmt_err;
+	}
+
+	ret = isc_try_configure_rlp_dma(isc, rlp_dma_direct_dump);
+	if (ret)
+		goto isc_try_fmt_err;
+
+	ret = isc_try_configure_pipeline(isc);
+	if (ret)
+		goto isc_try_fmt_err;
+
+	v4l2_fill_mbus_format(&format.format, pixfmt, mbus_code);
 	ret = v4l2_subdev_call(isc->current_subdev->sd, pad, set_fmt,
-			       isc->current_subdev->config, &format);
+			       &pad_cfg, &format);
 	if (ret < 0)
-		return ret;
+		goto isc_try_fmt_err;
 
 	v4l2_fill_pix_format(pixfmt, &format.format);
 
 	pixfmt->field = V4L2_FIELD_NONE;
-	pixfmt->bytesperline = pixfmt->width * isc_fmt->bpp;
+	pixfmt->bytesperline = (pixfmt->width * isc->try_config.bpp) >> 3;
 	pixfmt->sizeimage = pixfmt->bytesperline * pixfmt->height;
 
-	if (current_fmt)
-		*current_fmt = isc_fmt;
+	if (code)
+		*code = mbus_code;
 
 	return 0;
+
+isc_try_fmt_err:
+	v4l2_err(&isc->v4l2_dev, "Could not find any possible format for a working pipeline\n");
+	memset(&isc->try_config, 0, sizeof(isc->try_config));
+
+	return ret;
 }
 
 static int isc_set_fmt(struct isc_device *isc, struct v4l2_format *f)
@@ -740,22 +1458,24 @@ static int isc_set_fmt(struct isc_device *isc, struct v4l2_format *f)
 	struct v4l2_subdev_format format = {
 		.which = V4L2_SUBDEV_FORMAT_ACTIVE,
 	};
-	struct isc_format *current_fmt;
+	u32 mbus_code = 0;
 	int ret;
 
-	ret = isc_try_fmt(isc, f, &current_fmt);
+	ret = isc_try_fmt(isc, f, &mbus_code);
 	if (ret)
 		return ret;
 
-	v4l2_fill_mbus_format(&format.format, &f->fmt.pix,
-			      current_fmt->mbus_code);
+	v4l2_fill_mbus_format(&format.format, &f->fmt.pix, mbus_code);
 	ret = v4l2_subdev_call(isc->current_subdev->sd, pad,
 			       set_fmt, NULL, &format);
 	if (ret < 0)
 		return ret;
 
 	isc->fmt = *f;
-	isc->current_fmt = current_fmt;
+	/* make the try configuration active */
+	isc->config = isc->try_config;
+
+	v4l2_dbg(1, debug, &isc->v4l2_dev, "New ISC configuration in place\n");
 
 	return 0;
 }
@@ -787,7 +1507,7 @@ static int isc_enum_input(struct file *file, void *priv,
 
 	inp->type = V4L2_INPUT_TYPE_CAMERA;
 	inp->std = 0;
-	strcpy(inp->name, "Camera");
+	strscpy(inp->name, "Camera", sizeof(inp->name));
 
 	return 0;
 }
@@ -811,43 +1531,44 @@ static int isc_g_parm(struct file *file, void *fh, struct v4l2_streamparm *a)
 {
 	struct isc_device *isc = video_drvdata(file);
 
-	if (a->type != V4L2_BUF_TYPE_VIDEO_CAPTURE)
-		return -EINVAL;
-
-	return v4l2_subdev_call(isc->current_subdev->sd, video, g_parm, a);
+	return v4l2_g_parm_cap(video_devdata(file), isc->current_subdev->sd, a);
 }
 
 static int isc_s_parm(struct file *file, void *fh, struct v4l2_streamparm *a)
 {
 	struct isc_device *isc = video_drvdata(file);
 
-	if (a->type != V4L2_BUF_TYPE_VIDEO_CAPTURE)
-		return -EINVAL;
-
-	return v4l2_subdev_call(isc->current_subdev->sd, video, s_parm, a);
+	return v4l2_s_parm_cap(video_devdata(file), isc->current_subdev->sd, a);
 }
 
 static int isc_enum_framesizes(struct file *file, void *fh,
 			       struct v4l2_frmsizeenum *fsize)
 {
 	struct isc_device *isc = video_drvdata(file);
-	const struct isc_format *isc_fmt;
 	struct v4l2_subdev_frame_size_enum fse = {
 		.index = fsize->index,
 		.which = V4L2_SUBDEV_FORMAT_ACTIVE,
 	};
-	int ret;
+	int ret = -EINVAL;
+	int i;
 
-	isc_fmt = find_format_by_fourcc(isc, fsize->pixel_format);
-	if (!isc_fmt)
-		return -EINVAL;
+	for (i = 0; i < isc->num_user_formats; i++)
+		if (isc->user_formats[i]->fourcc == fsize->pixel_format)
+			ret = 0;
 
-	fse.code = isc_fmt->mbus_code;
+	for (i = 0; i < ARRAY_SIZE(controller_formats); i++)
+		if (controller_formats[i].fourcc == fsize->pixel_format)
+			ret = 0;
+
+	if (ret)
+		return ret;
 
 	ret = v4l2_subdev_call(isc->current_subdev->sd, pad, enum_frame_size,
 			       NULL, &fse);
 	if (ret)
 		return ret;
+
+	fse.code = isc->config.sd_format->mbus_code;
 
 	fsize->type = V4L2_FRMSIZE_TYPE_DISCRETE;
 	fsize->discrete.width = fse.max_width;
@@ -860,26 +1581,32 @@ static int isc_enum_frameintervals(struct file *file, void *fh,
 				    struct v4l2_frmivalenum *fival)
 {
 	struct isc_device *isc = video_drvdata(file);
-	const struct isc_format *isc_fmt;
 	struct v4l2_subdev_frame_interval_enum fie = {
 		.index = fival->index,
 		.width = fival->width,
 		.height = fival->height,
 		.which = V4L2_SUBDEV_FORMAT_ACTIVE,
 	};
-	int ret;
+	int ret = -EINVAL;
+	int i;
 
-	isc_fmt = find_format_by_fourcc(isc, fival->pixel_format);
-	if (!isc_fmt)
-		return -EINVAL;
+	for (i = 0; i < isc->num_user_formats; i++)
+		if (isc->user_formats[i]->fourcc == fival->pixel_format)
+			ret = 0;
 
-	fie.code = isc_fmt->mbus_code;
+	for (i = 0; i < ARRAY_SIZE(controller_formats); i++)
+		if (controller_formats[i].fourcc == fival->pixel_format)
+			ret = 0;
+
+	if (ret)
+		return ret;
 
 	ret = v4l2_subdev_call(isc->current_subdev->sd, pad,
 			       enum_frame_interval, NULL, &fie);
 	if (ret)
 		return ret;
 
+	fie.code = isc->config.sd_format->mbus_code;
 	fival->type = V4L2_FRMIVAL_TYPE_DISCRETE;
 	fival->discrete = fie.interval;
 
@@ -911,6 +1638,10 @@ static const struct v4l2_ioctl_ops isc_ioctl_ops = {
 	.vidioc_s_parm			= isc_s_parm,
 	.vidioc_enum_framesizes		= isc_enum_framesizes,
 	.vidioc_enum_frameintervals	= isc_enum_frameintervals,
+
+	.vidioc_log_status		= v4l2_ctrl_log_status,
+	.vidioc_subscribe_event		= v4l2_ctrl_subscribe_event,
+	.vidioc_unsubscribe_event	= v4l2_event_unsubscribe,
 };
 
 static int isc_open(struct file *file)
@@ -984,14 +1715,13 @@ static irqreturn_t isc_interrupt(int irq, void *dev_id)
 	u32 isc_intsr, isc_intmask, pending;
 	irqreturn_t ret = IRQ_NONE;
 
-	spin_lock(&isc->dma_queue_lock);
-
 	regmap_read(regmap, ISC_INTSR, &isc_intsr);
 	regmap_read(regmap, ISC_INTMASK, &isc_intmask);
 
 	pending = isc_intsr & isc_intmask;
 
 	if (likely(pending & ISC_INT_DDONE)) {
+		spin_lock(&isc->dma_queue_lock);
 		if (isc->cur_frm) {
 			struct vb2_v4l2_buffer *vbuf = &isc->cur_frm->vb;
 			struct vb2_buffer *vb = &vbuf->vb2_buf;
@@ -1007,19 +1737,141 @@ static irqreturn_t isc_interrupt(int irq, void *dev_id)
 						     struct isc_buffer, list);
 			list_del(&isc->cur_frm->list);
 
-			isc_start_dma(regmap, isc->cur_frm,
-				      isc->current_fmt->reg_dctrl_dview);
+			isc_start_dma(isc);
 		}
 
 		if (isc->stop)
 			complete(&isc->comp);
 
 		ret = IRQ_HANDLED;
+		spin_unlock(&isc->dma_queue_lock);
 	}
 
-	spin_unlock(&isc->dma_queue_lock);
+	if (pending & ISC_INT_HISDONE) {
+		schedule_work(&isc->awb_work);
+		ret = IRQ_HANDLED;
+	}
 
 	return ret;
+}
+
+static void isc_hist_count(struct isc_device *isc)
+{
+	struct regmap *regmap = isc->regmap;
+	struct isc_ctrls *ctrls = &isc->ctrls;
+	u32 *hist_count = &ctrls->hist_count[ctrls->hist_id];
+	u32 *hist_entry = &ctrls->hist_entry[0];
+	u32 i;
+
+	regmap_bulk_read(regmap, ISC_HIS_ENTRY, hist_entry, HIST_ENTRIES);
+
+	*hist_count = 0;
+	for (i = 0; i < HIST_ENTRIES; i++)
+		*hist_count += i * (*hist_entry++);
+}
+
+static void isc_wb_update(struct isc_ctrls *ctrls)
+{
+	u32 *hist_count = &ctrls->hist_count[0];
+	u64 g_count = (u64)hist_count[ISC_HIS_CFG_MODE_GB] << 9;
+	u32 hist_r = hist_count[ISC_HIS_CFG_MODE_R];
+	u32 hist_b = hist_count[ISC_HIS_CFG_MODE_B];
+
+	if (hist_r)
+		ctrls->r_gain = div_u64(g_count, hist_r);
+
+	if (hist_b)
+		ctrls->b_gain = div_u64(g_count, hist_b);
+}
+
+static void isc_awb_work(struct work_struct *w)
+{
+	struct isc_device *isc =
+		container_of(w, struct isc_device, awb_work);
+	struct regmap *regmap = isc->regmap;
+	struct isc_ctrls *ctrls = &isc->ctrls;
+	u32 hist_id = ctrls->hist_id;
+	u32 baysel;
+
+	if (ctrls->hist_stat != HIST_ENABLED)
+		return;
+
+	isc_hist_count(isc);
+
+	if (hist_id != ISC_HIS_CFG_MODE_B) {
+		hist_id++;
+	} else {
+		isc_wb_update(ctrls);
+		hist_id = ISC_HIS_CFG_MODE_R;
+	}
+
+	ctrls->hist_id = hist_id;
+	baysel = isc->config.sd_format->cfa_baycfg << ISC_HIS_CFG_BAYSEL_SHIFT;
+
+	pm_runtime_get_sync(isc->dev);
+
+	regmap_write(regmap, ISC_HIS_CFG, hist_id | baysel | ISC_HIS_CFG_RAR);
+	isc_update_profile(isc);
+	regmap_write(regmap, ISC_CTRLEN, ISC_CTRL_HISREQ);
+
+	pm_runtime_put_sync(isc->dev);
+}
+
+static int isc_s_ctrl(struct v4l2_ctrl *ctrl)
+{
+	struct isc_device *isc = container_of(ctrl->handler,
+					     struct isc_device, ctrls.handler);
+	struct isc_ctrls *ctrls = &isc->ctrls;
+
+	switch (ctrl->id) {
+	case V4L2_CID_BRIGHTNESS:
+		ctrls->brightness = ctrl->val & ISC_CBC_BRIGHT_MASK;
+		break;
+	case V4L2_CID_CONTRAST:
+		ctrls->contrast = ctrl->val & ISC_CBC_CONTRAST_MASK;
+		break;
+	case V4L2_CID_GAMMA:
+		ctrls->gamma_index = ctrl->val;
+		break;
+	case V4L2_CID_AUTO_WHITE_BALANCE:
+		ctrls->awb = ctrl->val;
+		if (ctrls->hist_stat != HIST_ENABLED) {
+			ctrls->r_gain = 0x1 << 9;
+			ctrls->b_gain = 0x1 << 9;
+		}
+		break;
+	default:
+		return -EINVAL;
+	}
+
+	return 0;
+}
+
+static const struct v4l2_ctrl_ops isc_ctrl_ops = {
+	.s_ctrl	= isc_s_ctrl,
+};
+
+static int isc_ctrl_init(struct isc_device *isc)
+{
+	const struct v4l2_ctrl_ops *ops = &isc_ctrl_ops;
+	struct isc_ctrls *ctrls = &isc->ctrls;
+	struct v4l2_ctrl_handler *hdl = &ctrls->handler;
+	int ret;
+
+	ctrls->hist_stat = HIST_INIT;
+
+	ret = v4l2_ctrl_handler_init(hdl, 4);
+	if (ret < 0)
+		return ret;
+
+	v4l2_ctrl_new_std(hdl, ops, V4L2_CID_BRIGHTNESS, -1024, 1023, 1, 0);
+	v4l2_ctrl_new_std(hdl, ops, V4L2_CID_CONTRAST, -2048, 2047, 1, 256);
+	v4l2_ctrl_new_std(hdl, ops, V4L2_CID_GAMMA, 0, GAMMA_MAX, 1, 2);
+	v4l2_ctrl_new_std(hdl, ops, V4L2_CID_AUTO_WHITE_BALANCE, 0, 1, 1, 1);
+
+	v4l2_ctrl_handler_setup(hdl);
+
+	return 0;
 }
 
 static int isc_async_bound(struct v4l2_async_notifier *notifier,
@@ -1047,18 +1899,17 @@ static void isc_async_unbind(struct v4l2_async_notifier *notifier,
 {
 	struct isc_device *isc = container_of(notifier->v4l2_dev,
 					      struct isc_device, v4l2_dev);
-
+	cancel_work_sync(&isc->awb_work);
 	video_unregister_device(&isc->video_dev);
-	if (isc->current_subdev->config)
-		v4l2_subdev_free_pad_config(isc->current_subdev->config);
+	v4l2_ctrl_handler_free(&isc->ctrls.handler);
 }
 
 static struct isc_format *find_format_by_code(unsigned int code, int *index)
 {
-	struct isc_format *fmt = &isc_formats[0];
+	struct isc_format *fmt = &formats_list[0];
 	unsigned int i;
 
-	for (i = 0; i < ARRAY_SIZE(isc_formats); i++) {
+	for (i = 0; i < ARRAY_SIZE(formats_list); i++) {
 		if (fmt->mbus_code == code) {
 			*index = i;
 			return fmt;
@@ -1074,25 +1925,25 @@ static int isc_formats_init(struct isc_device *isc)
 {
 	struct isc_format *fmt;
 	struct v4l2_subdev *subdev = isc->current_subdev->sd;
-	int num_fmts = 0, i, j;
+	unsigned int num_fmts, i, j;
+	u32 list_size = ARRAY_SIZE(formats_list);
 	struct v4l2_subdev_mbus_code_enum mbus_code = {
 		.which = V4L2_SUBDEV_FORMAT_ACTIVE,
 	};
 
-	fmt = &isc_formats[0];
-	for (i = 0; i < ARRAY_SIZE(isc_formats); i++) {
-		fmt->support = false;
-		fmt++;
-	}
-
+	num_fmts = 0;
 	while (!v4l2_subdev_call(subdev, pad, enum_mbus_code,
 	       NULL, &mbus_code)) {
 		mbus_code.index++;
-		fmt = find_format_by_code(mbus_code.code, &i);
-		if (!fmt)
-			continue;
 
-		fmt->support = true;
+		fmt = find_format_by_code(mbus_code.code, &i);
+		if (!fmt) {
+			v4l2_warn(&isc->v4l2_dev, "Mbus code %x not supported\n",
+				  mbus_code.code);
+			continue;
+		}
+
+		fmt->sd_support = true;
 		num_fmts++;
 	}
 
@@ -1101,18 +1952,15 @@ static int isc_formats_init(struct isc_device *isc)
 
 	isc->num_user_formats = num_fmts;
 	isc->user_formats = devm_kcalloc(isc->dev,
-					 num_fmts, sizeof(struct isc_format *),
+					 num_fmts, sizeof(*isc->user_formats),
 					 GFP_KERNEL);
-	if (!isc->user_formats) {
-		v4l2_err(&isc->v4l2_dev, "could not allocate memory\n");
+	if (!isc->user_formats)
 		return -ENOMEM;
-	}
 
-	fmt = &isc_formats[0];
-	for (i = 0, j = 0; i < ARRAY_SIZE(isc_formats); i++) {
-		if (fmt->support)
+	fmt = &formats_list[0];
+	for (i = 0, j = 0; i < list_size; i++) {
+		if (fmt->sd_support)
 			isc->user_formats[j++] = fmt;
-
 		fmt++;
 	}
 
@@ -1136,9 +1984,7 @@ static int isc_set_default_fmt(struct isc_device *isc)
 	if (ret)
 		return ret;
 
-	isc->current_fmt = isc->user_formats[0];
 	isc->fmt = f;
-
 	return 0;
 }
 
@@ -1146,15 +1992,20 @@ static int isc_async_complete(struct v4l2_async_notifier *notifier)
 {
 	struct isc_device *isc = container_of(notifier->v4l2_dev,
 					      struct isc_device, v4l2_dev);
-	struct isc_subdev_entity *sd_entity;
 	struct video_device *vdev = &isc->video_dev;
 	struct vb2_queue *q = &isc->vb2_vidq;
 	int ret;
 
+	INIT_WORK(&isc->awb_work, isc_awb_work);
+
+	ret = v4l2_device_register_subdev_nodes(&isc->v4l2_dev);
+	if (ret < 0) {
+		v4l2_err(&isc->v4l2_dev, "Failed to register subdev nodes\n");
+		return ret;
+	}
+
 	isc->current_subdev = container_of(notifier,
 					   struct isc_subdev_entity, notifier);
-	sd_entity = isc->current_subdev;
-
 	mutex_init(&isc->lock);
 	init_completion(&isc->comp);
 
@@ -1181,10 +2032,6 @@ static int isc_async_complete(struct v4l2_async_notifier *notifier)
 	INIT_LIST_HEAD(&isc->dma_queue);
 	spin_lock_init(&isc->dma_queue_lock);
 
-	sd_entity->config = v4l2_subdev_alloc_pad_config(sd_entity->sd);
-	if (sd_entity->config == NULL)
-		return -ENOMEM;
-
 	ret = isc_formats_init(isc);
 	if (ret < 0) {
 		v4l2_err(&isc->v4l2_dev,
@@ -1198,8 +2045,14 @@ static int isc_async_complete(struct v4l2_async_notifier *notifier)
 		return ret;
 	}
 
+	ret = isc_ctrl_init(isc);
+	if (ret) {
+		v4l2_err(&isc->v4l2_dev, "Init isc ctrols failed: %d\n", ret);
+		return ret;
+	}
+
 	/* Register video device */
-	strlcpy(vdev->name, ATMEL_ISC_NAME, sizeof(vdev->name));
+	strscpy(vdev->name, ATMEL_ISC_NAME, sizeof(vdev->name));
 	vdev->release		= video_device_release_empty;
 	vdev->fops		= &isc_fops;
 	vdev->ioctl_ops		= &isc_ioctl_ops;
@@ -1207,7 +2060,7 @@ static int isc_async_complete(struct v4l2_async_notifier *notifier)
 	vdev->vfl_dir		= VFL_DIR_RX;
 	vdev->queue		= q;
 	vdev->lock		= &isc->lock;
-	vdev->ctrl_handler	= isc->current_subdev->sd->ctrl_handler;
+	vdev->ctrl_handler	= &isc->ctrls.handler;
 	vdev->device_caps	= V4L2_CAP_STREAMING | V4L2_CAP_VIDEO_CAPTURE;
 	video_set_drvdata(vdev, isc);
 
@@ -1221,12 +2074,20 @@ static int isc_async_complete(struct v4l2_async_notifier *notifier)
 	return 0;
 }
 
+static const struct v4l2_async_notifier_operations isc_async_ops = {
+	.bound = isc_async_bound,
+	.unbind = isc_async_unbind,
+	.complete = isc_async_complete,
+};
+
 static void isc_subdev_cleanup(struct isc_device *isc)
 {
 	struct isc_subdev_entity *subdev_entity;
 
-	list_for_each_entry(subdev_entity, &isc->subdev_entities, list)
+	list_for_each_entry(subdev_entity, &isc->subdev_entities, list) {
 		v4l2_async_notifier_unregister(&subdev_entity->notifier);
+		v4l2_async_notifier_cleanup(&subdev_entity->notifier);
+	}
 
 	INIT_LIST_HEAD(&isc->subdev_entities);
 }
@@ -1268,26 +2129,28 @@ static int isc_parse_dt(struct device *dev, struct isc_device *isc)
 {
 	struct device_node *np = dev->of_node;
 	struct device_node *epn = NULL, *rem;
-	struct v4l2_of_endpoint v4l2_epn;
 	struct isc_subdev_entity *subdev_entity;
 	unsigned int flags;
 	int ret;
 
 	INIT_LIST_HEAD(&isc->subdev_entities);
 
-	for (; ;) {
+	while (1) {
+		struct v4l2_fwnode_endpoint v4l2_epn = { .bus_type = 0 };
+
 		epn = of_graph_get_next_endpoint(np, epn);
 		if (!epn)
-			break;
+			return 0;
 
 		rem = of_graph_get_remote_port_parent(epn);
 		if (!rem) {
-			dev_notice(dev, "Remote device at %s not found\n",
-				   of_node_full_name(epn));
+			dev_notice(dev, "Remote device at %pOF not found\n",
+				   epn);
 			continue;
 		}
 
-		ret = v4l2_of_parse_endpoint(epn, &v4l2_epn);
+		ret = v4l2_fwnode_endpoint_parse(of_fwnode_handle(epn),
+						 &v4l2_epn);
 		if (ret) {
 			of_node_put(rem);
 			ret = -EINVAL;
@@ -1297,15 +2160,18 @@ static int isc_parse_dt(struct device *dev, struct isc_device *isc)
 
 		subdev_entity = devm_kzalloc(dev,
 					  sizeof(*subdev_entity), GFP_KERNEL);
-		if (subdev_entity == NULL) {
+		if (!subdev_entity) {
 			of_node_put(rem);
 			ret = -ENOMEM;
 			break;
 		}
 
-		subdev_entity->asd = devm_kzalloc(dev,
-				     sizeof(*subdev_entity->asd), GFP_KERNEL);
-		if (subdev_entity->asd == NULL) {
+		/* asd will be freed by the subsystem once it's added to the
+		 * notifier list
+		 */
+		subdev_entity->asd = kzalloc(sizeof(*subdev_entity->asd),
+					     GFP_KERNEL);
+		if (!subdev_entity->asd) {
 			of_node_put(rem);
 			ret = -ENOMEM;
 			break;
@@ -1322,8 +2188,13 @@ static int isc_parse_dt(struct device *dev, struct isc_device *isc)
 		if (flags & V4L2_MBUS_PCLK_SAMPLE_FALLING)
 			subdev_entity->pfe_cfg0 |= ISC_PFE_CFG0_PPOL_LOW;
 
-		subdev_entity->asd->match_type = V4L2_ASYNC_MATCH_OF;
-		subdev_entity->asd->match.of.node = rem;
+		if (v4l2_epn.bus_type == V4L2_MBUS_BT656)
+			subdev_entity->pfe_cfg0 |= ISC_PFE_CFG0_CCIR_CRC |
+					ISC_PFE_CFG0_CCIR656;
+
+		subdev_entity->asd->match_type = V4L2_ASYNC_MATCH_FWNODE;
+		subdev_entity->asd->match.fwnode =
+			of_fwnode_handle(rem);
 		list_add_tail(&subdev_entity->list, &isc->subdev_entities);
 	}
 
@@ -1395,25 +2266,37 @@ static int atmel_isc_probe(struct platform_device *pdev)
 		return ret;
 	}
 
+	ret = clk_prepare_enable(isc->hclock);
+	if (ret) {
+		dev_err(dev, "failed to enable hclock: %d\n", ret);
+		return ret;
+	}
+
 	ret = isc_clk_init(isc);
 	if (ret) {
 		dev_err(dev, "failed to init isc clock: %d\n", ret);
-		goto clean_isc_clk;
+		goto unprepare_hclk;
 	}
 
 	isc->ispck = isc->isc_clks[ISC_ISPCK].clk;
+
+	ret = clk_prepare_enable(isc->ispck);
+	if (ret) {
+		dev_err(dev, "failed to enable ispck: %d\n", ret);
+		goto unprepare_hclk;
+	}
 
 	/* ispck should be greater or equal to hclock */
 	ret = clk_set_rate(isc->ispck, clk_get_rate(isc->hclock));
 	if (ret) {
 		dev_err(dev, "failed to set ispck rate: %d\n", ret);
-		goto clean_isc_clk;
+		goto unprepare_clk;
 	}
 
 	ret = v4l2_device_register(dev, &isc->v4l2_dev);
 	if (ret) {
 		dev_err(dev, "unable to register v4l2 device.\n");
-		goto clean_isc_clk;
+		goto unprepare_clk;
 	}
 
 	ret = isc_parse_dt(dev, isc);
@@ -1429,11 +2312,17 @@ static int atmel_isc_probe(struct platform_device *pdev)
 	}
 
 	list_for_each_entry(subdev_entity, &isc->subdev_entities, list) {
-		subdev_entity->notifier.subdevs = &subdev_entity->asd;
-		subdev_entity->notifier.num_subdevs = 1;
-		subdev_entity->notifier.bound = isc_async_bound;
-		subdev_entity->notifier.unbind = isc_async_unbind;
-		subdev_entity->notifier.complete = isc_async_complete;
+		v4l2_async_notifier_init(&subdev_entity->notifier);
+
+		ret = v4l2_async_notifier_add_subdev(&subdev_entity->notifier,
+						     subdev_entity->asd);
+		if (ret) {
+			fwnode_handle_put(subdev_entity->asd->match.fwnode);
+			kfree(subdev_entity->asd);
+			goto cleanup_subdev;
+		}
+
+		subdev_entity->notifier.ops = &isc_async_ops;
 
 		ret = v4l2_async_notifier_register(&isc->v4l2_dev,
 						   &subdev_entity->notifier);
@@ -1446,7 +2335,9 @@ static int atmel_isc_probe(struct platform_device *pdev)
 			break;
 	}
 
+	pm_runtime_set_active(dev);
 	pm_runtime_enable(dev);
+	pm_request_idle(dev);
 
 	return 0;
 
@@ -1456,7 +2347,11 @@ cleanup_subdev:
 unregister_v4l2_device:
 	v4l2_device_unregister(&isc->v4l2_dev);
 
-clean_isc_clk:
+unprepare_clk:
+	clk_disable_unprepare(isc->ispck);
+unprepare_hclk:
+	clk_disable_unprepare(isc->hclock);
+
 	isc_clk_cleanup(isc);
 
 	return ret;
@@ -1467,6 +2362,8 @@ static int atmel_isc_remove(struct platform_device *pdev)
 	struct isc_device *isc = platform_get_drvdata(pdev);
 
 	pm_runtime_disable(&pdev->dev);
+	clk_disable_unprepare(isc->ispck);
+	clk_disable_unprepare(isc->hclock);
 
 	isc_subdev_cleanup(isc);
 

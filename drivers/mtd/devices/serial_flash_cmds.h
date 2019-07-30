@@ -1,19 +1,14 @@
+/* SPDX-License-Identifier: GPL-2.0-only */
 /*
  * Generic/SFDP Flash Commands and Device Capabilities
  *
  * Copyright (C) 2013 Lee Jones <lee.jones@lianro.org>
- *
- * This code is free software; you can redistribute it and/or modify
- * it under the terms of the GNU General Public License version 2 as
- * published by the Free Software Foundation.
- *
  */
 
 #ifndef _MTD_SERIAL_FLASH_CMDS_H
 #define _MTD_SERIAL_FLASH_CMDS_H
 
 /* Generic Flash Commands/OPCODEs */
-#define SPINOR_OP_RDSR2		0x35
 #define SPINOR_OP_WRVCR		0x81
 #define SPINOR_OP_RDVCR		0x85
 

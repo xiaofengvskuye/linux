@@ -72,15 +72,12 @@ object TTM to provide a pool for buffer object allocation by clients and
 the kernel itself. The type of this object should be
 TTM_GLOBAL_TTM_BO, and its size should be sizeof(struct
 ttm_bo_global). Again, driver-specific init and release functions may
-be provided, likely eventually calling ttm_bo_global_init() and
-ttm_bo_global_release(), respectively. Also, like the previous
+be provided, likely eventually calling ttm_bo_global_ref_init() and
+ttm_bo_global_ref_release(), respectively. Also, like the previous
 object, ttm_global_item_ref() is used to create an initial reference
 count for the TTM, which will call your initialization function.
 
 See the radeon_ttm.c file for an example of usage.
-
-.. kernel-doc:: drivers/gpu/drm/drm_global.c
-   :export:
 
 
 The Graphics Execution Manager (GEM)
@@ -183,17 +180,15 @@ GEM Objects Lifetime
 --------------------
 
 All GEM objects are reference-counted by the GEM core. References can be
-acquired and release by :c:func:`calling
-drm_gem_object_reference()` and
-:c:func:`drm_gem_object_unreference()` respectively. The caller
-must hold the :c:type:`struct drm_device <drm_device>`
-struct_mutex lock when calling
-:c:func:`drm_gem_object_reference()`. As a convenience, GEM
-provides :c:func:`drm_gem_object_unreference_unlocked()`
-functions that can be called without holding the lock.
+acquired and release by :c:func:`calling drm_gem_object_get()` and
+:c:func:`drm_gem_object_put()` respectively. The caller must hold the
+:c:type:`struct drm_device <drm_device>` struct_mutex lock when calling
+:c:func:`drm_gem_object_get()`. As a convenience, GEM provides
+:c:func:`drm_gem_object_put_unlocked()` functions that can be called without
+holding the lock.
 
 When the last reference to a GEM object is released the GEM core calls
-the :c:type:`struct drm_driver <drm_driver>` gem_free_object
+the :c:type:`struct drm_driver <drm_driver>` gem_free_object_unlocked
 operation. That operation is mandatory for GEM-enabled drivers and must
 free the GEM object and all associated resources.
 
@@ -299,7 +294,7 @@ made up of several fields, the more interesting ones being:
 	struct vm_operations_struct {
 		void (*open)(struct vm_area_struct * area);
 		void (*close)(struct vm_area_struct * area);
-		int (*fault)(struct vm_fault *vmf);
+		vm_fault_t (*fault)(struct vm_fault *vmf);
 	};
 
 
@@ -367,11 +362,11 @@ from the client in libdrm.
 GEM Function Reference
 ----------------------
 
-.. kernel-doc:: drivers/gpu/drm/drm_gem.c
-   :export:
-
 .. kernel-doc:: include/drm/drm_gem.h
    :internal:
+
+.. kernel-doc:: drivers/gpu/drm/drm_gem.c
+   :export:
 
 GEM CMA Helper Functions Reference
 ----------------------------------
@@ -379,11 +374,11 @@ GEM CMA Helper Functions Reference
 .. kernel-doc:: drivers/gpu/drm/drm_gem_cma_helper.c
    :doc: cma helpers
 
-.. kernel-doc:: drivers/gpu/drm/drm_gem_cma_helper.c
-   :export:
-
 .. kernel-doc:: include/drm/drm_gem_cma_helper.h
    :internal:
+
+.. kernel-doc:: drivers/gpu/drm/drm_gem_cma_helper.c
+   :export:
 
 VMA Offset Manager
 ==================
@@ -391,11 +386,13 @@ VMA Offset Manager
 .. kernel-doc:: drivers/gpu/drm/drm_vma_manager.c
    :doc: vma offset manager
 
+.. kernel-doc:: include/drm/drm_vma_manager.h
+   :internal:
+
 .. kernel-doc:: drivers/gpu/drm/drm_vma_manager.c
    :export:
 
-.. kernel-doc:: include/drm/drm_vma_manager.h
-   :internal:
+.. _prime_buffer_sharing:
 
 PRIME Buffer Sharing
 ====================
@@ -451,6 +448,9 @@ PRIME Helper Functions
 PRIME Function References
 -------------------------
 
+.. kernel-doc:: include/drm/drm_prime.h
+   :internal:
+
 .. kernel-doc:: drivers/gpu/drm/drm_prime.c
    :export:
 
@@ -472,14 +472,44 @@ LRU Scan/Eviction Support
 DRM MM Range Allocator Function References
 ------------------------------------------
 
-.. kernel-doc:: drivers/gpu/drm/drm_mm.c
-   :export:
-
 .. kernel-doc:: include/drm/drm_mm.h
    :internal:
+
+.. kernel-doc:: drivers/gpu/drm/drm_mm.c
+   :export:
 
 DRM Cache Handling
 ==================
 
 .. kernel-doc:: drivers/gpu/drm/drm_cache.c
+   :export:
+
+DRM Sync Objects
+===========================
+
+.. kernel-doc:: drivers/gpu/drm/drm_syncobj.c
+   :doc: Overview
+
+.. kernel-doc:: include/drm/drm_syncobj.h
+   :internal:
+
+.. kernel-doc:: drivers/gpu/drm/drm_syncobj.c
+   :export:
+
+GPU Scheduler
+=============
+
+Overview
+--------
+
+.. kernel-doc:: drivers/gpu/drm/scheduler/sched_main.c
+   :doc: Overview
+
+Scheduler Function References
+-----------------------------
+
+.. kernel-doc:: include/drm/gpu_scheduler.h
+   :internal:
+
+.. kernel-doc:: drivers/gpu/drm/scheduler/sched_main.c
    :export:

@@ -1,14 +1,10 @@
+// SPDX-License-Identifier: GPL-2.0-or-later
 /*
  *	Spanning tree protocol; interface code
  *	Linux ethernet bridge
  *
  *	Authors:
  *	Lennert Buytenhek		<buytenh@gnu.org>
- *
- *	This program is free software; you can redistribute it and/or
- *	modify it under the terms of the GNU General Public License
- *	as published by the Free Software Foundation; either version
- *	2 of the License, or (at your option) any later version.
  */
 
 #include <linux/kernel.h>
@@ -96,7 +92,7 @@ void br_stp_enable_port(struct net_bridge_port *p)
 {
 	br_init_port(p);
 	br_port_state_selection(p->br);
-	br_ifinfo_notify(RTM_NEWLINK, p);
+	br_ifinfo_notify(RTM_NEWLINK, NULL, p);
 }
 
 /* called under bridge lock */
@@ -111,13 +107,14 @@ void br_stp_disable_port(struct net_bridge_port *p)
 	p->topology_change_ack = 0;
 	p->config_pending = 0;
 
-	br_ifinfo_notify(RTM_NEWLINK, p);
+	br_ifinfo_notify(RTM_NEWLINK, NULL, p);
 
 	del_timer(&p->message_age_timer);
 	del_timer(&p->forward_delay_timer);
 	del_timer(&p->hold_timer);
 
-	br_fdb_delete_by_port(br, p, 0, 0);
+	if (!rcu_access_pointer(p->backup_port))
+		br_fdb_delete_by_port(br, p, 0, 0);
 	br_multicast_disable_port(p);
 
 	br_configuration_update(br);
@@ -150,7 +147,6 @@ static int br_stp_call_user(struct net_bridge *br, char *arg)
 
 static void br_stp_start(struct net_bridge *br)
 {
-	struct net_bridge_port *p;
 	int err = -ENOENT;
 
 	if (net_eq(dev_net(br->dev), &init_net))
@@ -169,16 +165,13 @@ static void br_stp_start(struct net_bridge *br)
 	if (!err) {
 		br->stp_enabled = BR_USER_STP;
 		br_debug(br, "userspace STP started\n");
-
-		/* Stop hello and hold timers */
-		del_timer(&br->hello_timer);
-		list_for_each_entry(p, &br->port_list, list)
-			del_timer(&p->hold_timer);
 	} else {
 		br->stp_enabled = BR_KERNEL_STP;
 		br_debug(br, "using kernel STP\n");
 
 		/* To start timers on any ports left in blocking */
+		if (br->dev->flags & IFF_UP)
+			mod_timer(&br->hello_timer, jiffies + br->hello_time);
 		br_port_state_selection(br);
 	}
 
@@ -187,7 +180,6 @@ static void br_stp_start(struct net_bridge *br)
 
 static void br_stp_stop(struct net_bridge *br)
 {
-	struct net_bridge_port *p;
 	int err;
 
 	if (br->stp_enabled == BR_USER_STP) {
@@ -196,10 +188,6 @@ static void br_stp_stop(struct net_bridge *br)
 			br_err(br, "failed to stop userspace STP (%d)\n", err);
 
 		/* To start timers on any ports left in blocking */
-		mod_timer(&br->hello_timer, jiffies + br->hello_time);
-		list_for_each_entry(p, &br->port_list, list)
-			mod_timer(&p->hold_timer,
-				  round_jiffies(jiffies + BR_HOLD_TIME));
 		spin_lock_bh(&br->lock);
 		br_port_state_selection(br);
 		spin_unlock_bh(&br->lock);

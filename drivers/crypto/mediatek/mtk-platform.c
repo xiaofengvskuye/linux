@@ -1,18 +1,15 @@
+// SPDX-License-Identifier: GPL-2.0-only
 /*
  * Driver for EIP97 cryptographic accelerator.
  *
  * Copyright (c) 2016 Ryder Lee <ryder.lee@mediatek.com>
- *
- * This program is free software; you can redistribute it and/or modify
- * it under the terms of the GNU General Public License version 2 as
- * published by the Free Software Foundation.
- *
  */
 
 #include <linux/clk.h>
 #include <linux/init.h>
 #include <linux/kernel.h>
 #include <linux/module.h>
+#include <linux/mod_devicetable.h>
 #include <linux/platform_device.h>
 #include <linux/pm_runtime.h>
 #include "mtk-platform.h"
@@ -334,7 +331,7 @@ static int mtk_packet_engine_setup(struct mtk_cryp *cryp)
 	/* Enable the 4 rings for the packet engines. */
 	mtk_desc_ring_link(cryp, 0xf);
 
-	for (i = 0; i < RING_MAX; i++) {
+	for (i = 0; i < MTK_RING_MAX; i++) {
 		mtk_cmd_desc_ring_setup(cryp, i, &cap);
 		mtk_res_desc_ring_setup(cryp, i, &cap);
 	}
@@ -359,7 +356,7 @@ static int mtk_aic_cap_check(struct mtk_cryp *cryp, int hw)
 {
 	u32 val;
 
-	if (hw == RING_MAX)
+	if (hw == MTK_RING_MAX)
 		val = readl(cryp->base + AIC_G_VERSION);
 	else
 		val = readl(cryp->base + AIC_VERSION(hw));
@@ -368,7 +365,7 @@ static int mtk_aic_cap_check(struct mtk_cryp *cryp, int hw)
 	if (val != MTK_AIC_VER11 && val != MTK_AIC_VER12)
 		return -ENXIO;
 
-	if (hw == RING_MAX)
+	if (hw == MTK_RING_MAX)
 		val = readl(cryp->base + AIC_G_OPTIONS);
 	else
 		val = readl(cryp->base + AIC_OPTIONS(hw));
@@ -389,7 +386,7 @@ static int mtk_aic_init(struct mtk_cryp *cryp, int hw)
 		return err;
 
 	/* Disable all interrupts and set initial configuration */
-	if (hw == RING_MAX) {
+	if (hw == MTK_RING_MAX) {
 		writel(0, cryp->base + AIC_G_ENABLE_CTRL);
 		writel(0, cryp->base + AIC_G_POL_CTRL);
 		writel(0, cryp->base + AIC_G_TYPE_CTRL);
@@ -431,7 +428,7 @@ static void mtk_desc_dma_free(struct mtk_cryp *cryp)
 {
 	int i;
 
-	for (i = 0; i < RING_MAX; i++) {
+	for (i = 0; i < MTK_RING_MAX; i++) {
 		dma_free_coherent(cryp->dev, MTK_DESC_RING_SZ,
 				  cryp->ring[i]->res_base,
 				  cryp->ring[i]->res_dma);
@@ -447,24 +444,27 @@ static int mtk_desc_ring_alloc(struct mtk_cryp *cryp)
 	struct mtk_ring **ring = cryp->ring;
 	int i, err = ENOMEM;
 
-	for (i = 0; i < RING_MAX; i++) {
+	for (i = 0; i < MTK_RING_MAX; i++) {
 		ring[i] = kzalloc(sizeof(**ring), GFP_KERNEL);
 		if (!ring[i])
 			goto err_cleanup;
 
-		ring[i]->cmd_base = dma_zalloc_coherent(cryp->dev,
-					   MTK_DESC_RING_SZ,
-					   &ring[i]->cmd_dma,
-					   GFP_KERNEL);
+		ring[i]->cmd_base = dma_alloc_coherent(cryp->dev,
+						       MTK_DESC_RING_SZ,
+						       &ring[i]->cmd_dma,
+						       GFP_KERNEL);
 		if (!ring[i]->cmd_base)
 			goto err_cleanup;
 
-		ring[i]->res_base = dma_zalloc_coherent(cryp->dev,
-					   MTK_DESC_RING_SZ,
-					   &ring[i]->res_dma,
-					   GFP_KERNEL);
+		ring[i]->res_base = dma_alloc_coherent(cryp->dev,
+						       MTK_DESC_RING_SZ,
+						       &ring[i]->res_dma,
+						       GFP_KERNEL);
 		if (!ring[i]->res_base)
 			goto err_cleanup;
+
+		ring[i]->cmd_next = ring[i]->cmd_base;
+		ring[i]->res_next = ring[i]->res_base;
 	}
 	return 0;
 
@@ -497,22 +497,17 @@ static int mtk_crypto_probe(struct platform_device *pdev)
 		cryp->irq[i] = platform_get_irq(pdev, i);
 		if (cryp->irq[i] < 0) {
 			dev_err(cryp->dev, "no IRQ:%d resource info\n", i);
-			return -ENXIO;
+			return cryp->irq[i];
 		}
 	}
 
-	cryp->clk_ethif = devm_clk_get(&pdev->dev, "ethif");
 	cryp->clk_cryp = devm_clk_get(&pdev->dev, "cryp");
-	if (IS_ERR(cryp->clk_ethif) || IS_ERR(cryp->clk_cryp))
+	if (IS_ERR(cryp->clk_cryp))
 		return -EPROBE_DEFER;
 
 	cryp->dev = &pdev->dev;
 	pm_runtime_enable(cryp->dev);
 	pm_runtime_get_sync(cryp->dev);
-
-	err = clk_prepare_enable(cryp->clk_ethif);
-	if (err)
-		goto err_clk_ethif;
 
 	err = clk_prepare_enable(cryp->clk_cryp);
 	if (err)
@@ -556,8 +551,6 @@ err_engine:
 err_resource:
 	clk_disable_unprepare(cryp->clk_cryp);
 err_clk_cryp:
-	clk_disable_unprepare(cryp->clk_ethif);
-err_clk_ethif:
 	pm_runtime_put_sync(cryp->dev);
 	pm_runtime_disable(cryp->dev);
 
@@ -573,7 +566,6 @@ static int mtk_crypto_remove(struct platform_device *pdev)
 	mtk_desc_dma_free(cryp);
 
 	clk_disable_unprepare(cryp->clk_cryp);
-	clk_disable_unprepare(cryp->clk_ethif);
 
 	pm_runtime_put_sync(cryp->dev);
 	pm_runtime_disable(cryp->dev);
@@ -593,7 +585,6 @@ static struct platform_driver mtk_crypto_driver = {
 	.remove = mtk_crypto_remove,
 	.driver = {
 		   .name = "mtk-crypto",
-		   .owner = THIS_MODULE,
 		   .of_match_table = of_crypto_id,
 	},
 };

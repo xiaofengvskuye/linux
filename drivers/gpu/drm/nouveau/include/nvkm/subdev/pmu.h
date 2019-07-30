@@ -1,3 +1,4 @@
+/* SPDX-License-Identifier: GPL-2.0 */
 #ifndef __NVKM_PMU_H__
 #define __NVKM_PMU_H__
 #include <core/subdev.h>
@@ -7,6 +8,7 @@ struct nvkm_pmu {
 	const struct nvkm_pmu_func *func;
 	struct nvkm_subdev subdev;
 	struct nvkm_falcon *falcon;
+	struct nvkm_msgqueue *queue;
 
 	struct {
 		u32 base;

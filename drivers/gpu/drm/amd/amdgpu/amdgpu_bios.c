@@ -59,12 +59,6 @@ static bool check_atom_bios(uint8_t *bios, size_t size)
 		return false;
 	}
 
-	tmp = bios[0x18] | (bios[0x19] << 8);
-	if (bios[tmp + 0x14] != 0x0) {
-		DRM_INFO("Not an x86 BIOS ROM\n");
-		return false;
-	}
-
 	bios_header_start = bios[0x48] | (bios[0x49] << 8);
 	if (!bios_header_start) {
 		DRM_INFO("Can't locate bios header\n");
@@ -86,7 +80,6 @@ static bool check_atom_bios(uint8_t *bios, size_t size)
 	return false;
 }
 
-
 /* If you boot an IGP board with a discrete card as the primary,
  * the IGP rom is not accessible via the rom bar as the IGP rom is
  * part of the system bios.  On boot, the system bios puts a
@@ -100,12 +93,12 @@ static bool igp_read_bios_from_vram(struct amdgpu_device *adev)
 	resource_size_t size = 256 * 1024; /* ??? */
 
 	if (!(adev->flags & AMD_IS_APU))
-		if (amdgpu_need_post(adev))
+		if (amdgpu_device_need_post(adev))
 			return false;
 
 	adev->bios = NULL;
 	vram_base = pci_resource_start(adev->pdev, 0);
-	bios = ioremap(vram_base, size);
+	bios = ioremap_wc(vram_base, size);
 	if (!bios) {
 		return false;
 	}
@@ -419,26 +412,30 @@ static inline bool amdgpu_acpi_vfct_bios(struct amdgpu_device *adev)
 bool amdgpu_get_bios(struct amdgpu_device *adev)
 {
 	if (amdgpu_atrm_get_bios(adev))
-		return true;
+		goto success;
 
 	if (amdgpu_acpi_vfct_bios(adev))
-		return true;
+		goto success;
 
 	if (igp_read_bios_from_vram(adev))
-		return true;
+		goto success;
 
 	if (amdgpu_read_bios(adev))
-		return true;
+		goto success;
 
 	if (amdgpu_read_bios_from_rom(adev))
-		return true;
+		goto success;
 
 	if (amdgpu_read_disabled_bios(adev))
-		return true;
+		goto success;
 
 	if (amdgpu_read_platform_bios(adev))
-		return true;
+		goto success;
 
 	DRM_ERROR("Unable to locate a BIOS ROM\n");
 	return false;
+
+success:
+	adev->is_atom_fw = (adev->asic_type >= CHIP_VEGA10) ? true : false;
+	return true;
 }

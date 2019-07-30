@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: GPL-2.0-only
 /*
  * drivers/mb862xx/mb862xxfb.c
  *
@@ -5,11 +6,6 @@
  *
  * (C) 2008 Anatolij Gustschin <agust@denx.de>
  * DENX Software Engineering
- *
- * This program is free software; you can redistribute it and/or modify
- * it under the terms of the GNU General Public License version 2 as
- * published by the Free Software Foundation.
- *
  */
 
 #undef DEBUG
@@ -982,7 +978,7 @@ static inline int mb862xx_pci_gdc_init(struct mb862xxfb_par *par)
 #define CHIP_ID(id)	\
 	{ PCI_DEVICE(PCI_VENDOR_ID_FUJITSU_LIMITED, id) }
 
-static struct pci_device_id mb862xx_pci_tbl[] = {
+static const struct pci_device_id mb862xx_pci_tbl[] = {
 	/* MB86295/MB86296 */
 	CHIP_ID(PCI_DEVICE_ID_FUJITSU_CORALP),
 	CHIP_ID(PCI_DEVICE_ID_FUJITSU_CORALPA),

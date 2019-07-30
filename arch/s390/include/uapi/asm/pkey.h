@@ -1,3 +1,4 @@
+/* SPDX-License-Identifier: GPL-2.0 WITH Linux-syscall-note */
 /*
  * Userspace interface to the pkey device driver
  *
@@ -20,8 +21,12 @@
 #define PKEY_IOCTL_MAGIC 'p'
 
 #define SECKEYBLOBSIZE	64     /* secure key blob size is always 64 bytes */
+#define PROTKEYBLOBSIZE 80  /* protected key blob size is always 80 bytes */
 #define MAXPROTKEYSIZE	64  /* a protected key blob may be up to 64 bytes */
 #define MAXCLRKEYSIZE	32     /* a clear key value may be up to 32 bytes */
+
+#define MINKEYBLOBSIZE	SECKEYBLOBSIZE	    /* Minimum size of a key blob */
+#define MAXKEYBLOBSIZE	PROTKEYBLOBSIZE     /* Maximum size of a key blob */
 
 /* defines for the type field within the pkey_protkey struct */
 #define PKEY_KEYTYPE_AES_128  1
@@ -108,5 +113,54 @@ struct pkey_skey2pkey {
 	struct pkey_protkey protkey; /* out: the protected key		  */
 };
 #define PKEY_SKEY2PKEY _IOWR(PKEY_IOCTL_MAGIC, 0x06, struct pkey_skey2pkey)
+
+/*
+ * Verify the given secure key for being able to be useable with
+ * the pkey module. Check for correct key type and check for having at
+ * least one crypto card being able to handle this key (master key
+ * or old master key verification pattern matches).
+ * Return some info about the key: keysize in bits, keytype (currently
+ * only AES), flag if key is wrapped with an old MKVP.
+ */
+struct pkey_verifykey {
+	struct pkey_seckey seckey;	       /* in: the secure key blob */
+	__u16  cardnr;			       /* out: card number	  */
+	__u16  domain;			       /* out: domain number	  */
+	__u16  keysize;			       /* out: key size in bits   */
+	__u32  attributes;		       /* out: attribute bits	  */
+};
+#define PKEY_VERIFYKEY _IOWR(PKEY_IOCTL_MAGIC, 0x07, struct pkey_verifykey)
+#define PKEY_VERIFY_ATTR_AES	   0x00000001  /* key is an AES key */
+#define PKEY_VERIFY_ATTR_OLD_MKVP  0x00000100  /* key has old MKVP value */
+
+/*
+ * Generate (AES) random protected key.
+ */
+struct pkey_genprotk {
+	__u32 keytype;			       /* in: key type to generate */
+	struct pkey_protkey protkey;	       /* out: the protected key   */
+};
+
+#define PKEY_GENPROTK _IOWR(PKEY_IOCTL_MAGIC, 0x08, struct pkey_genprotk)
+
+/*
+ * Verify an (AES) protected key.
+ */
+struct pkey_verifyprotk {
+	struct pkey_protkey protkey;	/* in: the protected key to verify */
+};
+
+#define PKEY_VERIFYPROTK _IOW(PKEY_IOCTL_MAGIC, 0x09, struct pkey_verifyprotk)
+
+/*
+ * Transform an key blob (of any type) into a protected key
+ */
+struct pkey_kblob2pkey {
+	__u8 __user *key;		/* in: the key blob	   */
+	__u32 keylen;			/* in: the key blob length */
+	struct pkey_protkey protkey;	/* out: the protected key  */
+};
+
+#define PKEY_KBLOB2PROTK _IOWR(PKEY_IOCTL_MAGIC, 0x0A, struct pkey_kblob2pkey)
 
 #endif /* _UAPI_PKEY_H */

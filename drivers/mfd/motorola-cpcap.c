@@ -1,11 +1,8 @@
+// SPDX-License-Identifier: GPL-2.0-only
 /*
  * Motorola CPCAP PMIC core driver
  *
  * Copyright (C) 2016 Tony Lindgren <tony@atomide.com>
- *
- * This program is free software; you can redistribute it and/or modify
- * it under the terms of the GNU General Public License version 2 as
- * published by the Free Software Foundation.
  */
 
 #include <linux/device.h>
@@ -18,11 +15,14 @@
 #include <linux/regmap.h>
 #include <linux/sysfs.h>
 
+#include <linux/mfd/core.h>
 #include <linux/mfd/motorola-cpcap.h>
 #include <linux/spi/spi.h>
 
 #define CPCAP_NR_IRQ_REG_BANKS	6
 #define CPCAP_NR_IRQ_CHIPS	3
+#define CPCAP_REGISTER_SIZE	4
+#define CPCAP_REGISTER_BITS	16
 
 struct cpcap_ddata {
 	struct spi_device *spi;
@@ -31,6 +31,32 @@ struct cpcap_ddata {
 	const struct regmap_config *regmap_conf;
 	struct regmap *regmap;
 };
+
+static int cpcap_sense_irq(struct regmap *regmap, int irq)
+{
+	int regnum = irq / CPCAP_REGISTER_BITS;
+	int mask = BIT(irq % CPCAP_REGISTER_BITS);
+	int reg = CPCAP_REG_INTS1 + (regnum * CPCAP_REGISTER_SIZE);
+	int err, val;
+
+	if (reg < CPCAP_REG_INTS1 || reg > CPCAP_REG_INTS4)
+		return -EINVAL;
+
+	err = regmap_read(regmap, reg, &val);
+	if (err)
+		return err;
+
+	return !!(val & mask);
+}
+
+int cpcap_sense_virq(struct regmap *regmap, int virq)
+{
+	struct regmap_irq_chip_data *d = irq_get_chip_data(virq);
+	int irq_base = regmap_irq_chip_get_base(d);
+
+	return cpcap_sense_irq(regmap, virq - irq_base);
+}
+EXPORT_SYMBOL_GPL(cpcap_sense_virq);
 
 static int cpcap_check_revision(struct cpcap_ddata *cpcap)
 {
@@ -71,6 +97,7 @@ static struct regmap_irq_chip cpcap_irq_chip[CPCAP_NR_IRQ_CHIPS] = {
 		.ack_base = CPCAP_REG_MI1,
 		.mask_base = CPCAP_REG_MIM1,
 		.use_ack = true,
+		.ack_invert = true,
 	},
 	{
 		.name = "cpcap-m2",
@@ -79,6 +106,7 @@ static struct regmap_irq_chip cpcap_irq_chip[CPCAP_NR_IRQ_CHIPS] = {
 		.ack_base = CPCAP_REG_MI2,
 		.mask_base = CPCAP_REG_MIM2,
 		.use_ack = true,
+		.ack_invert = true,
 	},
 	{
 		.name = "cpcap1-4",
@@ -86,8 +114,8 @@ static struct regmap_irq_chip cpcap_irq_chip[CPCAP_NR_IRQ_CHIPS] = {
 		.status_base = CPCAP_REG_INT1,
 		.ack_base = CPCAP_REG_INT1,
 		.mask_base = CPCAP_REG_INTM1,
-		.type_base = CPCAP_REG_INTS1,
 		.use_ack = true,
+		.ack_invert = true,
 	},
 };
 
@@ -126,7 +154,7 @@ static int cpcap_init_irq_chip(struct cpcap_ddata *cpcap, int irq_chip,
 
 	ret = devm_regmap_add_irq_chip(&cpcap->spi->dev, cpcap->regmap,
 				       cpcap->spi->irq,
-				       IRQF_TRIGGER_RISING |
+				       irq_get_trigger_type(cpcap->spi->irq) |
 				       IRQF_SHARED, -1,
 				       chip, &cpcap->irqdata[irq_chip]);
 	if (ret) {
@@ -143,9 +171,9 @@ static int cpcap_init_irq(struct cpcap_ddata *cpcap)
 	int ret;
 
 	cpcap->irqs = devm_kzalloc(&cpcap->spi->dev,
-				   sizeof(*cpcap->irqs) *
-				   CPCAP_NR_IRQ_REG_BANKS *
-				   cpcap->regmap_conf->val_bits,
+				   array3_size(sizeof(*cpcap->irqs),
+					       CPCAP_NR_IRQ_REG_BANKS,
+					       cpcap->regmap_conf->val_bits),
 				   GFP_KERNEL);
 	if (!cpcap->irqs)
 		return -ENOMEM;
@@ -184,6 +212,53 @@ static const struct regmap_config cpcap_regmap_config = {
 	.cache_type = REGCACHE_NONE,
 	.reg_format_endian = REGMAP_ENDIAN_LITTLE,
 	.val_format_endian = REGMAP_ENDIAN_LITTLE,
+};
+
+static const struct mfd_cell cpcap_mfd_devices[] = {
+	{
+		.name          = "cpcap_adc",
+		.of_compatible = "motorola,mapphone-cpcap-adc",
+	}, {
+		.name          = "cpcap_battery",
+		.of_compatible = "motorola,cpcap-battery",
+	}, {
+		.name          = "cpcap-charger",
+		.of_compatible = "motorola,mapphone-cpcap-charger",
+	}, {
+		.name          = "cpcap-regulator",
+		.of_compatible = "motorola,mapphone-cpcap-regulator",
+	}, {
+		.name          = "cpcap-rtc",
+		.of_compatible = "motorola,cpcap-rtc",
+	}, {
+		.name          = "cpcap-pwrbutton",
+		.of_compatible = "motorola,cpcap-pwrbutton",
+	}, {
+		.name          = "cpcap-usb-phy",
+		.of_compatible = "motorola,mapphone-cpcap-usb-phy",
+	}, {
+		.name          = "cpcap-led",
+		.id            = 0,
+		.of_compatible = "motorola,cpcap-led-red",
+	}, {
+		.name          = "cpcap-led",
+		.id            = 1,
+		.of_compatible = "motorola,cpcap-led-green",
+	}, {
+		.name          = "cpcap-led",
+		.id            = 2,
+		.of_compatible = "motorola,cpcap-led-blue",
+	}, {
+		.name          = "cpcap-led",
+		.id            = 3,
+		.of_compatible = "motorola,cpcap-led-adl",
+	}, {
+		.name          = "cpcap-led",
+		.id            = 4,
+		.of_compatible = "motorola,cpcap-led-cp",
+	}, {
+		.name          = "cpcap-codec",
+	}
 };
 
 static int cpcap_probe(struct spi_device *spi)
@@ -230,17 +305,8 @@ static int cpcap_probe(struct spi_device *spi)
 	if (ret)
 		return ret;
 
-	return of_platform_populate(spi->dev.of_node, NULL, NULL,
-				    &cpcap->spi->dev);
-}
-
-static int cpcap_remove(struct spi_device *pdev)
-{
-	struct cpcap_ddata *cpcap = spi_get_drvdata(pdev);
-
-	of_platform_depopulate(&cpcap->spi->dev);
-
-	return 0;
+	return devm_mfd_add_devices(&spi->dev, 0, cpcap_mfd_devices,
+				    ARRAY_SIZE(cpcap_mfd_devices), NULL, 0, NULL);
 }
 
 static struct spi_driver cpcap_driver = {
@@ -249,7 +315,6 @@ static struct spi_driver cpcap_driver = {
 		.of_match_table = cpcap_of_match,
 	},
 	.probe = cpcap_probe,
-	.remove = cpcap_remove,
 };
 module_spi_driver(cpcap_driver);
 

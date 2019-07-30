@@ -60,6 +60,8 @@ static const char qcaspi_gstrings_stats[][ETH_GSTRING_LEN] = {
 	"Write buffer misses",
 	"Transmit ring full",
 	"SPI errors",
+	"Write verify errors",
+	"Buffer available errors",
 };
 
 #ifdef CONFIG_DEBUG_FS
@@ -124,19 +126,7 @@ qcaspi_info_show(struct seq_file *s, void *what)
 
 	return 0;
 }
-
-static int
-qcaspi_info_open(struct inode *inode, struct file *file)
-{
-	return single_open(file, qcaspi_info_show, inode->i_private);
-}
-
-static const struct file_operations qcaspi_info_ops = {
-	.open = qcaspi_info_open,
-	.read = seq_read,
-	.llseek = seq_lseek,
-	.release = single_release,
-};
+DEFINE_SHOW_ATTRIBUTE(qcaspi_info);
 
 void
 qcaspi_init_device_debugfs(struct qcaspi *qca)
@@ -151,8 +141,8 @@ qcaspi_init_device_debugfs(struct qcaspi *qca)
 			dev_name(&qca->net_dev->dev));
 		return;
 	}
-	debugfs_create_file("info", S_IFREG | S_IRUGO, device_root, qca,
-			    &qcaspi_info_ops);
+	debugfs_create_file("info", S_IFREG | 0444, device_root, qca,
+			    &qcaspi_info_fops);
 }
 
 void
@@ -275,6 +265,7 @@ qcaspi_get_ringparam(struct net_device *dev, struct ethtool_ringparam *ring)
 static int
 qcaspi_set_ringparam(struct net_device *dev, struct ethtool_ringparam *ring)
 {
+	const struct net_device_ops *ops = dev->netdev_ops;
 	struct qcaspi *qca = netdev_priv(dev);
 
 	if ((ring->rx_pending) ||
@@ -283,13 +274,13 @@ qcaspi_set_ringparam(struct net_device *dev, struct ethtool_ringparam *ring)
 		return -EINVAL;
 
 	if (netif_running(dev))
-		qcaspi_netdev_close(dev);
+		ops->ndo_stop(dev);
 
 	qca->txr.count = max_t(u32, ring->tx_pending, TX_RING_MIN_LEN);
 	qca->txr.count = min_t(u16, qca->txr.count, TX_RING_MAX_LEN);
 
 	if (netif_running(dev))
-		qcaspi_netdev_open(dev);
+		ops->ndo_open(dev);
 
 	return 0;
 }

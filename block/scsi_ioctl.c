@@ -1,20 +1,6 @@
+// SPDX-License-Identifier: GPL-2.0
 /*
  * Copyright (C) 2001 Jens Axboe <axboe@suse.de>
- *
- * This program is free software; you can redistribute it and/or modify
- * it under the terms of the GNU General Public License version 2 as
- * published by the Free Software Foundation.
- *
- * This program is distributed in the hope that it will be useful,
- * but WITHOUT ANY WARRANTY; without even the implied warranty of
- *
- * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
- * GNU General Public License for more details.
- *
- * You should have received a copy of the GNU General Public Licens
- * along with this program; if not, write to the Free Software
- * Foundation, Inc., 59 Temple Place, Suite 330, Boston, MA  02111-
- *
  */
 #include <linux/kernel.h>
 #include <linux/errno.h>
@@ -207,7 +193,7 @@ static void blk_set_cmd_filter_defaults(struct blk_cmd_filter *filter)
 	__set_bit(GPCMD_SET_READ_AHEAD, filter->write_ok);
 }
 
-int blk_verify_command(unsigned char *cmd, fmode_t has_write_perm)
+int blk_verify_command(unsigned char *cmd, fmode_t mode)
 {
 	struct blk_cmd_filter *filter = &blk_default_cmd_filter;
 
@@ -220,7 +206,7 @@ int blk_verify_command(unsigned char *cmd, fmode_t has_write_perm)
 		return 0;
 
 	/* Write-safe commands require a writable open */
-	if (test_bit(cmd[0], filter->write_ok) && has_write_perm)
+	if (test_bit(cmd[0], filter->write_ok) && (mode & FMODE_WRITE))
 		return 0;
 
 	return -EPERM;
@@ -234,7 +220,7 @@ static int blk_fill_sghdr_rq(struct request_queue *q, struct request *rq,
 
 	if (copy_from_user(req->cmd, hdr->cmdp, hdr->cmd_len))
 		return -EFAULT;
-	if (blk_verify_command(req->cmd, mode & FMODE_WRITE))
+	if (blk_verify_command(req->cmd, mode))
 		return -EPERM;
 
 	/*
@@ -262,11 +248,11 @@ static int blk_complete_sghdr_rq(struct request *rq, struct sg_io_hdr *hdr,
 	/*
 	 * fill in all the output members
 	 */
-	hdr->status = rq->errors & 0xff;
-	hdr->masked_status = status_byte(rq->errors);
-	hdr->msg_status = msg_byte(rq->errors);
-	hdr->host_status = host_byte(rq->errors);
-	hdr->driver_status = driver_byte(rq->errors);
+	hdr->status = req->result & 0xff;
+	hdr->masked_status = status_byte(req->result);
+	hdr->msg_status = msg_byte(req->result);
+	hdr->host_status = host_byte(req->result);
+	hdr->driver_status = driver_byte(req->result);
 	hdr->info = 0;
 	if (hdr->masked_status || hdr->host_status || hdr->driver_status)
 		hdr->info |= SG_INFO_CHECK;
@@ -321,12 +307,10 @@ static int sg_io(struct request_queue *q, struct gendisk *bd_disk,
 		at_head = 1;
 
 	ret = -ENOMEM;
-	rq = blk_get_request(q, writing ? REQ_OP_SCSI_OUT : REQ_OP_SCSI_IN,
-			GFP_KERNEL);
+	rq = blk_get_request(q, writing ? REQ_OP_SCSI_OUT : REQ_OP_SCSI_IN, 0);
 	if (IS_ERR(rq))
 		return PTR_ERR(rq);
 	req = scsi_req(rq);
-	scsi_req_init(rq);
 
 	if (hdr->cmd_len > BLK_MAX_CDB) {
 		req->cmd = kzalloc(hdr->cmd_len, GFP_KERNEL);
@@ -362,7 +346,7 @@ static int sg_io(struct request_queue *q, struct gendisk *bd_disk,
 		goto out_free_cdb;
 
 	bio = rq->bio;
-	rq->retries = 0;
+	req->retries = 0;
 
 	start_time = jiffies;
 
@@ -385,9 +369,10 @@ out_put_request:
 
 /**
  * sg_scsi_ioctl  --  handle deprecated SCSI_IOCTL_SEND_COMMAND ioctl
- * @file:	file this ioctl operates on (optional)
  * @q:		request queue to send scsi commands down
  * @disk:	gendisk to operate on (option)
+ * @mode:	mode used to open the file through which the ioctl has been
+ *		submitted
  * @sic:	userspace structure describing the command to perform
  *
  * Send down the scsi command described by @sic to the device below
@@ -416,10 +401,10 @@ out_put_request:
  *      Positive numbers returned are the compacted SCSI error codes (4
  *      bytes in one int) where the lowest byte is the SCSI status.
  */
-#define OMAX_SB_LEN 16          /* For backward compatibility */
 int sg_scsi_ioctl(struct request_queue *q, struct gendisk *disk, fmode_t mode,
 		struct scsi_ioctl_command __user *sic)
 {
+	enum { OMAX_SB_LEN = 16 };	/* For backward compatibility */
 	struct request *rq;
 	struct scsi_request *req;
 	int err;
@@ -449,14 +434,12 @@ int sg_scsi_ioctl(struct request_queue *q, struct gendisk *disk, fmode_t mode,
 
 	}
 
-	rq = blk_get_request(q, in_len ? REQ_OP_SCSI_OUT : REQ_OP_SCSI_IN,
-			__GFP_RECLAIM);
+	rq = blk_get_request(q, in_len ? REQ_OP_SCSI_OUT : REQ_OP_SCSI_IN, 0);
 	if (IS_ERR(rq)) {
 		err = PTR_ERR(rq);
 		goto error_free_buffer;
 	}
 	req = scsi_req(rq);
-	scsi_req_init(rq);
 
 	cmdlen = COMMAND_SIZE(opcode);
 
@@ -471,18 +454,18 @@ int sg_scsi_ioctl(struct request_queue *q, struct gendisk *disk, fmode_t mode,
 	if (in_len && copy_from_user(buffer, sic->data + cmdlen, in_len))
 		goto error;
 
-	err = blk_verify_command(req->cmd, mode & FMODE_WRITE);
+	err = blk_verify_command(req->cmd, mode);
 	if (err)
 		goto error;
 
 	/* default.  possible overriden later */
-	rq->retries = 5;
+	req->retries = 5;
 
 	switch (opcode) {
 	case SEND_DIAGNOSTIC:
 	case FORMAT_UNIT:
 		rq->timeout = FORMAT_UNIT_TIMEOUT;
-		rq->retries = 1;
+		req->retries = 1;
 		break;
 	case START_STOP:
 		rq->timeout = START_STOP_TIMEOUT;
@@ -495,21 +478,21 @@ int sg_scsi_ioctl(struct request_queue *q, struct gendisk *disk, fmode_t mode,
 		break;
 	case READ_DEFECT_DATA:
 		rq->timeout = READ_DEFECT_DATA_TIMEOUT;
-		rq->retries = 1;
+		req->retries = 1;
 		break;
 	default:
 		rq->timeout = BLK_DEFAULT_SG_TIMEOUT;
 		break;
 	}
 
-	if (bytes && blk_rq_map_kern(q, rq, buffer, bytes, __GFP_RECLAIM)) {
+	if (bytes && blk_rq_map_kern(q, rq, buffer, bytes, GFP_NOIO)) {
 		err = DRIVER_ERROR << 24;
 		goto error;
 	}
 
 	blk_execute_rq(q, disk, rq, 0);
 
-	err = rq->errors & 0xff;	/* only 8 bit SCSI status */
+	err = req->result & 0xff;	/* only 8 bit SCSI status */
 	if (err) {
 		if (req->sense_len && req->sense) {
 			bytes = (OMAX_SB_LEN > req->sense_len) ?
@@ -539,15 +522,15 @@ static int __blk_send_generic(struct request_queue *q, struct gendisk *bd_disk,
 	struct request *rq;
 	int err;
 
-	rq = blk_get_request(q, REQ_OP_SCSI_OUT, __GFP_RECLAIM);
+	rq = blk_get_request(q, REQ_OP_SCSI_OUT, 0);
 	if (IS_ERR(rq))
 		return PTR_ERR(rq);
-	scsi_req_init(rq);
 	rq->timeout = BLK_DEFAULT_SG_TIMEOUT;
 	scsi_req(rq)->cmd[0] = cmd;
 	scsi_req(rq)->cmd[4] = data;
 	scsi_req(rq)->cmd_len = 6;
-	err = blk_execute_rq(q, bd_disk, rq, 0);
+	blk_execute_rq(q, bd_disk, rq, 0);
+	err = scsi_req(rq)->result ? -EIO : 0;
 	blk_put_request(rq);
 
 	return err;
@@ -694,37 +677,8 @@ int scsi_verify_blk_ioctl(struct block_device *bd, unsigned int cmd)
 	if (bd && bd == bd->bd_contains)
 		return 0;
 
-	/* Actually none of these is particularly useful on a partition,
-	 * but they are safe.
-	 */
-	switch (cmd) {
-	case SCSI_IOCTL_GET_IDLUN:
-	case SCSI_IOCTL_GET_BUS_NUMBER:
-	case SCSI_IOCTL_GET_PCI:
-	case SCSI_IOCTL_PROBE_HOST:
-	case SG_GET_VERSION_NUM:
-	case SG_SET_TIMEOUT:
-	case SG_GET_TIMEOUT:
-	case SG_GET_RESERVED_SIZE:
-	case SG_SET_RESERVED_SIZE:
-	case SG_EMULATED_HOST:
-		return 0;
-	case CDROM_GET_CAPABILITY:
-		/* Keep this until we remove the printk below.  udev sends it
-		 * and we do not want to spam dmesg about it.   CD-ROMs do
-		 * not have partitions, so we get here only for disks.
-		 */
-		return -ENOIOCTLCMD;
-	default:
-		break;
-	}
-
 	if (capable(CAP_SYS_RAWIO))
 		return 0;
-
-	/* In particular, rule out all resets and host-specific ioctls.  */
-	printk_ratelimited(KERN_WARNING
-			   "%s: sending ioctl %x to a partition!\n", current->comm, cmd);
 
 	return -ENOIOCTLCMD;
 }
@@ -743,10 +697,14 @@ int scsi_cmd_blk_ioctl(struct block_device *bd, fmode_t mode,
 }
 EXPORT_SYMBOL(scsi_cmd_blk_ioctl);
 
-void scsi_req_init(struct request *rq)
+/**
+ * scsi_req_init - initialize certain fields of a scsi_request structure
+ * @req: Pointer to a scsi_request structure.
+ * Initializes .__cmd[], .cmd, .cmd_len and .sense_len but no other members
+ * of struct scsi_request.
+ */
+void scsi_req_init(struct scsi_request *req)
 {
-	struct scsi_request *req = scsi_req(rq);
-
 	memset(req->__cmd, 0, sizeof(req->__cmd));
 	req->cmd = req->__cmd;
 	req->cmd_len = BLK_MAX_CDB;

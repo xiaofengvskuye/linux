@@ -1,3 +1,4 @@
+/* SPDX-License-Identifier: GPL-2.0 */
 #ifndef _CCU_MULT_H_
 #define _CCU_MULT_H_
 
@@ -33,6 +34,7 @@ struct ccu_mult_internal {
 
 struct ccu_mult {
 	u32			enable;
+	u32			lock;
 
 	struct ccu_frac_internal	frac;
 	struct ccu_mult_internal	mult;
@@ -45,6 +47,7 @@ struct ccu_mult {
 				   _flags)				\
 	struct ccu_mult _struct = {					\
 		.enable	= _gate,					\
+		.lock	= _lock,					\
 		.mult	= _SUNXI_CCU_MULT(_mshift, _mwidth),		\
 		.common	= {						\
 			.reg		= _reg,				\

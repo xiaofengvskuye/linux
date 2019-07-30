@@ -1,23 +1,10 @@
+// SPDX-License-Identifier: GPL-2.0-only
 /*
  * coretemp.c - Linux kernel module for hardware monitoring
  *
  * Copyright (C) 2007 Rudolf Marek <r.marek@assembler.cz>
  *
  * Inspired from many hwmon drivers
- *
- * This program is free software; you can redistribute it and/or modify
- * it under the terms of the GNU General Public License as published by
- * the Free Software Foundation; version 2 of the License.
- *
- * This program is distributed in the hope that it will be useful,
- * but WITHOUT ANY WARRANTY; without even the implied warranty of
- * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
- * GNU General Public License for more details.
- *
- * You should have received a copy of the GNU General Public License
- * along with this program; if not, write to the Free Software
- * Foundation, Inc., 51 Franklin Street, Fifth Floor, Boston, MA
- * 02110-1301 USA.
  */
 
 #define pr_fmt(fmt) KBUILD_MODNAME ": " fmt
@@ -246,7 +233,8 @@ static int adjust_tjmax(struct cpuinfo_x86 *c, u32 id, struct device *dev)
 	int err;
 	u32 eax, edx;
 	int i;
-	struct pci_dev *host_bridge = pci_get_bus_and_slot(0, PCI_DEVFN(0, 0));
+	u16 devfn = PCI_DEVFN(0, 0);
+	struct pci_dev *host_bridge = pci_get_domain_bus_and_slot(0, 0, devfn);
 
 	/*
 	 * Explicit tjmax table entries override heuristics.
@@ -268,13 +256,13 @@ static int adjust_tjmax(struct cpuinfo_x86 *c, u32 id, struct device *dev)
 	for (i = 0; i < ARRAY_SIZE(tjmax_model_table); i++) {
 		const struct tjmax_model *tm = &tjmax_model_table[i];
 		if (c->x86_model == tm->model &&
-		    (tm->mask == ANY || c->x86_mask == tm->mask))
+		    (tm->mask == ANY || c->x86_stepping == tm->mask))
 			return tm->tjmax;
 	}
 
 	/* Early chips have no MSR for TjMax */
 
-	if (c->x86_model == 0xf && c->x86_mask < 4)
+	if (c->x86_model == 0xf && c->x86_stepping < 4)
 		usemsr_ee = 0;
 
 	if (c->x86_model > 0xe && usemsr_ee) {
@@ -406,7 +394,7 @@ static int create_core_attrs(struct temp_data *tdata, struct device *dev,
 			 "temp%d_%s", attr_no, suffixes[i]);
 		sysfs_attr_init(&tdata->sd_attrs[i].dev_attr.attr);
 		tdata->sd_attrs[i].dev_attr.attr.name = tdata->attr_name[i];
-		tdata->sd_attrs[i].dev_attr.attr.mode = S_IRUGO;
+		tdata->sd_attrs[i].dev_attr.attr.mode = 0444;
 		tdata->sd_attrs[i].dev_attr.show = rd_ptr[i];
 		tdata->sd_attrs[i].index = attr_no;
 		tdata->attrs[i] = &tdata->sd_attrs[i].dev_attr.attr;
@@ -425,7 +413,7 @@ static int chk_ucode_version(unsigned int cpu)
 	 * Readings might stop update when processor visited too deep sleep,
 	 * fixed for stepping D0 (6EC).
 	 */
-	if (c->x86_model == 0xe && c->x86_mask < 0xc && c->microcode < 0x39) {
+	if (c->x86_model == 0xe && c->x86_stepping < 0xc && c->microcode < 0x39) {
 		pr_err("Errata AE18 not fixed, update BIOS or microcode of the CPU!\n");
 		return -ENODEV;
 	}
@@ -605,6 +593,13 @@ static int coretemp_cpu_online(unsigned int cpu)
 	struct platform_data *pdata;
 
 	/*
+	 * Don't execute this on resume as the offline callback did
+	 * not get executed on suspend.
+	 */
+	if (cpuhp_tasks_frozen)
+		return 0;
+
+	/*
 	 * CPUID.06H.EAX[0] indicates whether the CPU has thermal
 	 * sensors. We check this bit only, all the early CPUs
 	 * without thermal sensors will be filtered out.
@@ -653,6 +648,13 @@ static int coretemp_cpu_offline(unsigned int cpu)
 	struct platform_data *pd;
 	struct temp_data *tdata;
 	int indx, target;
+
+	/*
+	 * Don't execute this on suspend as the device remove locks
+	 * up the machine.
+	 */
+	if (cpuhp_tasks_frozen)
+		return 0;
 
 	/* If the physical CPU device does not exist, just return */
 	if (!pdev)
@@ -727,7 +729,7 @@ static int __init coretemp_init(void)
 		return -ENODEV;
 
 	max_packages = topology_max_packages();
-	pkg_devices = kzalloc(max_packages * sizeof(struct platform_device *),
+	pkg_devices = kcalloc(max_packages, sizeof(struct platform_device *),
 			      GFP_KERNEL);
 	if (!pkg_devices)
 		return -ENOMEM;

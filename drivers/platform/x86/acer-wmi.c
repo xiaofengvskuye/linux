@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: GPL-2.0-or-later
 /*
  *  Acer WMI Laptop Extras
  *
@@ -6,20 +7,6 @@
  *  Based on acer_acpi:
  *    Copyright (C) 2005-2007	E.M. Smith
  *    Copyright (C) 2007-2008	Carlos Corbacho <cathectic@gmail.com>
- *
- *  This program is free software; you can redistribute it and/or modify
- *  it under the terms of the GNU General Public License as published by
- *  the Free Software Foundation; either version 2 of the License, or
- *  (at your option) any later version.
- *
- *  This program is distributed in the hope that it will be useful,
- *  but WITHOUT ANY WARRANTY; without even the implied warranty of
- *  MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
- *  GNU General Public License for more details.
- *
- *  You should have received a copy of the GNU General Public License
- *  along with this program; if not, write to the Free Software
- *  Foundation, Inc., 59 Temple Place, Suite 330, Boston, MA  02111-1307  USA
  */
 
 #define pr_fmt(fmt) KBUILD_MODNAME ": " fmt
@@ -129,6 +116,7 @@ static const struct key_entry acer_wmi_keymap[] __initconst = {
 	{KE_IGNORE, 0x83, {KEY_TOUCHPAD_TOGGLE} },
 	{KE_KEY, 0x85, {KEY_TOUCHPAD_TOGGLE} },
 	{KE_KEY, 0x86, {KEY_WLAN} },
+	{KE_KEY, 0x87, {KEY_POWER} },
 	{KE_END, 0}
 };
 
@@ -149,6 +137,8 @@ struct event_return_value {
 #define ACER_WMID3_GDS_THREEG		(1<<6)	/* 3G */
 #define ACER_WMID3_GDS_WIMAX		(1<<7)	/* WiMAX */
 #define ACER_WMID3_GDS_BLUETOOTH	(1<<11)	/* BT */
+#define ACER_WMID3_GDS_RFBTN		(1<<14)	/* RF Button */
+
 #define ACER_WMID3_GDS_TOUCHPAD		(1<<1)	/* Touchpad */
 
 /* Hotkey Customized Setting and Acer Application Status.
@@ -221,6 +211,7 @@ struct hotkey_function_type_aa {
 #define ACER_CAP_BRIGHTNESS		(1<<3)
 #define ACER_CAP_THREEG			(1<<4)
 #define ACER_CAP_ACCEL			(1<<5)
+#define ACER_CAP_RFBTN			(1<<6)
 #define ACER_CAP_ANY			(0xFFFFFFFF)
 
 /*
@@ -668,10 +659,7 @@ static void __init find_quirks(void)
 
 static bool has_cap(u32 cap)
 {
-	if ((interface->capability & cap) != 0)
-		return 1;
-
-	return 0;
+	return interface->capability & cap;
 }
 
 /*
@@ -700,7 +688,7 @@ struct acpi_buffer *result)
 	input.length = sizeof(struct wmab_args);
 	input.pointer = (u8 *)regbuf;
 
-	status = wmi_evaluate_method(AMW0_GUID1, 1, 1, &input, result);
+	status = wmi_evaluate_method(AMW0_GUID1, 0, 1, &input, result);
 
 	return status;
 }
@@ -965,7 +953,7 @@ WMI_execute_u32(u32 method_id, u32 in, u32 *out)
 	u32 tmp = 0;
 	acpi_status status;
 
-	status = wmi_evaluate_method(WMID_GUID1, 1, method_id, &input, &result);
+	status = wmi_evaluate_method(WMID_GUID1, 0, method_id, &input, &result);
 
 	if (ACPI_FAILURE(status))
 		return status;
@@ -1264,6 +1252,10 @@ static void __init type_aa_dmi_decode(const struct dmi_header *header, void *d)
 		interface->capability |= ACER_CAP_THREEG;
 	if (type_aa->commun_func_bitmap & ACER_WMID3_GDS_BLUETOOTH)
 		interface->capability |= ACER_CAP_BLUETOOTH;
+	if (type_aa->commun_func_bitmap & ACER_WMID3_GDS_RFBTN) {
+		interface->capability |= ACER_CAP_RFBTN;
+		commun_func_bitmap &= ~ACER_WMID3_GDS_RFBTN;
+	}
 
 	commun_fn_key_number = type_aa->commun_fn_key_number;
 }
@@ -1275,7 +1267,7 @@ static acpi_status __init WMID_set_capabilities(void)
 	acpi_status status;
 	u32 devices;
 
-	status = wmi_query_block(WMID_GUID2, 1, &out);
+	status = wmi_query_block(WMID_GUID2, 0, &out);
 	if (ACPI_FAILURE(status))
 		return status;
 
@@ -1896,7 +1888,7 @@ static acpi_status __init acer_wmi_get_handle_cb(acpi_handle ah, u32 level,
 	if (!strcmp(ctx, "SENR")) {
 		if (acpi_bus_get_device(ah, &dev))
 			return AE_OK;
-		if (!strcmp(ACER_WMID_ACCEL_HID, acpi_device_hid(dev)))
+		if (strcmp(ACER_WMID_ACCEL_HID, acpi_device_hid(dev)))
 			return AE_OK;
 	} else
 		return AE_OK;
@@ -1917,8 +1909,7 @@ static int __init acer_wmi_get_handle(const char *name, const char *prop,
 	handle = NULL;
 	status = acpi_get_devices(prop, acer_wmi_get_handle_cb,
 					(void *)name, &handle);
-
-	if (ACPI_SUCCESS(status)) {
+	if (ACPI_SUCCESS(status) && handle) {
 		*ah = handle;
 		return 0;
 	} else {
@@ -1987,7 +1978,7 @@ static int __init acer_wmi_input_setup(void)
 						acer_wmi_notify, NULL);
 	if (ACPI_FAILURE(status)) {
 		err = -EIO;
-		goto err_free_keymap;
+		goto err_free_dev;
 	}
 
 	err = input_register_device(acer_wmi_input_dev);
@@ -1998,8 +1989,6 @@ static int __init acer_wmi_input_setup(void)
 
 err_uninstall_notifier:
 	wmi_remove_notify_handler(ACERWMID_EVENT_GUID);
-err_free_keymap:
-	sparse_keymap_free(acer_wmi_input_dev);
 err_free_dev:
 	input_free_device(acer_wmi_input_dev);
 	return err;
@@ -2008,7 +1997,6 @@ err_free_dev:
 static void acer_wmi_input_destroy(void)
 {
 	wmi_remove_notify_handler(ACERWMID_EVENT_GUID);
-	sparse_keymap_free(acer_wmi_input_dev);
 	input_unregister_device(acer_wmi_input_dev);
 }
 
@@ -2022,7 +2010,7 @@ static u32 get_wmid_devices(void)
 	acpi_status status;
 	u32 devices = 0;
 
-	status = wmi_query_block(WMID_GUID2, 1, &out);
+	status = wmi_query_block(WMID_GUID2, 0, &out);
 	if (ACPI_FAILURE(status))
 		return 0;
 
@@ -2212,7 +2200,7 @@ static int __init acer_wmi_init(void)
 	if (wmi_has_guid(AMW0_GUID1) &&
 	    !dmi_check_system(amw0_whitelist) &&
 	    quirks == &quirk_unknown) {
-		pr_err("Unsupported machine has AMW0_GUID1, unable to load\n");
+		pr_debug("Unsupported machine has AMW0_GUID1, unable to load\n");
 		return -ENODEV;
 	}
 
@@ -2290,8 +2278,8 @@ static int __init acer_wmi_init(void)
 		if (err)
 			return err;
 		err = acer_wmi_accel_setup();
-		if (err)
-			return err;
+		if (err && err != -ENODEV)
+			pr_warn("Cannot enable accelerometer\n");
 	}
 
 	err = platform_driver_register(&acer_platform_driver);

@@ -1,8 +1,8 @@
+// SPDX-License-Identifier: GPL-2.0-only
 /*
  * Copyright (C) 2017 ZTE Ltd.
  *
  * Author: Baoyou Xie <baoyou.xie@linaro.org>
- * License terms: GNU General Public License (GPL) version 2
  */
 
 #include <linux/delay.h>
@@ -125,10 +125,8 @@ int zx2967_pd_probe(struct platform_device *pdev,
 
 	res = platform_get_resource(pdev, IORESOURCE_MEM, 0);
 	pcubase = devm_ioremap_resource(&pdev->dev, res);
-	if (IS_ERR(pcubase)) {
-		dev_err(&pdev->dev, "ioremap fail.\n");
+	if (IS_ERR(pcubase))
 		return PTR_ERR(pcubase);
-	}
 
 	for (i = 0; i < domain_num; ++i) {
 		zx_pm_domains[i]->power_on = zx2967_power_on;

@@ -1,22 +1,8 @@
+/* SPDX-License-Identifier: GPL-2.0-only */
 /*
  * Copyright 2013 Google Inc.
  * Author: Willem de Bruijn <willemb@google.com>
  *         Daniel Borkmann <dborkman@redhat.com>
- *
- * License (GPLv2):
- *
- * This program is free software; you can redistribute it and/or modify it
- * under the terms and conditions of the GNU General Public License,
- * version 2, as published by the Free Software Foundation.
- *
- * This program is distributed in the hope it will be useful, but WITHOUT
- * ANY WARRANTY; without even the implied warranty of MERCHANTABILITY or
- * FITNESS FOR A PARTICULAR PURPOSE. * See the GNU General Public License for
- * more details.
- *
- * You should have received a copy of the GNU General Public License along with
- * this program; if not, write to the Free Software Foundation, Inc.,
- * 51 Franklin St - Fifth Floor, Boston, MA 02110-1301 USA.
  */
 
 #ifndef PSOCK_LIB_H
@@ -38,7 +24,7 @@
 # define __maybe_unused		__attribute__ ((__unused__))
 #endif
 
-static __maybe_unused void sock_setfilter(int fd, int lvl, int optnum)
+static __maybe_unused void pair_udp_setfilter(int fd)
 {
 	/* the filter below checks for all of the following conditions that
 	 * are based on the contents of create_payload()
@@ -76,21 +62,14 @@ static __maybe_unused void sock_setfilter(int fd, int lvl, int optnum)
 	};
 	struct sock_fprog bpf_prog;
 
-	if (lvl == SOL_PACKET && optnum == PACKET_FANOUT_DATA)
-		bpf_filter[5].code = 0x16;   /* RET A			      */
-
 	bpf_prog.filter = bpf_filter;
 	bpf_prog.len = sizeof(bpf_filter) / sizeof(struct sock_filter);
-	if (setsockopt(fd, lvl, optnum, &bpf_prog,
+
+	if (setsockopt(fd, SOL_SOCKET, SO_ATTACH_FILTER, &bpf_prog,
 		       sizeof(bpf_prog))) {
 		perror("setsockopt SO_ATTACH_FILTER");
 		exit(1);
 	}
-}
-
-static __maybe_unused void pair_udp_setfilter(int fd)
-{
-	sock_setfilter(fd, SOL_SOCKET, SO_ATTACH_FILTER);
 }
 
 static __maybe_unused void pair_udp_open(int fds[], uint16_t port)

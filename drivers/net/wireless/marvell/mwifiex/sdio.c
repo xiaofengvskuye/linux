@@ -181,13 +181,13 @@ static int mwifiex_sdio_resume(struct device *dev)
 
 	adapter = card->adapter;
 
-	if (!adapter->is_suspended) {
+	if (!test_bit(MWIFIEX_IS_SUSPENDED, &adapter->work_flags)) {
 		mwifiex_dbg(adapter, WARN,
 			    "device already resumed\n");
 		return 0;
 	}
 
-	adapter->is_suspended = false;
+	clear_bit(MWIFIEX_IS_SUSPENDED, &adapter->work_flags);
 
 	/* Disable Host Sleep */
 	mwifiex_cancel_hs(mwifiex_get_priv(adapter, MWIFIEX_BSS_ROLE_STA),
@@ -260,7 +260,7 @@ mwifiex_write_data_sync(struct mwifiex_adapter *adapter,
 				MWIFIEX_SDIO_BLOCK_SIZE) : pkt_len;
 	u32 ioport = (port & MWIFIEX_SDIO_IO_PORT_MASK);
 
-	if (adapter->is_suspended) {
+	if (test_bit(MWIFIEX_IS_SUSPENDED, &adapter->work_flags)) {
 		mwifiex_dbg(adapter, ERROR,
 			    "%s: not allowed while suspended\n", __func__);
 		return -1;
@@ -387,12 +387,11 @@ mwifiex_sdio_remove(struct sdio_func *func)
 	if (!adapter || !adapter->priv_num)
 		return;
 
-	cancel_work_sync(&card->work);
-
 	mwifiex_dbg(adapter, INFO, "info: SDIO func num=%d\n", func->num);
 
 	ret = mwifiex_sdio_read_fw_status(adapter, &firmware_stat);
-	if (firmware_stat == FIRMWARE_READY_SDIO && !adapter->mfg_mode) {
+	if (!ret && firmware_stat == FIRMWARE_READY_SDIO &&
+	    !adapter->mfg_mode) {
 		mwifiex_deauthenticate_all(adapter);
 
 		priv = mwifiex_get_priv(adapter, MWIFIEX_BSS_ROLE_ANY);
@@ -451,7 +450,7 @@ static int mwifiex_sdio_suspend(struct device *dev)
 	if (!mwifiex_enable_hs(adapter)) {
 		mwifiex_dbg(adapter, ERROR,
 			    "cmd: failed to suspend\n");
-		adapter->hs_enabling = false;
+		clear_bit(MWIFIEX_IS_HS_ENABLING, &adapter->work_flags);
 		mwifiex_disable_wake(adapter);
 		return -EFAULT;
 	}
@@ -461,10 +460,21 @@ static int mwifiex_sdio_suspend(struct device *dev)
 	ret = sdio_set_host_pm_flags(func, MMC_PM_KEEP_POWER);
 
 	/* Indicate device suspended */
-	adapter->is_suspended = true;
-	adapter->hs_enabling = false;
+	set_bit(MWIFIEX_IS_SUSPENDED, &adapter->work_flags);
+	clear_bit(MWIFIEX_IS_HS_ENABLING, &adapter->work_flags);
 
 	return ret;
+}
+
+static void mwifiex_sdio_coredump(struct device *dev)
+{
+	struct sdio_func *func = dev_to_sdio_func(dev);
+	struct sdio_mmc_card *card;
+
+	card = sdio_get_drvdata(func);
+	if (!test_and_set_bit(MWIFIEX_IFACE_WORK_DEVICE_DUMP,
+			      &card->work_flags))
+		schedule_work(&card->work);
 }
 
 /* Device ID for SD8786 */
@@ -479,6 +489,10 @@ static int mwifiex_sdio_suspend(struct device *dev)
 #define SDIO_DEVICE_ID_MARVELL_8887   (0x9135)
 /* Device ID for SD8801 */
 #define SDIO_DEVICE_ID_MARVELL_8801   (0x9139)
+/* Device ID for SD8977 */
+#define SDIO_DEVICE_ID_MARVELL_8977   (0x9145)
+/* Device ID for SD8987 */
+#define SDIO_DEVICE_ID_MARVELL_8987   (0x9149)
 /* Device ID for SD8997 */
 #define SDIO_DEVICE_ID_MARVELL_8997   (0x9141)
 
@@ -497,6 +511,10 @@ static const struct sdio_device_id mwifiex_ids[] = {
 		.driver_data = (unsigned long)&mwifiex_sdio_sd8887},
 	{SDIO_DEVICE(SDIO_VENDOR_ID_MARVELL, SDIO_DEVICE_ID_MARVELL_8801),
 		.driver_data = (unsigned long)&mwifiex_sdio_sd8801},
+	{SDIO_DEVICE(SDIO_VENDOR_ID_MARVELL, SDIO_DEVICE_ID_MARVELL_8977),
+		.driver_data = (unsigned long)&mwifiex_sdio_sd8977},
+	{SDIO_DEVICE(SDIO_VENDOR_ID_MARVELL, SDIO_DEVICE_ID_MARVELL_8987),
+		.driver_data = (unsigned long)&mwifiex_sdio_sd8987},
 	{SDIO_DEVICE(SDIO_VENDOR_ID_MARVELL, SDIO_DEVICE_ID_MARVELL_8997),
 		.driver_data = (unsigned long)&mwifiex_sdio_sd8997},
 	{},
@@ -516,6 +534,7 @@ static struct sdio_driver mwifiex_sdio = {
 	.remove = mwifiex_sdio_remove,
 	.drv = {
 		.owner = THIS_MODULE,
+		.coredump = mwifiex_sdio_coredump,
 		.pm = &mwifiex_sdio_pm_ops,
 	}
 };
@@ -943,7 +962,7 @@ static int mwifiex_sdio_card_to_host(struct mwifiex_adapter *adapter,
 		return -1;
 	}
 
-	nb = le16_to_cpu(*(__le16 *) (buffer));
+	nb = get_unaligned_le16((buffer));
 	if (nb > npayload) {
 		mwifiex_dbg(adapter, ERROR,
 			    "%s: invalid packet, nb=%d npayload=%d\n",
@@ -951,7 +970,7 @@ static int mwifiex_sdio_card_to_host(struct mwifiex_adapter *adapter,
 		return -1;
 	}
 
-	*type = le16_to_cpu(*(__le16 *) (buffer + 2));
+	*type = get_unaligned_le16((buffer + 2));
 
 	return ret;
 }
@@ -1127,7 +1146,7 @@ static void mwifiex_deaggr_sdio_pkt(struct mwifiex_adapter *adapter,
 	data = skb->data;
 	total_pkt_len = skb->len;
 
-	while (total_pkt_len >= (SDIO_HEADER_OFFSET + INTF_HEADER_LEN)) {
+	while (total_pkt_len >= (SDIO_HEADER_OFFSET + adapter->intf_hdr_len)) {
 		if (total_pkt_len < adapter->sdio_rx_block_size)
 			break;
 		blk_num = *(data + BLOCK_NUMBER_OFFSET);
@@ -1139,7 +1158,8 @@ static void mwifiex_deaggr_sdio_pkt(struct mwifiex_adapter *adapter,
 				    __func__, blk_num, blk_size, total_pkt_len);
 			break;
 		}
-		pkt_len = le16_to_cpu(*(__le16 *)(data + SDIO_HEADER_OFFSET));
+		pkt_len = get_unaligned_le16((data +
+					     SDIO_HEADER_OFFSET));
 		if ((pkt_len + SDIO_HEADER_OFFSET) > blk_size) {
 			mwifiex_dbg(adapter, ERROR,
 				    "%s: error in pkt_len,\t"
@@ -1153,7 +1173,7 @@ static void mwifiex_deaggr_sdio_pkt(struct mwifiex_adapter *adapter,
 			break;
 		skb_put(skb_deaggr, pkt_len);
 		memcpy(skb_deaggr->data, data + SDIO_HEADER_OFFSET, pkt_len);
-		skb_pull(skb_deaggr, INTF_HEADER_LEN);
+		skb_pull(skb_deaggr, adapter->intf_hdr_len);
 
 		mwifiex_handle_rx_packet(adapter, skb_deaggr);
 		data += blk_size;
@@ -1172,13 +1192,14 @@ static int mwifiex_decode_rx_packet(struct mwifiex_adapter *adapter,
 				    struct sk_buff *skb, u32 upld_typ)
 {
 	u8 *cmd_buf;
-	__le16 *curr_ptr = (__le16 *)skb->data;
-	u16 pkt_len = le16_to_cpu(*curr_ptr);
+	u16 pkt_len;
 	struct mwifiex_rxinfo *rx_info;
+
+	pkt_len = get_unaligned_le16(skb->data);
 
 	if (upld_typ != MWIFIEX_TYPE_AGGR_DATA) {
 		skb_trim(skb, pkt_len);
-		skb_pull(skb, INTF_HEADER_LEN);
+		skb_pull(skb, adapter->intf_hdr_len);
 	}
 
 	switch (upld_typ) {
@@ -1235,7 +1256,7 @@ static int mwifiex_decode_rx_packet(struct mwifiex_adapter *adapter,
 	case MWIFIEX_TYPE_EVENT:
 		mwifiex_dbg(adapter, EVENT,
 			    "info: --- Rx: Event ---\n");
-		adapter->event_cause = le32_to_cpu(*(__le32 *) skb->data);
+		adapter->event_cause = get_unaligned_le32(skb->data);
 
 		if ((skb->len > 0) && (skb->len  < MAX_EVENT_SIZE))
 			memcpy(adapter->event_body,
@@ -1380,7 +1401,7 @@ static int mwifiex_sdio_card_to_host_mp_aggr(struct mwifiex_adapter *adapter,
 		}
 
 		if (card->mpa_rx.pkt_cnt == 1)
-			mport = adapter->ioport + port;
+			mport = adapter->ioport + card->mpa_rx.start_port;
 
 		if (mwifiex_read_data_sync(adapter, card->mpa_rx.buf,
 					   card->mpa_rx.buf_len, mport, 1))
@@ -1392,8 +1413,8 @@ static int mwifiex_sdio_card_to_host_mp_aggr(struct mwifiex_adapter *adapter,
 			u32 *len_arr = card->mpa_rx.len_arr;
 
 			/* get curr PKT len & type */
-			pkt_len = le16_to_cpu(*(__le16 *) &curr_ptr[0]);
-			pkt_type = le16_to_cpu(*(__le16 *) &curr_ptr[2]);
+			pkt_len = get_unaligned_le16(&curr_ptr[0]);
+			pkt_type = get_unaligned_le16(&curr_ptr[2]);
 
 			/* copy pkt to deaggr buf */
 			skb_deaggr = mwifiex_alloc_dma_align_buf(len_arr[pind],
@@ -1537,7 +1558,7 @@ static int mwifiex_process_int_status(struct mwifiex_adapter *adapter)
 		rx_len = card->mp_regs[reg->cmd_rd_len_1] << 8;
 		rx_len |= (u16)card->mp_regs[reg->cmd_rd_len_0];
 		rx_blocks = DIV_ROUND_UP(rx_len, MWIFIEX_SDIO_BLOCK_SIZE);
-		if (rx_len <= INTF_HEADER_LEN ||
+		if (rx_len <= adapter->intf_hdr_len ||
 		    (rx_blocks * MWIFIEX_SDIO_BLOCK_SIZE) >
 		     MWIFIEX_RX_DATA_BUF_SIZE)
 			return -1;
@@ -1635,7 +1656,7 @@ static int mwifiex_process_int_status(struct mwifiex_adapter *adapter)
 			rx_blocks =
 				(rx_len + MWIFIEX_SDIO_BLOCK_SIZE -
 				 1) / MWIFIEX_SDIO_BLOCK_SIZE;
-			if (rx_len <= INTF_HEADER_LEN ||
+			if (rx_len <= adapter->intf_hdr_len ||
 			    (card->mpa_rx.enabled &&
 			     ((rx_blocks * MWIFIEX_SDIO_BLOCK_SIZE) >
 			      card->mpa_rx.buf_size))) {
@@ -1813,7 +1834,7 @@ static int mwifiex_host_to_card_mp_aggr(struct mwifiex_adapter *adapter,
 		}
 
 		if (card->mpa_tx.pkt_cnt == 1)
-			mport = adapter->ioport + port;
+			mport = adapter->ioport + card->mpa_tx.start_port;
 
 		ret = mwifiex_write_data_to_card(adapter, card->mpa_tx.buf,
 						 card->mpa_tx.buf_len, mport);
@@ -1874,8 +1895,9 @@ static int mwifiex_sdio_host_to_card(struct mwifiex_adapter *adapter,
 	/* Allocate buffer and copy payload */
 	blk_size = MWIFIEX_SDIO_BLOCK_SIZE;
 	buf_block_len = (pkt_len + blk_size - 1) / blk_size;
-	*(__le16 *)&payload[0] = cpu_to_le16((u16)pkt_len);
-	*(__le16 *)&payload[2] = cpu_to_le16(type);
+	put_unaligned_le16((u16)pkt_len, payload + 0);
+	put_unaligned_le16((u32)type, payload + 2);
+
 
 	/*
 	 * This is SDIO specific header
@@ -1895,7 +1917,7 @@ static int mwifiex_sdio_host_to_card(struct mwifiex_adapter *adapter,
 		adapter->cmd_sent = true;
 		/* Type must be MWIFIEX_TYPE_CMD */
 
-		if (pkt_len <= INTF_HEADER_LEN ||
+		if (pkt_len <= adapter->intf_hdr_len ||
 		    pkt_len > MWIFIEX_UPLD_SIZE)
 			mwifiex_dbg(adapter, ERROR,
 				    "%s: payload=%p, nb=%d\n",
@@ -2092,15 +2114,16 @@ static int mwifiex_init_sdio(struct mwifiex_adapter *adapter)
 		return -ENOMEM;
 
 	/* Allocate skb pointer buffers */
-	card->mpa_rx.skb_arr = kzalloc((sizeof(void *)) *
-				       card->mp_agg_pkt_limit, GFP_KERNEL);
+	card->mpa_rx.skb_arr = kcalloc(card->mp_agg_pkt_limit, sizeof(void *),
+				       GFP_KERNEL);
 	if (!card->mpa_rx.skb_arr) {
 		kfree(card->mp_regs);
 		return -ENOMEM;
 	}
 
-	card->mpa_rx.len_arr = kzalloc(sizeof(*card->mpa_rx.len_arr) *
-				       card->mp_agg_pkt_limit, GFP_KERNEL);
+	card->mpa_rx.len_arr = kcalloc(card->mp_agg_pkt_limit,
+				       sizeof(*card->mpa_rx.len_arr),
+				       GFP_KERNEL);
 	if (!card->mpa_rx.len_arr) {
 		kfree(card->mp_regs);
 		kfree(card->mpa_rx.skb_arr);
@@ -2155,6 +2178,8 @@ static void mwifiex_cleanup_sdio(struct mwifiex_adapter *adapter)
 {
 	struct sdio_mmc_card *card = adapter->card;
 
+	cancel_work_sync(&card->work);
+
 	kfree(card->mp_regs);
 	kfree(card->mpa_rx.skb_arr);
 	kfree(card->mpa_rx.len_arr);
@@ -2193,6 +2218,7 @@ static void mwifiex_sdio_card_reset_work(struct mwifiex_adapter *adapter)
 {
 	struct sdio_mmc_card *card = adapter->card;
 	struct sdio_func *func = card->func;
+	int ret;
 
 	mwifiex_shutdown_sw(adapter);
 
@@ -2207,7 +2233,9 @@ static void mwifiex_sdio_card_reset_work(struct mwifiex_adapter *adapter)
 	clear_bit(MWIFIEX_IFACE_WORK_DEVICE_DUMP, &card->work_flags);
 	clear_bit(MWIFIEX_IFACE_WORK_CARD_RESET, &card->work_flags);
 
-	mwifiex_reinit_sw(adapter);
+	ret = mwifiex_reinit_sw(adapter);
+	if (ret)
+		dev_err(&func->dev, "reinit failed: %d\n", ret);
 }
 
 /* This function read/write firmware */
@@ -2498,15 +2526,21 @@ done:
 static void mwifiex_sdio_device_dump_work(struct mwifiex_adapter *adapter)
 {
 	struct sdio_mmc_card *card = adapter->card;
-	int drv_info_size;
-	void *drv_info;
 
-	drv_info_size = mwifiex_drv_info_dump(adapter, &drv_info);
+	adapter->devdump_data = vzalloc(MWIFIEX_FW_DUMP_SIZE);
+	if (!adapter->devdump_data) {
+		mwifiex_dbg(adapter, ERROR,
+			    "vzalloc devdump data failure!\n");
+		return;
+	}
+
+	mwifiex_drv_info_dump(adapter);
 	if (card->fw_dump_enh)
 		mwifiex_sdio_generic_fw_dump(adapter);
 	else
 		mwifiex_sdio_fw_dump(adapter);
-	mwifiex_upload_device_dump(adapter, drv_info, drv_info_size);
+	mwifiex_prepare_fw_dump_info(adapter);
+	mwifiex_upload_device_dump(adapter);
 }
 
 static void mwifiex_sdio_work(struct work_struct *work)
@@ -2527,12 +2561,8 @@ static void mwifiex_sdio_card_reset(struct mwifiex_adapter *adapter)
 {
 	struct sdio_mmc_card *card = adapter->card;
 
-	if (test_bit(MWIFIEX_IFACE_WORK_CARD_RESET, &card->work_flags))
-		return;
-
-	set_bit(MWIFIEX_IFACE_WORK_CARD_RESET, &card->work_flags);
-
-	schedule_work(&card->work);
+	if (!test_and_set_bit(MWIFIEX_IFACE_WORK_CARD_RESET, &card->work_flags))
+		schedule_work(&card->work);
 }
 
 /* This function dumps FW information */
@@ -2540,11 +2570,9 @@ static void mwifiex_sdio_device_dump(struct mwifiex_adapter *adapter)
 {
 	struct sdio_mmc_card *card = adapter->card;
 
-	if (test_bit(MWIFIEX_IFACE_WORK_DEVICE_DUMP, &card->work_flags))
-		return;
-
-	set_bit(MWIFIEX_IFACE_WORK_DEVICE_DUMP, &card->work_flags);
-	schedule_work(&card->work);
+	if (!test_and_set_bit(MWIFIEX_IFACE_WORK_DEVICE_DUMP,
+			      &card->work_flags))
+		schedule_work(&card->work);
 }
 
 /* Function to dump SDIO function registers and SDIO scratch registers in case
@@ -2706,4 +2734,6 @@ MODULE_FIRMWARE(SD8787_DEFAULT_FW_NAME);
 MODULE_FIRMWARE(SD8797_DEFAULT_FW_NAME);
 MODULE_FIRMWARE(SD8897_DEFAULT_FW_NAME);
 MODULE_FIRMWARE(SD8887_DEFAULT_FW_NAME);
+MODULE_FIRMWARE(SD8977_DEFAULT_FW_NAME);
+MODULE_FIRMWARE(SD8987_DEFAULT_FW_NAME);
 MODULE_FIRMWARE(SD8997_DEFAULT_FW_NAME);

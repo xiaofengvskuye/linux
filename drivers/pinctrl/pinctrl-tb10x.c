@@ -1,22 +1,10 @@
+// SPDX-License-Identifier: GPL-2.0-only
 /*
  * Abilis Systems TB10x pin control driver
  *
  * Copyright (C) Abilis Systems 2012
  *
  * Author: Christian Ruppert <christian.ruppert@abilis.com>
- *
- * This program is free software; you can redistribute it and/or modify
- * it under the terms of the GNU General Public License version 2 as
- * published by the Free Software Foundation.
- *
- * This program is distributed in the hope that it will be useful,
- * but WITHOUT ANY WARRANTY; without even the implied warranty of
- * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
- * GNU General Public License for more details.
- *
- * You should have received a copy of the GNU General Public License
- * along with this program; if not, write to the Free Software
- * Foundation, Inc., 59 Temple Place, Suite 330, Boston, MA  02111-1307 USA
  */
 
 #include <linux/stringify.h>
@@ -557,8 +545,8 @@ static int tb10x_dt_node_to_map(struct pinctrl_dev *pctl,
 	int ret = 0;
 
 	if (of_property_read_string(np_config, "abilis,function", &string)) {
-		pr_err("%s: No abilis,function property in device tree.\n",
-			np_config->full_name);
+		pr_err("%pOF: No abilis,function property in device tree.\n",
+			np_config);
 		return -EINVAL;
 	}
 
@@ -577,7 +565,7 @@ out:
 	return ret;
 }
 
-static struct pinctrl_ops tb10x_pinctrl_ops = {
+static const struct pinctrl_ops tb10x_pinctrl_ops = {
 	.get_groups_count = tb10x_get_groups_count,
 	.get_group_name   = tb10x_get_group_name,
 	.get_group_pins   = tb10x_get_group_pins,
@@ -738,7 +726,7 @@ static int tb10x_pctl_set_mux(struct pinctrl_dev *pctl,
 	return 0;
 }
 
-static struct pinmux_ops tb10x_pinmux_ops = {
+static const struct pinmux_ops tb10x_pinmux_ops = {
 	.get_functions_count = tb10x_get_functions_count,
 	.get_function_name = tb10x_get_function_name,
 	.get_function_groups = tb10x_get_function_groups,

@@ -1,3 +1,4 @@
+/* SPDX-License-Identifier: GPL-2.0 */
 #ifndef _LINUX_STAT_H
 #define _LINUX_STAT_H
 
@@ -26,6 +27,7 @@ struct kstat {
 	unsigned int	nlink;
 	uint32_t	blksize;	/* Preferred I/O size */
 	u64		attributes;
+	u64		attributes_mask;
 #define KSTAT_ATTR_FS_IOC_FLAGS				\
 	(STATX_ATTR_COMPRESSED |			\
 	 STATX_ATTR_IMMUTABLE |				\
@@ -39,10 +41,10 @@ struct kstat {
 	kuid_t		uid;
 	kgid_t		gid;
 	loff_t		size;
-	struct timespec	atime;
-	struct timespec	mtime;
-	struct timespec	ctime;
-	struct timespec	btime;			/* File creation time */
+	struct timespec64 atime;
+	struct timespec64 mtime;
+	struct timespec64 ctime;
+	struct timespec64 btime;			/* File creation time */
 	u64		blocks;
 };
 

@@ -1,10 +1,7 @@
+// SPDX-License-Identifier: GPL-2.0-only
 /*
  * Copyright 2010 Matt Turner.
  * Copyright 2012 Red Hat
- *
- * This file is subject to the terms and conditions of the GNU General
- * Public License version 2. See the file COPYING in the main
- * directory of this archive for more details.
  *
  * Authors: Matthew Garrett
  *	    Matt Turner
@@ -16,6 +13,7 @@
 #include <drm/drmP.h>
 #include <drm/drm_crtc_helper.h>
 #include <drm/drm_plane_helper.h>
+#include <drm/drm_probe_helper.h>
 
 #include "mgag200_drv.h"
 
@@ -27,14 +25,18 @@
 
 static void mga_crtc_load_lut(struct drm_crtc *crtc)
 {
-	struct mga_crtc *mga_crtc = to_mga_crtc(crtc);
 	struct drm_device *dev = crtc->dev;
 	struct mga_device *mdev = dev->dev_private;
 	struct drm_framebuffer *fb = crtc->primary->fb;
+	u16 *r_ptr, *g_ptr, *b_ptr;
 	int i;
 
 	if (!crtc->enabled)
 		return;
+
+	r_ptr = crtc->gamma_store;
+	g_ptr = r_ptr + crtc->gamma_size;
+	b_ptr = g_ptr + crtc->gamma_size;
 
 	WREG8(DAC_INDEX + MGA1064_INDEX, 0);
 
@@ -46,25 +48,27 @@ static void mga_crtc_load_lut(struct drm_crtc *crtc)
 				if (i > (MGAG200_LUT_SIZE >> 1)) {
 					r = b = 0;
 				} else {
-					r = mga_crtc->lut_r[i << 1];
-					b = mga_crtc->lut_b[i << 1];
+					r = *r_ptr++ >> 8;
+					b = *b_ptr++ >> 8;
+					r_ptr++;
+					b_ptr++;
 				}
 			} else {
-				r = mga_crtc->lut_r[i];
-				b = mga_crtc->lut_b[i];
+				r = *r_ptr++ >> 8;
+				b = *b_ptr++ >> 8;
 			}
 			/* VGA registers */
 			WREG8(DAC_INDEX + MGA1064_COL_PAL, r);
-			WREG8(DAC_INDEX + MGA1064_COL_PAL, mga_crtc->lut_g[i]);
+			WREG8(DAC_INDEX + MGA1064_COL_PAL, *g_ptr++ >> 8);
 			WREG8(DAC_INDEX + MGA1064_COL_PAL, b);
 		}
 		return;
 	}
 	for (i = 0; i < MGAG200_LUT_SIZE; i++) {
 		/* VGA registers */
-		WREG8(DAC_INDEX + MGA1064_COL_PAL, mga_crtc->lut_r[i]);
-		WREG8(DAC_INDEX + MGA1064_COL_PAL, mga_crtc->lut_g[i]);
-		WREG8(DAC_INDEX + MGA1064_COL_PAL, mga_crtc->lut_b[i]);
+		WREG8(DAC_INDEX + MGA1064_COL_PAL, *r_ptr++ >> 8);
+		WREG8(DAC_INDEX + MGA1064_COL_PAL, *g_ptr++ >> 8);
+		WREG8(DAC_INDEX + MGA1064_COL_PAL, *b_ptr++ >> 8);
 	}
 }
 
@@ -195,7 +199,7 @@ static int mga_g200se_set_plls(struct mga_device *mdev, long clock)
 	}
 
 	if (delta > permitteddelta) {
-		printk(KERN_WARNING "PLL delta too large\n");
+		pr_warn("PLL delta too large\n");
 		return 1;
 	}
 
@@ -1173,7 +1177,10 @@ static int mga_crtc_mode_set(struct drm_crtc *crtc,
 
 
 	if (IS_G200_SE(mdev)) {
-		if (mdev->unique_rev_id >= 0x02) {
+		if  (mdev->unique_rev_id >= 0x04) {
+			WREG8(MGAREG_CRTCEXT_INDEX, 0x06);
+			WREG8(MGAREG_CRTCEXT_DATA, 0);
+		} else if (mdev->unique_rev_id >= 0x02) {
 			u8 hi_pri_lvl;
 			u32 bpp;
 			u32 mb;
@@ -1393,16 +1400,9 @@ static void mga_crtc_commit(struct drm_crtc *crtc)
  * but it's a requirement that we provide the function
  */
 static int mga_crtc_gamma_set(struct drm_crtc *crtc, u16 *red, u16 *green,
-			      u16 *blue, uint32_t size)
+			      u16 *blue, uint32_t size,
+			      struct drm_modeset_acquire_ctx *ctx)
 {
-	struct mga_crtc *mga_crtc = to_mga_crtc(crtc);
-	int i;
-
-	for (i = 0; i < size; i++) {
-		mga_crtc->lut_r[i] = red[i] >> 8;
-		mga_crtc->lut_g[i] = green[i] >> 8;
-		mga_crtc->lut_b[i] = blue[i] >> 8;
-	}
 	mga_crtc_load_lut(crtc);
 
 	return 0;
@@ -1451,14 +1451,12 @@ static const struct drm_crtc_helper_funcs mga_helper_funcs = {
 	.mode_set_base = mga_crtc_mode_set_base,
 	.prepare = mga_crtc_prepare,
 	.commit = mga_crtc_commit,
-	.load_lut = mga_crtc_load_lut,
 };
 
 /* CRTC setup */
 static void mga_crtc_init(struct mga_device *mdev)
 {
 	struct mga_crtc *mga_crtc;
-	int i;
 
 	mga_crtc = kzalloc(sizeof(struct mga_crtc) +
 			      (MGAG200FB_CONN_LIMIT * sizeof(struct drm_connector *)),
@@ -1472,35 +1470,7 @@ static void mga_crtc_init(struct mga_device *mdev)
 	drm_mode_crtc_set_gamma_size(&mga_crtc->base, MGAG200_LUT_SIZE);
 	mdev->mode_info.crtc = mga_crtc;
 
-	for (i = 0; i < MGAG200_LUT_SIZE; i++) {
-		mga_crtc->lut_r[i] = i;
-		mga_crtc->lut_g[i] = i;
-		mga_crtc->lut_b[i] = i;
-	}
-
 	drm_crtc_helper_add(&mga_crtc->base, &mga_helper_funcs);
-}
-
-/** Sets the color ramps on behalf of fbcon */
-void mga_crtc_fb_gamma_set(struct drm_crtc *crtc, u16 red, u16 green,
-			      u16 blue, int regno)
-{
-	struct mga_crtc *mga_crtc = to_mga_crtc(crtc);
-
-	mga_crtc->lut_r[regno] = red >> 8;
-	mga_crtc->lut_g[regno] = green >> 8;
-	mga_crtc->lut_b[regno] = blue >> 8;
-}
-
-/** Gets the color ramps on behalf of fbcon */
-void mga_crtc_fb_gamma_get(struct drm_crtc *crtc, u16 *red, u16 *green,
-			      u16 *blue, int regno)
-{
-	struct mga_crtc *mga_crtc = to_mga_crtc(crtc);
-
-	*red = (u16)mga_crtc->lut_r[regno] << 8;
-	*green = (u16)mga_crtc->lut_g[regno] << 8;
-	*blue = (u16)mga_crtc->lut_b[regno] << 8;
 }
 
 /*
@@ -1581,7 +1551,7 @@ static int mga_vga_get_modes(struct drm_connector *connector)
 
 	edid = drm_get_edid(connector, &mga_connector->i2c->adapter);
 	if (edid) {
-		drm_mode_connector_update_edid_property(connector, edid);
+		drm_connector_update_edid_property(connector, edid);
 		ret = drm_add_edid_modes(connector, edid);
 		kfree(edid);
 	}
@@ -1614,7 +1584,7 @@ static uint32_t mga_vga_calculate_mode_bandwidth(struct drm_display_mode *mode,
 
 #define MODE_BANDWIDTH	MODE_BAD
 
-static int mga_vga_mode_valid(struct drm_connector *connector,
+static enum drm_mode_status mga_vga_mode_valid(struct drm_connector *connector,
 				 struct drm_display_mode *mode)
 {
 	struct drm_device *dev = connector->dev;
@@ -1638,14 +1608,18 @@ static int mga_vga_mode_valid(struct drm_connector *connector,
 			if (mga_vga_calculate_mode_bandwidth(mode, bpp)
 				> (30100 * 1024))
 				return MODE_BANDWIDTH;
+		} else {
+			if (mga_vga_calculate_mode_bandwidth(mode, bpp)
+				> (55000 * 1024))
+				return MODE_BANDWIDTH;
 		}
 	} else if (mdev->type == G200_WB) {
 		if (mode->hdisplay > 1280)
 			return MODE_VIRTUAL_X;
 		if (mode->vdisplay > 1024)
 			return MODE_VIRTUAL_Y;
-		if (mga_vga_calculate_mode_bandwidth(mode,
-			bpp > (31877 * 1024)))
+		if (mga_vga_calculate_mode_bandwidth(mode, bpp) >
+		    (31877 * 1024))
 			return MODE_BANDWIDTH;
 	} else if (mdev->type == G200_EV &&
 		(mga_vga_calculate_mode_bandwidth(mode, bpp)
@@ -1694,7 +1668,7 @@ static struct drm_encoder *mga_connector_best_encoder(struct drm_connector
 	int enc_id = connector->encoder_ids[0];
 	/* pick the encoder ids */
 	if (enc_id)
-		return drm_encoder_find(connector->dev, enc_id);
+		return drm_encoder_find(connector->dev, NULL, enc_id);
 	return NULL;
 }
 
@@ -1771,7 +1745,7 @@ int mgag200_modeset_init(struct mga_device *mdev)
 		return -1;
 	}
 
-	drm_mode_connector_attach_encoder(connector, encoder);
+	drm_connector_attach_encoder(connector, encoder);
 
 	ret = mgag200_fbdev_init(mdev);
 	if (ret) {

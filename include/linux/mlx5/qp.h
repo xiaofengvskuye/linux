@@ -212,7 +212,6 @@ struct mlx5_wqe_ctrl_seg {
 #define MLX5_WQE_CTRL_OPCODE_MASK 0xff
 #define MLX5_WQE_CTRL_WQE_INDEX_MASK 0x00ffff00
 #define MLX5_WQE_CTRL_WQE_INDEX_SHIFT 8
-#define MLX5_WQE_AV_EXT 0x80000000
 
 enum {
 	MLX5_ETH_WQE_L3_INNER_CSUM      = 1 << 4,
@@ -222,13 +221,24 @@ enum {
 };
 
 enum {
+	MLX5_ETH_WQE_SVLAN              = 1 << 0,
 	MLX5_ETH_WQE_INSERT_VLAN        = 1 << 15,
 };
 
+enum {
+	MLX5_ETH_WQE_SWP_INNER_L3_IPV6  = 1 << 0,
+	MLX5_ETH_WQE_SWP_INNER_L4_UDP   = 1 << 1,
+	MLX5_ETH_WQE_SWP_OUTER_L3_IPV6  = 1 << 4,
+	MLX5_ETH_WQE_SWP_OUTER_L4_UDP   = 1 << 5,
+};
+
 struct mlx5_wqe_eth_seg {
-	u8              rsvd0[4];
+	u8              swp_outer_l4_offset;
+	u8              swp_outer_l3_offset;
+	u8              swp_inner_l4_offset;
+	u8              swp_inner_l3_offset;
 	u8              cs_flags;
-	u8              rsvd1;
+	u8              swp_flags;
 	__be16          mss;
 	__be32          rsvd2;
 	union {
@@ -294,6 +304,16 @@ struct mlx5_av {
 	__be32	grh_gid_fl;
 	u8	rgid[16];
 };
+
+struct mlx5_ib_ah {
+	struct ib_ah		ibah;
+	struct mlx5_av		av;
+};
+
+static inline struct mlx5_ib_ah *to_mah(struct ib_ah *ibah)
+{
+	return container_of(ibah, struct mlx5_ib_ah, ibah);
+}
 
 struct mlx5_wqe_datagram_seg {
 	struct mlx5_av	av;
@@ -375,6 +395,7 @@ struct mlx5_wqe_signature_seg {
 
 struct mlx5_wqe_inline_seg {
 	__be32	byte_count;
+	__be32	data[0];
 };
 
 enum mlx5_sig_type {
@@ -451,6 +472,12 @@ struct mlx5_core_qp {
 	int			qpn;
 	struct mlx5_rsc_debug	*dbg;
 	int			pid;
+	u16			uid;
+};
+
+struct mlx5_core_dct {
+	struct mlx5_core_qp	mqp;
+	struct completion	drained;
 };
 
 struct mlx5_qp_path {
@@ -529,6 +556,10 @@ static inline struct mlx5_core_mkey *__mlx5_mr_lookup(struct mlx5_core_dev *dev,
 	return radix_tree_lookup(&dev->priv.mkey_table.tree, key);
 }
 
+int mlx5_core_create_dct(struct mlx5_core_dev *dev,
+			 struct mlx5_core_dct *qp,
+			 u32 *in, int inlen,
+			 u32 *out, int outlen);
 int mlx5_core_create_qp(struct mlx5_core_dev *dev,
 			struct mlx5_core_qp *qp,
 			u32 *in,
@@ -538,8 +569,15 @@ int mlx5_core_qp_modify(struct mlx5_core_dev *dev, u16 opcode,
 			struct mlx5_core_qp *qp);
 int mlx5_core_destroy_qp(struct mlx5_core_dev *dev,
 			 struct mlx5_core_qp *qp);
+int mlx5_core_destroy_dct(struct mlx5_core_dev *dev,
+			  struct mlx5_core_dct *dct);
 int mlx5_core_qp_query(struct mlx5_core_dev *dev, struct mlx5_core_qp *qp,
 		       u32 *out, int outlen);
+int mlx5_core_dct_query(struct mlx5_core_dev *dev, struct mlx5_core_dct *dct,
+			u32 *out, int outlen);
+
+int mlx5_core_set_delay_drop(struct mlx5_core_dev *dev,
+			     u32 timeout_usec);
 
 int mlx5_core_xrcd_alloc(struct mlx5_core_dev *dev, u32 *xrcdn);
 int mlx5_core_xrcd_dealloc(struct mlx5_core_dev *dev, u32 xrcdn);
@@ -559,8 +597,11 @@ int mlx5_core_alloc_q_counter(struct mlx5_core_dev *dev, u16 *counter_id);
 int mlx5_core_dealloc_q_counter(struct mlx5_core_dev *dev, u16 counter_id);
 int mlx5_core_query_q_counter(struct mlx5_core_dev *dev, u16 counter_id,
 			      int reset, void *out, int out_size);
-int mlx5_core_query_out_of_buffer(struct mlx5_core_dev *dev, u16 counter_id,
-				  u32 *out_of_buffer);
+
+struct mlx5_core_rsc_common *mlx5_core_res_hold(struct mlx5_core_dev *dev,
+						int res_num,
+						enum mlx5_res_type res_type);
+void mlx5_core_res_put(struct mlx5_core_rsc_common *res);
 
 static inline const char *mlx5_qp_type_str(int type)
 {

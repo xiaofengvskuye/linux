@@ -1,8 +1,10 @@
+# SPDX-License-Identifier: GPL-2.0
 obj-$(CONFIG_I2C_BCM2048)	+= bcm2048/
-obj-$(CONFIG_VIDEO_SAMSUNG_S5P_CEC) += s5p-cec/
-obj-$(CONFIG_DVB_CXD2099)	+= cxd2099/
-obj-$(CONFIG_LIRC_STAGING)	+= lirc/
-obj-$(CONFIG_VIDEO_BCM2835)	+= platform/bcm2835/
+obj-$(CONFIG_VIDEO_IMX_MEDIA)	+= imx/
 obj-$(CONFIG_VIDEO_DM365_VPFE)	+= davinci_vpfe/
 obj-$(CONFIG_VIDEO_OMAP4)	+= omap4iss/
-obj-$(CONFIG_VIDEO_STI_HDMI_CEC) += st-cec/
+obj-$(CONFIG_VIDEO_SUNXI)	+= sunxi/
+obj-$(CONFIG_TEGRA_VDE)		+= tegra-vde/
+obj-$(CONFIG_VIDEO_ROCKCHIP_VPU) += rockchip/vpu/
+obj-$(CONFIG_VIDEO_IPU3_IMGU)	+= ipu3/
+obj-$(CONFIG_SOC_CAMERA)	+= soc_camera/

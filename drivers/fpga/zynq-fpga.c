@@ -1,18 +1,10 @@
+// SPDX-License-Identifier: GPL-2.0-only
 /*
  * Copyright (c) 2011-2015 Xilinx Inc.
  * Copyright (c) 2015, National Instruments Corp.
  *
  * FPGA Manager Driver for Xilinx Zynq, heavily based on xdevcfg driver
  * in their vendor tree.
- *
- * This program is free software; you can redistribute it and/or modify
- * it under the terms of the GNU General Public License as published by
- * the Free Software Foundation; version 2 of the License.
- *
- * This program is distributed in the hope that it will be useful,
- * but WITHOUT ANY WARRANTY; without even the implied warranty of
- * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE. See the
- * GNU General Public License for more details.
  */
 
 #include <linux/clk.h>
@@ -72,6 +64,10 @@
 #define CTRL_PCAP_PR_MASK		BIT(27)
 /* Enable PCAP */
 #define CTRL_PCAP_MODE_MASK		BIT(26)
+/* Lower rate to allow decrypt on the fly */
+#define CTRL_PCAP_RATE_EN_MASK		BIT(25)
+/* System booted in secure mode */
+#define CTRL_SEC_EN_MASK		BIT(7)
 
 /* Miscellaneous Control Register bit definitions */
 /* Internal PCAP loopback */
@@ -266,6 +262,17 @@ static int zynq_fpga_ops_write_init(struct fpga_manager *mgr,
 	if (err)
 		return err;
 
+	/* check if bitstream is encrypted & and system's still secure */
+	if (info->flags & FPGA_MGR_ENCRYPTED_BITSTREAM) {
+		ctrl = zynq_fpga_read(priv, CTRL_OFFSET);
+		if (!(ctrl & CTRL_SEC_EN_MASK)) {
+			dev_err(&mgr->dev,
+				"System not secure, can't use crypted bitstreams\n");
+			err = -EINVAL;
+			goto out_err;
+		}
+	}
+
 	/* don't globally reset PL if we're doing partial reconfig */
 	if (!(info->flags & FPGA_MGR_PARTIAL_RECONFIG)) {
 		if (!zynq_fpga_has_sync(buf, count)) {
@@ -337,12 +344,19 @@ static int zynq_fpga_ops_write_init(struct fpga_manager *mgr,
 
 	/* set configuration register with following options:
 	 * - enable PCAP interface
-	 * - set throughput for maximum speed
+	 * - set throughput for maximum speed (if bistream not crypted)
 	 * - set CPU in user mode
 	 */
 	ctrl = zynq_fpga_read(priv, CTRL_OFFSET);
-	zynq_fpga_write(priv, CTRL_OFFSET,
-			(CTRL_PCAP_PR_MASK | CTRL_PCAP_MODE_MASK | ctrl));
+	if (info->flags & FPGA_MGR_ENCRYPTED_BITSTREAM)
+		zynq_fpga_write(priv, CTRL_OFFSET,
+				(CTRL_PCAP_PR_MASK | CTRL_PCAP_MODE_MASK
+				 | CTRL_PCAP_RATE_EN_MASK | ctrl));
+	else
+		zynq_fpga_write(priv, CTRL_OFFSET,
+				(CTRL_PCAP_PR_MASK | CTRL_PCAP_MODE_MASK
+				 | ctrl));
+
 
 	/* We expect that the command queue is empty right now. */
 	status = zynq_fpga_read(priv, STATUS_OFFSET);
@@ -479,6 +493,10 @@ static int zynq_fpga_ops_write_complete(struct fpga_manager *mgr,
 	if (err)
 		return err;
 
+	/* Release 'PR' control back to the ICAP */
+	zynq_fpga_write(priv, CTRL_OFFSET,
+		zynq_fpga_read(priv, CTRL_OFFSET) & ~CTRL_PCAP_PR_MASK);
+
 	err = zynq_fpga_poll_timeout(priv, INT_STS_OFFSET, intr_status,
 				     intr_status & IXR_PCFG_DONE_MASK,
 				     INIT_POLL_DELAY,
@@ -536,6 +554,7 @@ static int zynq_fpga_probe(struct platform_device *pdev)
 {
 	struct device *dev = &pdev->dev;
 	struct zynq_fpga_priv *priv;
+	struct fpga_manager *mgr;
 	struct resource *res;
 	int err;
 
@@ -591,8 +610,14 @@ static int zynq_fpga_probe(struct platform_device *pdev)
 
 	clk_disable(priv->clk);
 
-	err = fpga_mgr_register(dev, "Xilinx Zynq FPGA Manager",
-				&zynq_fpga_ops, priv);
+	mgr = devm_fpga_mgr_create(dev, "Xilinx Zynq FPGA Manager",
+				   &zynq_fpga_ops, priv);
+	if (!mgr)
+		return -ENOMEM;
+
+	platform_set_drvdata(pdev, mgr);
+
+	err = fpga_mgr_register(mgr);
 	if (err) {
 		dev_err(dev, "unable to register FPGA manager\n");
 		clk_unprepare(priv->clk);
@@ -610,7 +635,7 @@ static int zynq_fpga_remove(struct platform_device *pdev)
 	mgr = platform_get_drvdata(pdev);
 	priv = mgr->priv;
 
-	fpga_mgr_unregister(&pdev->dev);
+	fpga_mgr_unregister(mgr);
 
 	clk_unprepare(priv->clk);
 

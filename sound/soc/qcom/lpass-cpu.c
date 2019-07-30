@@ -1,14 +1,6 @@
+// SPDX-License-Identifier: GPL-2.0-only
 /*
  * Copyright (c) 2010-2011,2013-2015 The Linux Foundation. All rights reserved.
- *
- * This program is free software; you can redistribute it and/or modify
- * it under the terms of the GNU General Public License version 2 and
- * only version 2 as published by the Free Software Foundation.
- *
- * This program is distributed in the hope that it will be useful,
- * but WITHOUT ANY WARRANTY; without even the implied warranty of
- * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
- * GNU General Public License for more details.
  *
  * lpass-cpu.c -- ALSA SoC CPU DAI driver for QTi LPASS
  */
@@ -429,7 +421,6 @@ int asoc_qcom_lpass_cpu_platform_probe(struct platform_device *pdev)
 	struct lpass_variant *variant;
 	struct device *dev = &pdev->dev;
 	const struct of_device_id *match;
-	char clk_name[16];
 	int ret, i, dai_id;
 
 	dsp_of_node = of_parse_phandle(pdev->dev.of_node, "qcom,adsp", 0);
@@ -477,31 +468,24 @@ int asoc_qcom_lpass_cpu_platform_probe(struct platform_device *pdev)
 
 	for (i = 0; i < variant->num_dai; i++) {
 		dai_id = variant->dai_driver[i].id;
-		if (variant->num_dai > 1)
-			sprintf(clk_name, "mi2s-osr-clk%d", i);
-		else
-			sprintf(clk_name, "mi2s-osr-clk");
-
 		drvdata->mi2s_osr_clk[dai_id] = devm_clk_get(&pdev->dev,
-								clk_name);
+					     variant->dai_osr_clk_names[i]);
 		if (IS_ERR(drvdata->mi2s_osr_clk[dai_id])) {
 			dev_warn(&pdev->dev,
-				"error getting optional mi2s-osr-clk: %ld\n",
+				"%s() error getting optional %s: %ld\n",
+				__func__,
+				variant->dai_osr_clk_names[i],
 				PTR_ERR(drvdata->mi2s_osr_clk[dai_id]));
 
 			drvdata->mi2s_osr_clk[dai_id] = NULL;
 		}
 
-		if (variant->num_dai > 1)
-			sprintf(clk_name, "mi2s-bit-clk%d", i);
-		else
-			sprintf(clk_name, "mi2s-bit-clk");
-
 		drvdata->mi2s_bit_clk[dai_id] = devm_clk_get(&pdev->dev,
-							    clk_name);
+						variant->dai_bit_clk_names[i]);
 		if (IS_ERR(drvdata->mi2s_bit_clk[dai_id])) {
 			dev_err(&pdev->dev,
-				"error getting mi2s-bit-clk: %ld\n",
+				"error getting %s: %ld\n",
+				variant->dai_bit_clk_names[i],
 				PTR_ERR(drvdata->mi2s_bit_clk[dai_id]));
 			return PTR_ERR(drvdata->mi2s_bit_clk[dai_id]);
 		}

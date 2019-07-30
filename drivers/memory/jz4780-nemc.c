@@ -1,12 +1,9 @@
+// SPDX-License-Identifier: GPL-2.0-only
 /*
  * JZ4780 NAND/external memory controller (NEMC)
  *
  * Copyright (c) 2015 Imagination Technologies
  * Author: Alex Smith <alex@alex-smith.me.uk>
- *
- * This program is free software; you can redistribute it and/or modify it
- * under the terms of the GNU General Public License version 2 as published
- * by the Free Software Foundation.
  */
 
 #include <linux/clk.h>
@@ -322,8 +319,8 @@ static int jz4780_nemc_probe(struct platform_device *pdev)
 			bank = of_read_number(prop, 1);
 			if (bank < 1 || bank >= JZ4780_NEMC_NUM_BANKS) {
 				dev_err(nemc->dev,
-					"%s requests invalid bank %u\n",
-					child->full_name, bank);
+					"%pOF requests invalid bank %u\n",
+					child, bank);
 
 				/* Will continue the outer loop below. */
 				referenced = 0;
@@ -334,12 +331,12 @@ static int jz4780_nemc_probe(struct platform_device *pdev)
 		}
 
 		if (!referenced) {
-			dev_err(nemc->dev, "%s has no addresses\n",
-				child->full_name);
+			dev_err(nemc->dev, "%pOF has no addresses\n",
+				child);
 			continue;
 		} else if (nemc->banks_present & referenced) {
-			dev_err(nemc->dev, "%s conflicts with another node\n",
-				child->full_name);
+			dev_err(nemc->dev, "%pOF conflicts with another node\n",
+				child);
 			continue;
 		}
 

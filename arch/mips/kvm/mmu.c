@@ -512,16 +512,6 @@ static int kvm_unmap_hva_handler(struct kvm *kvm, gfn_t gfn, gfn_t gfn_end,
 	return 1;
 }
 
-int kvm_unmap_hva(struct kvm *kvm, unsigned long hva)
-{
-	unsigned long end = hva + PAGE_SIZE;
-
-	handle_hva_to_gpa(kvm, hva, end, &kvm_unmap_hva_handler, NULL);
-
-	kvm_mips_callbacks->flush_shadow_all(kvm);
-	return 0;
-}
-
 int kvm_unmap_hva_range(struct kvm *kvm, unsigned long start, unsigned long end)
 {
 	handle_hva_to_gpa(kvm, start, end, &kvm_unmap_hva_handler, NULL);
@@ -561,7 +551,7 @@ static int kvm_set_spte_handler(struct kvm *kvm, gfn_t gfn, gfn_t gfn_end,
 	       (pte_dirty(old_pte) && !pte_dirty(hva_pte));
 }
 
-void kvm_set_spte_hva(struct kvm *kvm, unsigned long hva, pte_t pte)
+int kvm_set_spte_hva(struct kvm *kvm, unsigned long hva, pte_t pte)
 {
 	unsigned long end = hva + PAGE_SIZE;
 	int ret;
@@ -569,6 +559,7 @@ void kvm_set_spte_hva(struct kvm *kvm, unsigned long hva, pte_t pte)
 	ret = handle_hva_to_gpa(kvm, hva, end, &kvm_set_spte_handler, &pte);
 	if (ret)
 		kvm_mips_callbacks->flush_shadow_all(kvm);
+	return 0;
 }
 
 static int kvm_age_hva_handler(struct kvm *kvm, gfn_t gfn, gfn_t gfn_end,
@@ -992,6 +983,22 @@ static pte_t kvm_mips_gpa_pte_to_gva_mapped(pte_t pte, long entrylo)
 	return kvm_mips_gpa_pte_to_gva_unmapped(pte);
 }
 
+#ifdef CONFIG_KVM_MIPS_VZ
+int kvm_mips_handle_vz_root_tlb_fault(unsigned long badvaddr,
+				      struct kvm_vcpu *vcpu,
+				      bool write_fault)
+{
+	int ret;
+
+	ret = kvm_mips_map_page(vcpu, badvaddr, write_fault, NULL, NULL);
+	if (ret)
+		return ret;
+
+	/* Invalidate this entry in the TLB */
+	return kvm_vz_host_tlb_inv(vcpu, badvaddr);
+}
+#endif
+
 /* XXXKYMA: Must be called with interrupts disabled */
 int kvm_mips_handle_kseg0_tlb_fault(unsigned long badvaddr,
 				    struct kvm_vcpu *vcpu,
@@ -1224,6 +1231,10 @@ enum kvm_mips_fault_result kvm_trap_emul_gva_fault(struct kvm_vcpu *vcpu,
 int kvm_get_inst(u32 *opc, struct kvm_vcpu *vcpu, u32 *out)
 {
 	int err;
+
+	if (WARN(IS_ENABLED(CONFIG_KVM_MIPS_VZ),
+		 "Expect BadInstr/BadInstrP registers to be used with VZ\n"))
+		return -EINVAL;
 
 retry:
 	kvm_trap_emul_gva_lockless_begin(vcpu);

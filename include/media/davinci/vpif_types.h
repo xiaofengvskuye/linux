@@ -1,14 +1,6 @@
+/* SPDX-License-Identifier: GPL-2.0-only */
 /*
  * Copyright (C) 2011 Texas Instruments Inc
- *
- * This program is free software; you can redistribute it and/or modify
- * it under the terms of the GNU General Public License as published by
- * the Free Software Foundation version 2.
- *
- * This program is distributed in the hope that it will be useful,
- * but WITHOUT ANY WARRANTY; without even the implied warranty of
- * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE. See the
- * GNU General Public License for more details.
  */
 #ifndef _VPIF_TYPES_H
 #define _VPIF_TYPES_H
@@ -53,6 +45,7 @@ struct vpif_display_config {
 	int (*set_clock)(int, int);
 	struct vpif_subdev_info *subdevinfo;
 	int subdev_count;
+	int i2c_adapter_id;
 	struct vpif_display_chan_config chan_config[VPIF_DISPLAY_MAX_CHANNELS];
 	const char *card_name;
 	struct v4l2_async_subdev **asd;	/* Flat array, arranged in groups */
@@ -61,14 +54,14 @@ struct vpif_display_config {
 
 struct vpif_input {
 	struct v4l2_input input;
-	const char *subdev_name;
+	char *subdev_name;
 	u32 input_route;
 	u32 output_route;
 };
 
 struct vpif_capture_chan_config {
 	struct vpif_interface vpif_if;
-	const struct vpif_input *inputs;
+	struct vpif_input *inputs;
 	int input_count;
 };
 
@@ -80,7 +73,8 @@ struct vpif_capture_config {
 	int subdev_count;
 	int i2c_adapter_id;
 	const char *card_name;
-	struct v4l2_async_subdev **asd;	/* Flat array, arranged in groups */
-	int *asd_sizes;		/* 0-terminated array of asd group sizes */
+
+	struct v4l2_async_subdev *asd[VPIF_CAPTURE_MAX_CHANNELS];
+	int asd_sizes[VPIF_CAPTURE_MAX_CHANNELS];
 };
 #endif /* _VPIF_TYPES_H */

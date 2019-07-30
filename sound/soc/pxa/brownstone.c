@@ -1,13 +1,8 @@
+// SPDX-License-Identifier: GPL-2.0-or-later
 /*
  * linux/sound/soc/pxa/brownstone.c
  *
  * Copyright (C) 2011 Marvell International Ltd.
- *
- * This program is free software; you can redistribute it and/or modify
- * it under the terms of the GNU General Public License as published by
- * the Free Software Foundation; either version 2 of the License, or
- * (at your option) any later version.
- *
  */
 
 #include <linux/module.h>
@@ -74,7 +69,7 @@ static int brownstone_wm8994_hw_params(struct snd_pcm_substream *substream,
 }
 
 /* machine stream operations */
-static struct snd_soc_ops brownstone_ops = {
+static const struct snd_soc_ops brownstone_ops = {
 	.hw_params = brownstone_wm8994_hw_params,
 };
 

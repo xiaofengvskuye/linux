@@ -1,7 +1,7 @@
+// SPDX-License-Identifier: GPL-2.0
 /*
- * Copyright (C) Alexandre Torgue 2017
- * Author:  Alexandre Torgue <alexandre.torgue@st.com>
- * License terms:  GNU General Public License (GPL), version 2
+ * Copyright (C) STMicroelectronics 2017
+ * Author:  Alexandre Torgue <alexandre.torgue@st.com> for STMicroelectronics.
  */
 #include <linux/init.h>
 #include <linux/of.h>
@@ -1977,4 +1977,8 @@ static struct platform_driver stm32h743_pinctrl_driver = {
 	},
 };
 
-builtin_platform_driver(stm32h743_pinctrl_driver);
+static int __init stm32h743_pinctrl_init(void)
+{
+	return platform_driver_register(&stm32h743_pinctrl_driver);
+}
+arch_initcall(stm32h743_pinctrl_init);

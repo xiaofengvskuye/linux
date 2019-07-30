@@ -146,7 +146,7 @@ The target is named "raid" and it accepts the following parameters:
         [data_offset <sectors>]
 		This option value defines the offset into each data device
 		where the data starts. This is used to provide out-of-place
-		reshaping space to avoid writing over data whilst
+		reshaping space to avoid writing over data while
 		changing the layout of stripes, hence an interruption/crash
 		may happen at any time without the risk of losing data.
 		E.g. when adding devices to an existing raid set during
@@ -169,6 +169,13 @@ The target is named "raid" and it accepts the following parameters:
 		be throttled versus non-journaled raid4/5/6 sets.
 		Takeover/reshape is not possible with a raid4/5/6 journal device;
 		it has to be deconfigured before requesting these.
+
+	[journal_mode <mode>]
+		This option sets the caching mode on journaled raid4/5/6 raid sets
+		(see 'journal_dev <dev>' above) to 'writethrough' or 'writeback'.
+		If 'writeback' is selected the journal device has to be resilient
+		and must not suffer from the 'write hole' problem itself (e.g. use
+		raid1 or raid10) to avoid a single point of failure.
 
 <#raid_devs>: The number of devices composing the array.
 	Each device consists of two entries.  The first is the device
@@ -254,7 +261,8 @@ recovery.  Here is a fuller description of the individual fields:
 	<data_offset>   The current data offset to the start of the user data on
 			each component device of a raid set (see the respective
 			raid parameter to support out-of-place reshaping).
-	<journal_char>	'A' - active raid4/5/6 journal device.
+	<journal_char>	'A' - active write-through journal device.
+			'a' - active write-back journal device.
 			'D' - dead journal device.
 			'-' - no journal device.
 
@@ -331,3 +339,16 @@ Version History
 	'D' on the status line.  If '- -' is passed into the constructor, emit
 	'- -' on the table line and '-' as the status line health character.
 1.10.0  Add support for raid4/5/6 journal device
+1.10.1  Fix data corruption on reshape request
+1.11.0  Fix table line argument order
+	(wrong raid10_copies/raid10_format sequence)
+1.11.1  Add raid4/5/6 journal write-back support via journal_mode option
+1.12.1  Fix for MD deadlock between mddev_suspend() and md_write_start() available
+1.13.0  Fix dev_health status at end of "recover" (was 'a', now 'A')
+1.13.1  Fix deadlock caused by early md_stop_writes().  Also fix size an
+	state races.
+1.13.2  Fix raid redundancy validation and avoid keeping raid set frozen
+1.14.0  Fix reshape race on small devices.  Fix stripe adding reshape
+	deadlock/potential data corruption.  Update superblock when
+	specific devices are requested via rebuild.  Fix RAID leg
+	rebuild errors.

@@ -1,3 +1,4 @@
+/* SPDX-License-Identifier: GPL-2.0-only */
 #ifndef LLIST_H
 #define LLIST_H
 /*
@@ -45,19 +46,6 @@
  *
  * Copyright 2010,2011 Intel Corp.
  *   Author: Huang Ying <ying.huang@intel.com>
- *
- * This program is free software; you can redistribute it and/or
- * modify it under the terms of the GNU General Public License version
- * 2 as published by the Free Software Foundation;
- *
- * This program is distributed in the hope that it will be useful,
- * but WITHOUT ANY WARRANTY; without even the implied warranty of
- * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
- * GNU General Public License for more details.
- *
- * You should have received a copy of the GNU General Public License
- * along with this program; if not, write to the Free Software
- * Foundation, Inc., 59 Temple Place, Suite 330, Boston, MA  02111-1307  USA
  */
 
 #include <linux/atomic.h>
@@ -93,6 +81,23 @@ static inline void init_llist_head(struct llist_head *list)
 	container_of(ptr, type, member)
 
 /**
+ * member_address_is_nonnull - check whether the member address is not NULL
+ * @ptr:	the object pointer (struct type * that contains the llist_node)
+ * @member:	the name of the llist_node within the struct.
+ *
+ * This macro is conceptually the same as
+ *	&ptr->member != NULL
+ * but it works around the fact that compilers can decide that taking a member
+ * address is never a NULL pointer.
+ *
+ * Real objects that start at a high address and have a member at NULL are
+ * unlikely to exist, but such pointers may be returned e.g. by the
+ * container_of() macro.
+ */
+#define member_address_is_nonnull(ptr, member)	\
+	((uintptr_t)(ptr) + offsetof(typeof(*(ptr)), member) != 0)
+
+/**
  * llist_for_each - iterate over some deleted entries of a lock-less list
  * @pos:	the &struct llist_node to use as a loop cursor
  * @node:	the first entry of deleted list entries
@@ -108,6 +113,25 @@ static inline void init_llist_head(struct llist_head *list)
  */
 #define llist_for_each(pos, node)			\
 	for ((pos) = (node); pos; (pos) = (pos)->next)
+
+/**
+ * llist_for_each_safe - iterate over some deleted entries of a lock-less list
+ *			 safe against removal of list entry
+ * @pos:	the &struct llist_node to use as a loop cursor
+ * @n:		another &struct llist_node to use as temporary storage
+ * @node:	the first entry of deleted list entries
+ *
+ * In general, some entries of the lock-less list can be traversed
+ * safely only after being deleted from list, so start with an entry
+ * instead of list head.
+ *
+ * If being used on entries deleted from lock-less list directly, the
+ * traverse order is from the newest to the oldest added entry.  If
+ * you want to traverse from the oldest to the newest, you must
+ * reverse the order by yourself before traversing.
+ */
+#define llist_for_each_safe(pos, n, node)			\
+	for ((pos) = (node); (pos) && ((n) = (pos)->next, true); (pos) = (n))
 
 /**
  * llist_for_each_entry - iterate over some deleted entries of lock-less list of given type
@@ -126,7 +150,7 @@ static inline void init_llist_head(struct llist_head *list)
  */
 #define llist_for_each_entry(pos, node, member)				\
 	for ((pos) = llist_entry((node), typeof(*(pos)), member);	\
-	     &(pos)->member != NULL;					\
+	     member_address_is_nonnull(pos, member);			\
 	     (pos) = llist_entry((pos)->member.next, typeof(*(pos)), member))
 
 /**
@@ -148,7 +172,7 @@ static inline void init_llist_head(struct llist_head *list)
  */
 #define llist_for_each_entry_safe(pos, n, node, member)			       \
 	for (pos = llist_entry((node), typeof(*pos), member);		       \
-	     &pos->member != NULL &&					       \
+	     member_address_is_nonnull(pos, member) &&			       \
 	        (n = llist_entry(pos->member.next, typeof(*n), member), true); \
 	     pos = n)
 
@@ -162,7 +186,7 @@ static inline void init_llist_head(struct llist_head *list)
  */
 static inline bool llist_empty(const struct llist_head *head)
 {
-	return ACCESS_ONCE(head->first) == NULL;
+	return READ_ONCE(head->first) == NULL;
 }
 
 static inline struct llist_node *llist_next(struct llist_node *node)

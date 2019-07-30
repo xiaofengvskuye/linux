@@ -1,18 +1,6 @@
+// SPDX-License-Identifier: GPL-2.0-only
 /*
  * Copyright (c) 2010, Microsoft Corporation.
- *
- * This program is free software; you can redistribute it and/or modify it
- * under the terms and conditions of the GNU General Public License,
- * version 2, as published by the Free Software Foundation.
- *
- * This program is distributed in the hope it will be useful, but WITHOUT
- * ANY WARRANTY; without even the implied warranty of MERCHANTABILITY or
- * FITNESS FOR A PARTICULAR PURPOSE.  See the GNU General Public License for
- * more details.
- *
- * You should have received a copy of the GNU General Public License along with
- * this program; if not, write to the Free Software Foundation, Inc., 59 Temple
- * Place - Suite 330, Boston, MA 02111-1307 USA.
  *
  * Authors:
  *   Haiyang Zhang <haiyangz@microsoft.com>
@@ -202,27 +190,39 @@ static void shutdown_onchannelcallback(void *context)
 /*
  * Set the host time in a process context.
  */
+static struct work_struct adj_time_work;
 
-struct adj_time_work {
-	struct work_struct work;
-	u64	host_time;
-	u64	ref_time;
-	u8	flags;
-};
+/*
+ * The last time sample, received from the host. PTP device responds to
+ * requests by using this data and the current partition-wide time reference
+ * count.
+ */
+static struct {
+	u64				host_time;
+	u64				ref_time;
+	spinlock_t			lock;
+} host_ts;
+
+static struct timespec64 hv_get_adj_host_time(void)
+{
+	struct timespec64 ts;
+	u64 newtime, reftime;
+	unsigned long flags;
+
+	spin_lock_irqsave(&host_ts.lock, flags);
+	reftime = hyperv_cs->read(hyperv_cs);
+	newtime = host_ts.host_time + (reftime - host_ts.ref_time);
+	ts = ns_to_timespec64((newtime - WLTIMEDELTA) * 100);
+	spin_unlock_irqrestore(&host_ts.lock, flags);
+
+	return ts;
+}
 
 static void hv_set_host_time(struct work_struct *work)
 {
-	struct adj_time_work *wrk;
-	struct timespec64 host_ts;
-	u64 reftime, newtime;
+	struct timespec64 ts = hv_get_adj_host_time();
 
-	wrk = container_of(work, struct adj_time_work, work);
-
-	reftime = hyperv_cs->read(hyperv_cs);
-	newtime = wrk->host_time + (reftime - wrk->ref_time);
-	host_ts = ns_to_timespec64((newtime - WLTIMEDELTA) * 100);
-
-	do_settimeofday64(&host_ts);
+	do_settimeofday64(&ts);
 }
 
 /*
@@ -238,62 +238,35 @@ static void hv_set_host_time(struct work_struct *work)
  * typically used as a hint to the guest. The guest is under no obligation
  * to discipline the clock.
  */
-static struct adj_time_work  wrk;
-
-/*
- * The last time sample, received from the host. PTP device responds to
- * requests by using this data and the current partition-wide time reference
- * count.
- */
-static struct {
-	u64				host_time;
-	u64				ref_time;
-	struct system_time_snapshot	snap;
-	spinlock_t			lock;
-} host_ts;
-
 static inline void adj_guesttime(u64 hosttime, u64 reftime, u8 adj_flags)
 {
 	unsigned long flags;
 	u64 cur_reftime;
 
 	/*
-	 * This check is safe since we are executing in the
-	 * interrupt context and time synch messages are always
-	 * delivered on the same CPU.
+	 * Save the adjusted time sample from the host and the snapshot
+	 * of the current system time.
 	 */
-	if (adj_flags & ICTIMESYNCFLAG_SYNC) {
-		/* Queue a job to do do_settimeofday64() */
-		if (work_pending(&wrk.work))
-			return;
+	spin_lock_irqsave(&host_ts.lock, flags);
 
-		wrk.host_time = hosttime;
-		wrk.ref_time = reftime;
-		wrk.flags = adj_flags;
-		schedule_work(&wrk.work);
-	} else {
-		/*
-		 * Save the adjusted time sample from the host and the snapshot
-		 * of the current system time for PTP device.
-		 */
-		spin_lock_irqsave(&host_ts.lock, flags);
+	cur_reftime = hyperv_cs->read(hyperv_cs);
+	host_ts.host_time = hosttime;
+	host_ts.ref_time = cur_reftime;
 
-		cur_reftime = hyperv_cs->read(hyperv_cs);
-		host_ts.host_time = hosttime;
-		host_ts.ref_time = cur_reftime;
-		ktime_get_snapshot(&host_ts.snap);
+	/*
+	 * TimeSync v4 messages contain reference time (guest's Hyper-V
+	 * clocksource read when the time sample was generated), we can
+	 * improve the precision by adding the delta between now and the
+	 * time of generation. For older protocols we set
+	 * reftime == cur_reftime on call.
+	 */
+	host_ts.host_time += (cur_reftime - reftime);
 
-		/*
-		 * TimeSync v4 messages contain reference time (guest's Hyper-V
-		 * clocksource read when the time sample was generated), we can
-		 * improve the precision by adding the delta between now and the
-		 * time of generation.
-		 */
-		if (ts_srv_version > TS_VERSION_3)
-			host_ts.host_time += (cur_reftime - reftime);
+	spin_unlock_irqrestore(&host_ts.lock, flags);
 
-		spin_unlock_irqrestore(&host_ts.lock, flags);
-	}
+	/* Schedule work to do do_settimeofday64() */
+	if (adj_flags & ICTIMESYNCFLAG_SYNC)
+		schedule_work(&adj_time_work);
 }
 
 /*
@@ -341,8 +314,8 @@ static void timesync_onchannelcallback(void *context)
 					sizeof(struct vmbuspipe_hdr) +
 					sizeof(struct icmsg_hdr)];
 				adj_guesttime(timedatap->parenttime,
-						0,
-						timedatap->flags);
+					      hyperv_cs->read(hyperv_cs),
+					      timedatap->flags);
 			}
 		}
 
@@ -498,10 +471,13 @@ MODULE_DEVICE_TABLE(vmbus, id_table);
 
 /* The one and only one */
 static  struct hv_driver util_drv = {
-	.name = "hv_util",
+	.name = "hv_utils",
 	.id_table = id_table,
 	.probe =  util_probe,
 	.remove =  util_remove,
+	.driver = {
+		.probe_type = PROBE_PREFER_ASYNCHRONOUS,
+	},
 };
 
 static int hv_ptp_enable(struct ptp_clock_info *info,
@@ -526,49 +502,9 @@ static int hv_ptp_adjtime(struct ptp_clock_info *ptp, s64 delta)
 
 static int hv_ptp_gettime(struct ptp_clock_info *info, struct timespec64 *ts)
 {
-	unsigned long flags;
-	u64 newtime, reftime;
-
-	spin_lock_irqsave(&host_ts.lock, flags);
-	reftime = hyperv_cs->read(hyperv_cs);
-	newtime = host_ts.host_time + (reftime - host_ts.ref_time);
-	*ts = ns_to_timespec64((newtime - WLTIMEDELTA) * 100);
-	spin_unlock_irqrestore(&host_ts.lock, flags);
+	*ts = hv_get_adj_host_time();
 
 	return 0;
-}
-
-static int hv_ptp_get_syncdevicetime(ktime_t *device,
-				     struct system_counterval_t *system,
-				     void *ctx)
-{
-	system->cs = hyperv_cs;
-	system->cycles = host_ts.ref_time;
-	*device = ns_to_ktime((host_ts.host_time - WLTIMEDELTA) * 100);
-
-	return 0;
-}
-
-static int hv_ptp_getcrosststamp(struct ptp_clock_info *ptp,
-				 struct system_device_crosststamp *xtstamp)
-{
-	unsigned long flags;
-	int ret;
-
-	spin_lock_irqsave(&host_ts.lock, flags);
-
-	/*
-	 * host_ts contains the last time sample from the host and the snapshot
-	 * of system time. We don't need to calculate the time delta between
-	 * the reception and now as get_device_system_crosststamp() does the
-	 * required interpolation.
-	 */
-	ret = get_device_system_crosststamp(hv_ptp_get_syncdevicetime,
-					    NULL, &host_ts.snap, xtstamp);
-
-	spin_unlock_irqrestore(&host_ts.lock, flags);
-
-	return ret;
 }
 
 static struct ptp_clock_info ptp_hyperv_info = {
@@ -577,7 +513,6 @@ static struct ptp_clock_info ptp_hyperv_info = {
 	.adjtime        = hv_ptp_adjtime,
 	.adjfreq        = hv_ptp_adjfreq,
 	.gettime64      = hv_ptp_gettime,
-	.getcrosststamp = hv_ptp_getcrosststamp,
 	.settime64      = hv_ptp_settime,
 	.owner		= THIS_MODULE,
 };
@@ -590,7 +525,9 @@ static int hv_timesync_init(struct hv_util_service *srv)
 	if (!hyperv_cs)
 		return -ENODEV;
 
-	INIT_WORK(&wrk.work, hv_set_host_time);
+	spin_lock_init(&host_ts.lock);
+
+	INIT_WORK(&adj_time_work, hv_set_host_time);
 
 	/*
 	 * ptp_clock_register() returns NULL when CONFIG_PTP_1588_CLOCK is
@@ -611,7 +548,7 @@ static void hv_timesync_deinit(void)
 {
 	if (hv_ptp_clock)
 		ptp_clock_unregister(hv_ptp_clock);
-	cancel_work_sync(&wrk.work);
+	cancel_work_sync(&adj_time_work);
 }
 
 static int __init init_hyperv_utils(void)

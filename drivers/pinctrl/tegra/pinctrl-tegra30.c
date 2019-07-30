@@ -1,19 +1,13 @@
+// SPDX-License-Identifier: GPL-2.0-only
 /*
  * Pinctrl data for the NVIDIA Tegra30 pinmux
  *
+ * Author: Stephen Warren <swarren@nvidia.com>
+ *
  * Copyright (c) 2011-2012, NVIDIA CORPORATION.  All rights reserved.
- *
- * This program is free software; you can redistribute it and/or modify it
- * under the terms and conditions of the GNU General Public License,
- * version 2, as published by the Free Software Foundation.
- *
- * This program is distributed in the hope it will be useful, but WITHOUT
- * ANY WARRANTY; without even the implied warranty of MERCHANTABILITY or
- * FITNESS FOR A PARTICULAR PURPOSE.  See the GNU General Public License for
- * more details.
  */
 
-#include <linux/module.h>
+#include <linux/init.h>
 #include <linux/of.h>
 #include <linux/platform_device.h>
 #include <linux/pinctrl/pinctrl.h>
@@ -2472,6 +2466,7 @@ static const struct tegra_pingroup tegra30_groups[] = {
 
 static const struct tegra_pinctrl_soc_data tegra30_pinctrl = {
 	.ngpios = NUM_GPIOS,
+	.gpio_compatible = "nvidia,tegra30-gpio",
 	.pins = tegra30_pins,
 	.npins = ARRAY_SIZE(tegra30_pins),
 	.functions = tegra30_functions,
@@ -2492,7 +2487,6 @@ static const struct of_device_id tegra30_pinctrl_of_match[] = {
 	{ .compatible = "nvidia,tegra30-pinmux", },
 	{ },
 };
-MODULE_DEVICE_TABLE(of, tegra30_pinctrl_of_match);
 
 static struct platform_driver tegra30_pinctrl_driver = {
 	.driver = {
@@ -2501,8 +2495,9 @@ static struct platform_driver tegra30_pinctrl_driver = {
 	},
 	.probe = tegra30_pinctrl_probe,
 };
-module_platform_driver(tegra30_pinctrl_driver);
 
-MODULE_AUTHOR("Stephen Warren <swarren@nvidia.com>");
-MODULE_DESCRIPTION("NVIDIA Tegra30 pinctrl driver");
-MODULE_LICENSE("GPL v2");
+static int __init tegra30_pinctrl_init(void)
+{
+	return platform_driver_register(&tegra30_pinctrl_driver);
+}
+arch_initcall(tegra30_pinctrl_init);

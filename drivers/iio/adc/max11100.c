@@ -1,13 +1,10 @@
+// SPDX-License-Identifier: GPL-2.0
 /*
  * iio/adc/max11100.c
  * Maxim max11100 ADC Driver with IIO interface
  *
  * Copyright (C) 2016-17 Renesas Electronics Corporation
  * Copyright (C) 2016-17 Jacopo Mondi
- *
- * This program is free software; you can redistribute it and/or modify
- * it under the terms of the GNU General Public License version 2 as
- * published by the Free Software Foundation.
  */
 #include <linux/delay.h>
 #include <linux/kernel.h>
@@ -100,7 +97,6 @@ static int max11100_read_raw(struct iio_dev *indio_dev,
 }
 
 static const struct iio_info max11100_info = {
-	.driver_module = THIS_MODULE,
 	.read_raw = max11100_read_raw,
 };
 
@@ -124,8 +120,8 @@ static int max11100_probe(struct spi_device *spi)
 	indio_dev->name = "max11100";
 	indio_dev->info = &max11100_info;
 	indio_dev->modes = INDIO_DIRECT_MODE;
-	indio_dev->channels = max11100_channels,
-	indio_dev->num_channels = ARRAY_SIZE(max11100_channels),
+	indio_dev->channels = max11100_channels;
+	indio_dev->num_channels = ARRAY_SIZE(max11100_channels);
 
 	state->vref_reg = devm_regulator_get(&spi->dev, "vref");
 	if (IS_ERR(state->vref_reg))
@@ -167,7 +163,6 @@ MODULE_DEVICE_TABLE(of, max11100_ids);
 static struct spi_driver max11100_driver = {
 	.driver = {
 		.name	= "max11100",
-		.owner	= THIS_MODULE,
 		.of_match_table = of_match_ptr(max11100_ids),
 	},
 	.probe		= max11100_probe,

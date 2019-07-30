@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: GPL-2.0-only
 /*
  * Generic Macintosh NCR5380 driver
  *
@@ -41,7 +42,7 @@
 #define NCR5380_intr                    macscsi_intr
 #define NCR5380_queue_command           macscsi_queue_command
 #define NCR5380_abort                   macscsi_abort
-#define NCR5380_bus_reset               macscsi_bus_reset
+#define NCR5380_host_reset              macscsi_host_reset
 #define NCR5380_info                    macscsi_info
 
 #include "NCR5380.h"
@@ -328,12 +329,12 @@ static struct scsi_host_template mac_scsi_template = {
 	.info			= macscsi_info,
 	.queuecommand		= macscsi_queue_command,
 	.eh_abort_handler	= macscsi_abort,
-	.eh_bus_reset_handler	= macscsi_bus_reset,
+	.eh_host_reset_handler	= macscsi_host_reset,
 	.can_queue		= 16,
 	.this_id		= 7,
 	.sg_tablesize		= 1,
 	.cmd_per_lun		= 2,
-	.use_clustering		= DISABLE_CLUSTERING,
+	.dma_boundary		= PAGE_SIZE - 1,
 	.cmd_size		= NCR5380_CMD_SIZE,
 	.max_sectors		= 128,
 };

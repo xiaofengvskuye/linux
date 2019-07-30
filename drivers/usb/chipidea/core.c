@@ -1,13 +1,10 @@
+// SPDX-License-Identifier: GPL-2.0
 /*
  * core.c - ChipIdea USB IP core family device controller
  *
  * Copyright (C) 2008 Chipidea - MIPS Technologies, Inc. All rights reserved.
  *
  * Author: David Lopo
- *
- * This program is free software; you can redistribute it and/or modify
- * it under the terms of the GNU General Public License version 2 as
- * published by the Free Software Foundation.
  */
 
 /*
@@ -56,6 +53,7 @@
 #include <linux/kernel.h>
 #include <linux/slab.h>
 #include <linux/pm_runtime.h>
+#include <linux/pinctrl/consumer.h>
 #include <linux/usb/ch9.h>
 #include <linux/usb/gadget.h>
 #include <linux/usb/otg.h>
@@ -726,6 +724,24 @@ static int ci_get_platdata(struct device *dev,
 		else
 			cable->connected = false;
 	}
+
+	platdata->pctl = devm_pinctrl_get(dev);
+	if (!IS_ERR(platdata->pctl)) {
+		struct pinctrl_state *p;
+
+		p = pinctrl_lookup_state(platdata->pctl, "default");
+		if (!IS_ERR(p))
+			platdata->pins_default = p;
+
+		p = pinctrl_lookup_state(platdata->pctl, "host");
+		if (!IS_ERR(p))
+			platdata->pins_host = p;
+
+		p = pinctrl_lookup_state(platdata->pctl, "device");
+		if (!IS_ERR(p))
+			platdata->pins_device = p;
+	}
+
 	return 0;
 }
 
@@ -736,7 +752,7 @@ static int ci_extcon_register(struct ci_hdrc *ci)
 
 	id = &ci->platdata->id_extcon;
 	id->ci = ci;
-	if (!IS_ERR(id->edev)) {
+	if (!IS_ERR_OR_NULL(id->edev)) {
 		ret = devm_extcon_register_notifier(ci->dev, id->edev,
 						EXTCON_USB_HOST, &id->nb);
 		if (ret < 0) {
@@ -747,7 +763,7 @@ static int ci_extcon_register(struct ci_hdrc *ci)
 
 	vbus = &ci->platdata->vbus_extcon;
 	vbus->ci = ci;
-	if (!IS_ERR(vbus->edev)) {
+	if (!IS_ERR_OR_NULL(vbus->edev)) {
 		ret = devm_extcon_register_notifier(ci->dev, vbus->edev,
 						EXTCON_USB, &vbus->nb);
 		if (ret < 0) {
@@ -783,9 +799,6 @@ struct platform_device *ci_hdrc_add_device(struct device *dev,
 	}
 
 	pdev->dev.parent = dev;
-	pdev->dev.dma_mask = dev->dma_mask;
-	pdev->dev.dma_parms = dev->dma_parms;
-	dma_set_coherent_mask(&pdev->dev, dev->coherent_dma_mask);
 
 	ret = platform_device_add_resources(pdev, res, nres);
 	if (ret)
@@ -821,7 +834,7 @@ static inline void ci_role_destroy(struct ci_hdrc *ci)
 {
 	ci_hdrc_gadget_destroy(ci);
 	ci_hdrc_host_destroy(ci);
-	if (ci->is_otg)
+	if (ci->is_otg && ci->roles[CI_ROLE_GADGET])
 		ci_hdrc_otg_destroy(ci);
 }
 
@@ -840,6 +853,59 @@ static void ci_get_otg_capable(struct ci_hdrc *ci)
 							OTGSC_INT_STATUS_BITS);
 	}
 }
+
+static ssize_t role_show(struct device *dev, struct device_attribute *attr,
+			  char *buf)
+{
+	struct ci_hdrc *ci = dev_get_drvdata(dev);
+
+	if (ci->role != CI_ROLE_END)
+		return sprintf(buf, "%s\n", ci_role(ci)->name);
+
+	return 0;
+}
+
+static ssize_t role_store(struct device *dev,
+		struct device_attribute *attr, const char *buf, size_t n)
+{
+	struct ci_hdrc *ci = dev_get_drvdata(dev);
+	enum ci_role role;
+	int ret;
+
+	if (!(ci->roles[CI_ROLE_HOST] && ci->roles[CI_ROLE_GADGET])) {
+		dev_warn(dev, "Current configuration is not dual-role, quit\n");
+		return -EPERM;
+	}
+
+	for (role = CI_ROLE_HOST; role < CI_ROLE_END; role++)
+		if (!strncmp(buf, ci->roles[role]->name,
+			     strlen(ci->roles[role]->name)))
+			break;
+
+	if (role == CI_ROLE_END || role == ci->role)
+		return -EINVAL;
+
+	pm_runtime_get_sync(dev);
+	disable_irq(ci->irq);
+	ci_role_stop(ci);
+	ret = ci_role_start(ci, role);
+	if (!ret && ci->role == CI_ROLE_GADGET)
+		ci_handle_vbus_change(ci);
+	enable_irq(ci->irq);
+	pm_runtime_put_sync(dev);
+
+	return (ret == 0) ? n : ret;
+}
+static DEVICE_ATTR_RW(role);
+
+static struct attribute *ci_attrs[] = {
+	&dev_attr_role.attr,
+	NULL,
+};
+
+static const struct attribute_group ci_attr_group = {
+	.attrs = ci_attrs,
+};
 
 static int ci_hdrc_probe(struct platform_device *pdev)
 {
@@ -888,25 +954,47 @@ static int ci_hdrc_probe(struct platform_device *pdev)
 	} else if (ci->platdata->usb_phy) {
 		ci->usb_phy = ci->platdata->usb_phy;
 	} else {
+		/* Look for a generic PHY first */
 		ci->phy = devm_phy_get(dev->parent, "usb-phy");
-		ci->usb_phy = devm_usb_get_phy(dev->parent, USB_PHY_TYPE_USB2);
 
-		/* if both generic PHY and USB PHY layers aren't enabled */
-		if (PTR_ERR(ci->phy) == -ENOSYS &&
-				PTR_ERR(ci->usb_phy) == -ENXIO) {
+		if (PTR_ERR(ci->phy) == -EPROBE_DEFER) {
+			ret = -EPROBE_DEFER;
+			goto ulpi_exit;
+		} else if (IS_ERR(ci->phy)) {
+			ci->phy = NULL;
+		}
+
+		/* Look for a legacy USB PHY from device-tree next */
+		if (!ci->phy) {
+			ci->usb_phy = devm_usb_get_phy_by_phandle(dev->parent,
+								  "phys", 0);
+
+			if (PTR_ERR(ci->usb_phy) == -EPROBE_DEFER) {
+				ret = -EPROBE_DEFER;
+				goto ulpi_exit;
+			} else if (IS_ERR(ci->usb_phy)) {
+				ci->usb_phy = NULL;
+			}
+		}
+
+		/* Look for any registered legacy USB PHY as last resort */
+		if (!ci->phy && !ci->usb_phy) {
+			ci->usb_phy = devm_usb_get_phy(dev->parent,
+						       USB_PHY_TYPE_USB2);
+
+			if (PTR_ERR(ci->usb_phy) == -EPROBE_DEFER) {
+				ret = -EPROBE_DEFER;
+				goto ulpi_exit;
+			} else if (IS_ERR(ci->usb_phy)) {
+				ci->usb_phy = NULL;
+			}
+		}
+
+		/* No USB PHY was found in the end */
+		if (!ci->phy && !ci->usb_phy) {
 			ret = -ENXIO;
 			goto ulpi_exit;
 		}
-
-		if (IS_ERR(ci->phy) && IS_ERR(ci->usb_phy)) {
-			ret = -EPROBE_DEFER;
-			goto ulpi_exit;
-		}
-
-		if (IS_ERR(ci->phy))
-			ci->phy = NULL;
-		else if (IS_ERR(ci->usb_phy))
-			ci->usb_phy = NULL;
 	}
 
 	ret = ci_usb_phy_init(ci);
@@ -930,27 +1018,35 @@ static int ci_hdrc_probe(struct platform_device *pdev)
 	/* initialize role(s) before the interrupt is requested */
 	if (dr_mode == USB_DR_MODE_OTG || dr_mode == USB_DR_MODE_HOST) {
 		ret = ci_hdrc_host_init(ci);
-		if (ret)
-			dev_info(dev, "doesn't support host\n");
+		if (ret) {
+			if (ret == -ENXIO)
+				dev_info(dev, "doesn't support host\n");
+			else
+				goto deinit_phy;
+		}
 	}
 
 	if (dr_mode == USB_DR_MODE_OTG || dr_mode == USB_DR_MODE_PERIPHERAL) {
 		ret = ci_hdrc_gadget_init(ci);
-		if (ret)
-			dev_info(dev, "doesn't support gadget\n");
+		if (ret) {
+			if (ret == -ENXIO)
+				dev_info(dev, "doesn't support gadget\n");
+			else
+				goto deinit_host;
+		}
 	}
 
 	if (!ci->roles[CI_ROLE_HOST] && !ci->roles[CI_ROLE_GADGET]) {
 		dev_err(dev, "no supported roles\n");
 		ret = -ENODEV;
-		goto deinit_phy;
+		goto deinit_gadget;
 	}
 
 	if (ci->is_otg && ci->roles[CI_ROLE_GADGET]) {
 		ret = ci_hdrc_otg_init(ci);
 		if (ret) {
 			dev_err(dev, "init otg fails, ret = %d\n", ret);
-			goto stop;
+			goto deinit_gadget;
 		}
 	}
 
@@ -1007,13 +1103,23 @@ static int ci_hdrc_probe(struct platform_device *pdev)
 		ci_hdrc_otg_fsm_start(ci);
 
 	device_set_wakeup_capable(&pdev->dev, true);
+	dbg_create_files(ci);
 
-	ret = dbg_create_files(ci);
-	if (!ret)
-		return 0;
+	ret = sysfs_create_group(&dev->kobj, &ci_attr_group);
+	if (ret)
+		goto remove_debug;
 
+	return 0;
+
+remove_debug:
+	dbg_remove_files(ci);
 stop:
-	ci_role_destroy(ci);
+	if (ci->is_otg && ci->roles[CI_ROLE_GADGET])
+		ci_hdrc_otg_destroy(ci);
+deinit_gadget:
+	ci_hdrc_gadget_destroy(ci);
+deinit_host:
+	ci_hdrc_host_destroy(ci);
 deinit_phy:
 	ci_usb_phy_exit(ci);
 ulpi_exit:
@@ -1033,6 +1139,7 @@ static int ci_hdrc_remove(struct platform_device *pdev)
 	}
 
 	dbg_remove_files(ci);
+	sysfs_remove_group(&ci->dev->kobj, &ci_attr_group);
 	ci_role_destroy(ci);
 	ci_hdrc_enter_lpm(ci, true);
 	ci_usb_phy_exit(ci);

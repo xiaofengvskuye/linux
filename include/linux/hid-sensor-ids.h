@@ -1,20 +1,7 @@
+/* SPDX-License-Identifier: GPL-2.0-only */
 /*
  * HID Sensors Driver
  * Copyright (c) 2012, Intel Corporation.
- *
- * This program is free software; you can redistribute it and/or modify it
- * under the terms and conditions of the GNU General Public License,
- * version 2, as published by the Free Software Foundation.
- *
- * This program is distributed in the hope it will be useful, but WITHOUT
- * ANY WARRANTY; without even the implied warranty of MERCHANTABILITY or
- * FITNESS FOR A PARTICULAR PURPOSE.  See the GNU General Public License for
- * more details.
- *
- * You should have received a copy of the GNU General Public License along with
- * this program; if not, write to the Free Software Foundation, Inc.,
- * 51 Franklin St - Fifth Floor, Boston, MA 02110-1301 USA.
- *
  */
 #ifndef _HID_SENSORS_IDS_H
 #define _HID_SENSORS_IDS_H
@@ -44,6 +31,14 @@
 #define HID_USAGE_SENSOR_PRESSURE                               0x200031
 #define HID_USAGE_SENSOR_DATA_ATMOSPHERIC_PRESSURE              0x200430
 #define HID_USAGE_SENSOR_ATMOSPHERIC_PRESSURE                   0x200431
+
+/* Tempreture (200033) */
+#define	HID_USAGE_SENSOR_TEMPERATURE				0x200033
+#define	HID_USAGE_SENSOR_DATA_ENVIRONMENTAL_TEMPERATURE		0x200434
+
+/* humidity */
+#define HID_USAGE_SENSOR_HUMIDITY                              0x200032
+#define HID_USAGE_SENSOR_ATMOSPHERIC_HUMIDITY                  0x200433
 
 /* Gyro 3D: (200076) */
 #define HID_USAGE_SENSOR_GYRO_3D				0x200076
@@ -82,6 +77,8 @@
 #define HID_USAGE_SENSOR_ORIENT_TILT_Z				0x200481
 
 #define HID_USAGE_SENSOR_DEVICE_ORIENTATION			0x20008A
+#define HID_USAGE_SENSOR_RELATIVE_ORIENTATION			0x20008E
+#define HID_USAGE_SENSOR_GEOMAGNETIC_ORIENTATION		0x2000C1
 #define HID_USAGE_SENSOR_ORIENT_ROTATION_MATRIX			0x200482
 #define HID_USAGE_SENSOR_ORIENT_QUATERNION			0x200483
 #define HID_USAGE_SENSOR_ORIENT_MAGN_FLUX			0x200484
@@ -141,6 +138,9 @@
 #define HID_USAGE_SENSOR_PROP_RANGE_MINIMUM			0x200315
 #define HID_USAGE_SENSOR_PROP_REPORT_STATE			0x200316
 #define HID_USAGE_SENSOR_PROY_POWER_STATE			0x200319
+
+/* Batch mode selectors */
+#define HID_USAGE_SENSOR_PROP_REPORT_LATENCY			0x20031B
 
 /* Per data field properties */
 #define HID_USAGE_SENSOR_DATA_MOD_NONE					0x00

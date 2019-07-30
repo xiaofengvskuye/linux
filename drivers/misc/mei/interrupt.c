@@ -1,19 +1,8 @@
+// SPDX-License-Identifier: GPL-2.0
 /*
- *
+ * Copyright (c) 2003-2018, Intel Corporation. All rights reserved.
  * Intel Management Engine Interface (Intel MEI) Linux driver
- * Copyright (c) 2003-2012, Intel Corporation.
- *
- * This program is free software; you can redistribute it and/or modify it
- * under the terms and conditions of the GNU General Public License,
- * version 2, as published by the Free Software Foundation.
- *
- * This program is distributed in the hope it will be useful, but WITHOUT
- * ANY WARRANTY; without even the implied warranty of MERCHANTABILITY or
- * FITNESS FOR A PARTICULAR PURPOSE.  See the GNU General Public License for
- * more details.
- *
  */
-
 
 #include <linux/export.h>
 #include <linux/kthread.h>
@@ -47,10 +36,7 @@ void mei_irq_compl_handler(struct mei_device *dev, struct list_head *cmpl_list)
 		list_del_init(&cb->list);
 
 		dev_dbg(dev->dev, "completing call back.\n");
-		if (cl == &dev->iamthif_cl)
-			mei_amthif_complete(cl, cb);
-		else
-			mei_cl_complete(cl, cb);
+		mei_cl_complete(cl, cb);
 	}
 }
 EXPORT_SYMBOL_GPL(mei_irq_compl_handler);
@@ -76,8 +62,10 @@ static inline int mei_cl_hbm_equal(struct mei_cl *cl,
  * @dev: mei device
  * @hdr: message header
  */
-void mei_irq_discard_msg(struct mei_device *dev, struct mei_msg_hdr *hdr)
+static void mei_irq_discard_msg(struct mei_device *dev, struct mei_msg_hdr *hdr)
 {
+	if (hdr->dma_ring)
+		mei_dma_ring_read(dev, NULL, hdr->extension[0]);
 	/*
 	 * no need to check for size as it is guarantied
 	 * that length fits into rd_msg_buf
@@ -96,13 +84,14 @@ void mei_irq_discard_msg(struct mei_device *dev, struct mei_msg_hdr *hdr)
  *
  * Return: always 0
  */
-int mei_cl_irq_read_msg(struct mei_cl *cl,
-		       struct mei_msg_hdr *mei_hdr,
-		       struct list_head *cmpl_list)
+static int mei_cl_irq_read_msg(struct mei_cl *cl,
+			       struct mei_msg_hdr *mei_hdr,
+			       struct list_head *cmpl_list)
 {
 	struct mei_device *dev = cl->dev;
 	struct mei_cl_cb *cb;
 	size_t buf_sz;
+	u32 length;
 
 	cb = list_first_entry_or_null(&cl->rd_pending, struct mei_cl_cb, list);
 	if (!cb) {
@@ -122,25 +111,31 @@ int mei_cl_irq_read_msg(struct mei_cl *cl,
 		goto discard;
 	}
 
-	buf_sz = mei_hdr->length + cb->buf_idx;
+	length = mei_hdr->dma_ring ? mei_hdr->extension[0] : mei_hdr->length;
+
+	buf_sz = length + cb->buf_idx;
 	/* catch for integer overflow */
 	if (buf_sz < cb->buf_idx) {
 		cl_err(dev, cl, "message is too big len %d idx %zu\n",
-		       mei_hdr->length, cb->buf_idx);
+		       length, cb->buf_idx);
 		cb->status = -EMSGSIZE;
 		goto discard;
 	}
 
 	if (cb->buf.size < buf_sz) {
 		cl_dbg(dev, cl, "message overflow. size %zu len %d idx %zu\n",
-			cb->buf.size, mei_hdr->length, cb->buf_idx);
+			cb->buf.size, length, cb->buf_idx);
 		cb->status = -EMSGSIZE;
 		goto discard;
 	}
 
+	if (mei_hdr->dma_ring)
+		mei_dma_ring_read(dev, cb->buf.data + cb->buf_idx, length);
+
+	/*  for DMA read 0 length to generate an interrupt to the device */
 	mei_read_slots(dev, cb->buf.data + cb->buf_idx, mei_hdr->length);
 
-	cb->buf_idx += mei_hdr->length;
+	cb->buf_idx += length;
 
 	if (mei_hdr->msg_complete) {
 		cl_dbg(dev, cl, "completed read length = %zu\n", cb->buf_idx);
@@ -176,10 +171,12 @@ static int mei_cl_irq_disconnect_rsp(struct mei_cl *cl, struct mei_cl_cb *cb,
 	int slots;
 	int ret;
 
+	msg_slots = mei_hbm2slots(sizeof(struct hbm_client_connect_response));
 	slots = mei_hbuf_empty_slots(dev);
-	msg_slots = mei_data2slots(sizeof(struct hbm_client_connect_response));
+	if (slots < 0)
+		return -EOVERFLOW;
 
-	if (slots < msg_slots)
+	if ((u32)slots < msg_slots)
 		return -EMSGSIZE;
 
 	ret = mei_hbm_cl_disconnect_rsp(dev, cl);
@@ -209,10 +206,12 @@ static int mei_cl_irq_read(struct mei_cl *cl, struct mei_cl_cb *cb,
 	if (!list_empty(&cl->rd_pending))
 		return 0;
 
-	msg_slots = mei_data2slots(sizeof(struct hbm_flow_control));
+	msg_slots = mei_hbm2slots(sizeof(struct hbm_flow_control));
 	slots = mei_hbuf_empty_slots(dev);
+	if (slots < 0)
+		return -EOVERFLOW;
 
-	if (slots < msg_slots)
+	if ((u32)slots < msg_slots)
 		return -EMSGSIZE;
 
 	ret = mei_hbm_cl_flow_control_req(dev, cl);
@@ -238,6 +237,20 @@ static inline bool hdr_is_fixed(struct mei_msg_hdr *mei_hdr)
 	return mei_hdr->host_addr == 0 && mei_hdr->me_addr != 0;
 }
 
+static inline int hdr_is_valid(u32 msg_hdr)
+{
+	struct mei_msg_hdr *mei_hdr;
+
+	mei_hdr = (struct mei_msg_hdr *)&msg_hdr;
+	if (!msg_hdr || mei_hdr->reserved)
+		return -EBADMSG;
+
+	if (mei_hdr->dma_ring && mei_hdr->length != MEI_SLOT_SIZE)
+		return -EBADMSG;
+
+	return 0;
+}
+
 /**
  * mei_irq_read_handler - bottom half read routine after ISR to
  * handle the read processing.
@@ -255,20 +268,21 @@ int mei_irq_read_handler(struct mei_device *dev,
 	struct mei_cl *cl;
 	int ret;
 
-	if (!dev->rd_msg_hdr) {
-		dev->rd_msg_hdr = mei_read_hdr(dev);
+	if (!dev->rd_msg_hdr[0]) {
+		dev->rd_msg_hdr[0] = mei_read_hdr(dev);
 		(*slots)--;
 		dev_dbg(dev->dev, "slots =%08x.\n", *slots);
-	}
-	mei_hdr = (struct mei_msg_hdr *) &dev->rd_msg_hdr;
-	dev_dbg(dev->dev, MEI_HDR_FMT, MEI_HDR_PRM(mei_hdr));
 
-	if (mei_hdr->reserved || !dev->rd_msg_hdr) {
-		dev_err(dev->dev, "corrupted message header 0x%08X\n",
-				dev->rd_msg_hdr);
-		ret = -EBADMSG;
-		goto end;
+		ret = hdr_is_valid(dev->rd_msg_hdr[0]);
+		if (ret) {
+			dev_err(dev->dev, "corrupted message header 0x%08X\n",
+				dev->rd_msg_hdr[0]);
+			goto end;
+		}
 	}
+
+	mei_hdr = (struct mei_msg_hdr *)dev->rd_msg_hdr;
+	dev_dbg(dev->dev, MEI_HDR_FMT, MEI_HDR_PRM(mei_hdr));
 
 	if (mei_slots2data(*slots) < mei_hdr->length) {
 		dev_err(dev->dev, "less data available than length=%08x.\n",
@@ -276,6 +290,12 @@ int mei_irq_read_handler(struct mei_device *dev,
 		/* we can't read the message */
 		ret = -ENODATA;
 		goto end;
+	}
+
+	if (mei_hdr->dma_ring) {
+		dev->rd_msg_hdr[1] = mei_read_hdr(dev);
+		(*slots)--;
+		mei_hdr->length = 0;
 	}
 
 	/*  HBM message */
@@ -301,30 +321,28 @@ int mei_irq_read_handler(struct mei_device *dev,
 	if (&cl->link == &dev->file_list) {
 		/* A message for not connected fixed address clients
 		 * should be silently discarded
+		 * On power down client may be force cleaned,
+		 * silently discard such messages
 		 */
-		if (hdr_is_fixed(mei_hdr)) {
+		if (hdr_is_fixed(mei_hdr) ||
+		    dev->dev_state == MEI_DEV_POWER_DOWN) {
 			mei_irq_discard_msg(dev, mei_hdr);
 			ret = 0;
 			goto reset_slots;
 		}
 		dev_err(dev->dev, "no destination client found 0x%08X\n",
-				dev->rd_msg_hdr);
+				dev->rd_msg_hdr[0]);
 		ret = -EBADMSG;
 		goto end;
 	}
 
-	if (cl == &dev->iamthif_cl) {
-		ret = mei_amthif_irq_read_msg(cl, mei_hdr, cmpl_list);
-	} else {
-		ret = mei_cl_irq_read_msg(cl, mei_hdr, cmpl_list);
-	}
+	ret = mei_cl_irq_read_msg(cl, mei_hdr, cmpl_list);
 
 
 reset_slots:
 	/* reset the number of slots and header */
+	memset(dev->rd_msg_hdr, 0, sizeof(dev->rd_msg_hdr));
 	*slots = mei_count_full_read_slots(dev);
-	dev->rd_msg_hdr = 0;
-
 	if (*slots == -EOVERFLOW) {
 		/* overflow - reset */
 		dev_err(dev->dev, "resetting due to slots overflow.\n");
@@ -360,7 +378,10 @@ int mei_irq_write_handler(struct mei_device *dev, struct list_head *cmpl_list)
 		return 0;
 
 	slots = mei_hbuf_empty_slots(dev);
-	if (slots <= 0)
+	if (slots < 0)
+		return -EOVERFLOW;
+
+	if (slots == 0)
 		return -EMSGSIZE;
 
 	/* complete all waiting for write CB */
@@ -423,10 +444,7 @@ int mei_irq_write_handler(struct mei_device *dev, struct list_head *cmpl_list)
 	dev_dbg(dev->dev, "complete write list cb.\n");
 	list_for_each_entry_safe(cb, next, &dev->write_list, list) {
 		cl = cb->cl;
-		if (cl == &dev->iamthif_cl)
-			ret = mei_amthif_irq_write(cl, cb, cmpl_list);
-		else
-			ret = mei_cl_irq_write(cl, cb, cmpl_list);
+		ret = mei_cl_irq_write(cl, cb, cmpl_list);
 		if (ret)
 			return ret;
 	}
@@ -510,20 +528,6 @@ void mei_timer(struct work_struct *work)
 			}
 			reschedule_timer = true;
 		}
-	}
-
-	if (!mei_cl_is_connected(&dev->iamthif_cl))
-		goto out;
-
-	if (dev->iamthif_stall_timer) {
-		if (--dev->iamthif_stall_timer == 0) {
-			dev_err(dev->dev, "timer: amthif  hanged.\n");
-			mei_reset(dev);
-
-			mei_amthif_run_next_cmd(dev);
-			goto out;
-		}
-		reschedule_timer = true;
 	}
 
 out:

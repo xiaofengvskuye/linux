@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: GPL-2.0-only
 /*
  * ACPI support for platform bus type.
  *
@@ -5,10 +6,6 @@
  * Authors: Mika Westerberg <mika.westerberg@linux.intel.com>
  *          Mathias Nyman <mathias.nyman@linux.intel.com>
  *          Rafael J. Wysocki <rafael.j.wysocki@intel.com>
- *
- * This program is free software; you can redistribute it and/or modify
- * it under the terms of the GNU General Public License version 2 as
- * published by the Free Software Foundation.
  */
 
 #include <linux/acpi.h>
@@ -25,9 +22,12 @@
 ACPI_MODULE_NAME("platform");
 
 static const struct acpi_device_id forbidden_id_list[] = {
-	{"PNP0000", 0},	/* PIC */
-	{"PNP0100", 0},	/* Timer */
-	{"PNP0200", 0},	/* AT DMA Controller */
+	{"PNP0000",  0},	/* PIC */
+	{"PNP0100",  0},	/* Timer */
+	{"PNP0200",  0},	/* AT DMA Controller */
+	{"ACPI0009", 0},	/* IOxAPIC */
+	{"ACPI000A", 0},	/* IOAPIC */
+	{"SMB0001",  0},	/* ACPI SMBUS virtual device */
 	{"", 0},
 };
 
@@ -80,7 +80,7 @@ struct platform_device *acpi_create_platform_device(struct acpi_device *adev,
 	if (count < 0) {
 		return NULL;
 	} else if (count > 0) {
-		resources = kzalloc(count * sizeof(struct resource),
+		resources = kcalloc(count, sizeof(struct resource),
 				    GFP_KERNEL);
 		if (!resources) {
 			dev_err(&adev->dev, "No memory for resources\n");
@@ -119,11 +119,14 @@ struct platform_device *acpi_create_platform_device(struct acpi_device *adev,
 	if (IS_ERR(pdev))
 		dev_err(&adev->dev, "platform device creation failed: %ld\n",
 			PTR_ERR(pdev));
-	else
+	else {
+		set_dev_node(&pdev->dev, acpi_get_node(adev->handle));
 		dev_dbg(&adev->dev, "created platform device %s\n",
 			dev_name(&pdev->dev));
+	}
 
 	kfree(resources);
+
 	return pdev;
 }
 EXPORT_SYMBOL_GPL(acpi_create_platform_device);

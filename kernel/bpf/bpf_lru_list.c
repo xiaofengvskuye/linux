@@ -1,8 +1,5 @@
+// SPDX-License-Identifier: GPL-2.0-only
 /* Copyright (c) 2016 Facebook
- *
- * This program is free software; you can redistribute it and/or
- * modify it under the terms of version 2 of the GNU General Public
- * License as published by the Free Software Foundation.
  */
 #include <linux/cpumask.h>
 #include <linux/spinlock.h>
@@ -13,7 +10,7 @@
 #define LOCAL_FREE_TARGET		(128)
 #define LOCAL_NR_SCANS			LOCAL_FREE_TARGET
 
-#define PERCPU_FREE_TARGET		(16)
+#define PERCPU_FREE_TARGET		(4)
 #define PERCPU_NR_SCANS			PERCPU_FREE_TARGET
 
 /* Helpers to get the local list index */

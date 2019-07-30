@@ -1,12 +1,9 @@
+// SPDX-License-Identifier: GPL-2.0-only
 /*
  * linux/drivers/net/ethernet/ethoc.c
  *
  * Copyright (C) 2007-2008 Avionic Design Development GmbH
  * Copyright (C) 2008-2009 Avionic Design GmbH
- *
- * This program is free software; you can redistribute it and/or modify
- * it under the terms of the GNU General Public License version 2 as
- * published by the Free Software Foundation.
  *
  * Written by Thierry Reding <thierry.reding@avionic-design.de>
  */
@@ -721,10 +718,7 @@ static int ethoc_mdio_probe(struct net_device *dev)
 		return err;
 	}
 
-	phy->advertising &= ~(ADVERTISED_1000baseT_Full |
-			      ADVERTISED_1000baseT_Half);
-	phy->supported &= ~(SUPPORTED_1000baseT_Full |
-			    SUPPORTED_1000baseT_Half);
+	phy_set_max_speed(phy, SPEED_100);
 
 	return 0;
 }
@@ -738,6 +732,8 @@ static int ethoc_open(struct net_device *dev)
 			dev->name, dev);
 	if (ret)
 		return ret;
+
+	napi_enable(&priv->napi);
 
 	ethoc_init_ring(priv, dev->mem_start);
 	ethoc_reset(priv);
@@ -754,7 +750,6 @@ static int ethoc_open(struct net_device *dev)
 	priv->old_duplex = -1;
 
 	phy_start(dev->phydev);
-	napi_enable(&priv->napi);
 
 	if (netif_msg_ifup(priv)) {
 		dev_info(&dev->dev, "I/O: %08lx Memory: %08lx-%08lx\n",
@@ -1140,7 +1135,8 @@ static int ethoc_probe(struct platform_device *pdev)
 	dev_dbg(&pdev->dev, "ethoc: num_tx: %d num_rx: %d\n",
 		priv->num_tx, priv->num_rx);
 
-	priv->vma = devm_kzalloc(&pdev->dev, num_bd*sizeof(void *), GFP_KERNEL);
+	priv->vma = devm_kcalloc(&pdev->dev, num_bd, sizeof(void *),
+				 GFP_KERNEL);
 	if (!priv->vma) {
 		ret = -ENOMEM;
 		goto free;
@@ -1148,14 +1144,14 @@ static int ethoc_probe(struct platform_device *pdev)
 
 	/* Allow the platform setup code to pass in a MAC address. */
 	if (pdata) {
-		memcpy(netdev->dev_addr, pdata->hwaddr, IFHWADDRLEN);
+		ether_addr_copy(netdev->dev_addr, pdata->hwaddr);
 		priv->phy_id = pdata->phy_id;
 	} else {
 		const void *mac;
 
 		mac = of_get_mac_address(pdev->dev.of_node);
-		if (mac)
-			memcpy(netdev->dev_addr, mac, IFHWADDRLEN);
+		if (!IS_ERR(mac))
+			ether_addr_copy(netdev->dev_addr, mac);
 		priv->phy_id = -1;
 	}
 
@@ -1245,8 +1241,7 @@ error:
 	mdiobus_unregister(priv->mdio);
 	mdiobus_free(priv->mdio);
 free2:
-	if (priv->clk)
-		clk_disable_unprepare(priv->clk);
+	clk_disable_unprepare(priv->clk);
 free:
 	free_netdev(netdev);
 out:
@@ -1270,8 +1265,7 @@ static int ethoc_remove(struct platform_device *pdev)
 			mdiobus_unregister(priv->mdio);
 			mdiobus_free(priv->mdio);
 		}
-		if (priv->clk)
-			clk_disable_unprepare(priv->clk);
+		clk_disable_unprepare(priv->clk);
 		unregister_netdev(netdev);
 		free_netdev(netdev);
 	}

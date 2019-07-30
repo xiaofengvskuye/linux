@@ -482,7 +482,8 @@ mwifiex_scan_create_channel_list(struct mwifiex_private *priv,
 				scan_chan_list[chan_idx].max_scan_time =
 					cpu_to_le16((u16) user_scan_in->
 					chan_list[0].scan_time);
-			else if (ch->flags & IEEE80211_CHAN_NO_IR)
+			else if ((ch->flags & IEEE80211_CHAN_NO_IR) ||
+				 (ch->flags & IEEE80211_CHAN_RADAR))
 				scan_chan_list[chan_idx].max_scan_time =
 					cpu_to_le16(adapter->passive_scan_time);
 			else
@@ -502,10 +503,12 @@ mwifiex_scan_create_channel_list(struct mwifiex_private *priv,
 			scan_chan_list[chan_idx].chan_scan_mode_bitmap
 					|= MWIFIEX_DISABLE_CHAN_FILT;
 
-			if (filtered_scan) {
+			if (filtered_scan &&
+			    !((ch->flags & IEEE80211_CHAN_NO_IR) ||
+			      (ch->flags & IEEE80211_CHAN_RADAR)))
 				scan_chan_list[chan_idx].max_scan_time =
 				cpu_to_le16(adapter->specific_scan_time);
-			}
+
 			chan_idx++;
 		}
 
@@ -691,8 +694,9 @@ mwifiex_scan_channel_list(struct mwifiex_private *priv,
 
 			/* Increment the TLV header length by the size
 			   appended */
-			le16_add_cpu(&chan_tlv_out->header.len,
-				     sizeof(chan_tlv_out->chan_scan_param));
+			le16_unaligned_add_cpu(&chan_tlv_out->header.len,
+					       sizeof(
+						chan_tlv_out->chan_scan_param));
 
 			/*
 			 * The tlv buffer length is set to the number of bytes
@@ -859,6 +863,7 @@ mwifiex_config_scan(struct mwifiex_private *priv,
 	*scan_current_only = false;
 
 	if (user_scan_in) {
+		u8 tmpaddr[ETH_ALEN];
 
 		/* Default the ssid_filter flag to TRUE, set false under
 		   certain wildcard conditions and qualified by the existence
@@ -883,8 +888,10 @@ mwifiex_config_scan(struct mwifiex_private *priv,
 		       user_scan_in->specific_bssid,
 		       sizeof(scan_cfg_out->specific_bssid));
 
+		memcpy(tmpaddr, scan_cfg_out->specific_bssid, ETH_ALEN);
+
 		if (adapter->ext_scan &&
-		    !is_zero_ether_addr(scan_cfg_out->specific_bssid)) {
+		    !is_zero_ether_addr(tmpaddr)) {
 			bssid_tlv =
 				(struct mwifiex_ie_types_bssid_list *)tlv_pos;
 			bssid_tlv->header.type = cpu_to_le16(TLV_TYPE_BSSID);
@@ -947,8 +954,9 @@ mwifiex_config_scan(struct mwifiex_private *priv,
 		 *  truncate scan results.  That is not an issue with an SSID
 		 *  or BSSID filter applied to the scan results in the firmware.
 		 */
+		memcpy(tmpaddr, scan_cfg_out->specific_bssid, ETH_ALEN);
 		if ((i && ssid_filter) ||
-		    !is_zero_ether_addr(scan_cfg_out->specific_bssid))
+		    !is_zero_ether_addr(tmpaddr))
 			*filtered_scan = true;
 
 		if (user_scan_in->scan_chan_gap) {
@@ -989,10 +997,15 @@ mwifiex_config_scan(struct mwifiex_private *priv,
 	 *  If a specific BSSID or SSID is used, the number of channels in the
 	 *  scan command will be increased to the absolute maximum.
 	 */
-	if (*filtered_scan)
+	if (*filtered_scan) {
 		*max_chan_per_scan = MWIFIEX_MAX_CHANNELS_PER_SPECIFIC_SCAN;
-	else
-		*max_chan_per_scan = MWIFIEX_DEF_CHANNELS_PER_SCAN_CMD;
+	} else {
+		if (!priv->media_connected)
+			*max_chan_per_scan = MWIFIEX_DEF_CHANNELS_PER_SCAN_CMD;
+		else
+			*max_chan_per_scan =
+					MWIFIEX_DEF_CHANNELS_PER_SCAN_CMD / 2;
+	}
 
 	if (adapter->ext_scan) {
 		bss_mode = (struct mwifiex_ie_types_bss_mode *)tlv_pos;
@@ -1234,6 +1247,8 @@ int mwifiex_update_bss_desc_with_ie(struct mwifiex_adapter *adapter,
 		}
 		switch (element_id) {
 		case WLAN_EID_SSID:
+			if (element_len > IEEE80211_MAX_SSID_LEN)
+				return -EINVAL;
 			bss_entry->ssid.ssid_len = element_len;
 			memcpy(bss_entry->ssid.ssid, (current_ptr + 2),
 			       element_len);
@@ -1243,6 +1258,8 @@ int mwifiex_update_bss_desc_with_ie(struct mwifiex_adapter *adapter,
 			break;
 
 		case WLAN_EID_SUPP_RATES:
+			if (element_len > MWIFIEX_SUPPORTED_RATES)
+				return -EINVAL;
 			memcpy(bss_entry->data_rates, current_ptr + 2,
 			       element_len);
 			memcpy(bss_entry->supported_rates, current_ptr + 2,
@@ -1252,6 +1269,8 @@ int mwifiex_update_bss_desc_with_ie(struct mwifiex_adapter *adapter,
 			break;
 
 		case WLAN_EID_FH_PARAMS:
+			if (element_len + 2 < sizeof(*fh_param_set))
+				return -EINVAL;
 			fh_param_set =
 				(struct ieee_types_fh_param_set *) current_ptr;
 			memcpy(&bss_entry->phy_param_set.fh_param_set,
@@ -1260,6 +1279,8 @@ int mwifiex_update_bss_desc_with_ie(struct mwifiex_adapter *adapter,
 			break;
 
 		case WLAN_EID_DS_PARAMS:
+			if (element_len + 2 < sizeof(*ds_param_set))
+				return -EINVAL;
 			ds_param_set =
 				(struct ieee_types_ds_param_set *) current_ptr;
 
@@ -1271,6 +1292,8 @@ int mwifiex_update_bss_desc_with_ie(struct mwifiex_adapter *adapter,
 			break;
 
 		case WLAN_EID_CF_PARAMS:
+			if (element_len + 2 < sizeof(*cf_param_set))
+				return -EINVAL;
 			cf_param_set =
 				(struct ieee_types_cf_param_set *) current_ptr;
 			memcpy(&bss_entry->ss_param_set.cf_param_set,
@@ -1279,6 +1302,8 @@ int mwifiex_update_bss_desc_with_ie(struct mwifiex_adapter *adapter,
 			break;
 
 		case WLAN_EID_IBSS_PARAMS:
+			if (element_len + 2 < sizeof(*ibss_param_set))
+				return -EINVAL;
 			ibss_param_set =
 				(struct ieee_types_ibss_param_set *)
 				current_ptr;
@@ -1288,16 +1313,21 @@ int mwifiex_update_bss_desc_with_ie(struct mwifiex_adapter *adapter,
 			break;
 
 		case WLAN_EID_ERP_INFO:
+			if (!element_len)
+				return -EINVAL;
 			bss_entry->erp_flags = *(current_ptr + 2);
 			break;
 
 		case WLAN_EID_PWR_CONSTRAINT:
+			if (!element_len)
+				return -EINVAL;
 			bss_entry->local_constraint = *(current_ptr + 2);
 			bss_entry->sensed_11h = true;
 			break;
 
 		case WLAN_EID_CHANNEL_SWITCH:
 			bss_entry->chan_sw_ie_present = true;
+			/* fall through */
 		case WLAN_EID_PWR_CAPABILITY:
 		case WLAN_EID_TPC_REPORT:
 		case WLAN_EID_QUIET:
@@ -1331,6 +1361,9 @@ int mwifiex_update_bss_desc_with_ie(struct mwifiex_adapter *adapter,
 			break;
 
 		case WLAN_EID_VENDOR_SPECIFIC:
+			if (element_len + 2 < sizeof(vendor_ie->vend_hdr))
+				return -EINVAL;
+
 			vendor_ie = (struct ieee_types_vendor_specific *)
 					current_ptr;
 
@@ -1481,7 +1514,8 @@ int mwifiex_scan_networks(struct mwifiex_private *priv,
 		return -EBUSY;
 	}
 
-	if (adapter->surprise_removed || adapter->is_cmd_timedout) {
+	if (test_bit(MWIFIEX_SURPRISE_REMOVED, &adapter->work_flags) ||
+	    test_bit(MWIFIEX_IS_CMD_TIMEDOUT, &adapter->work_flags)) {
 		mwifiex_dbg(adapter, ERROR,
 			    "Ignore scan. Card removed or firmware in bad state\n");
 		return -EFAULT;
@@ -1524,8 +1558,7 @@ int mwifiex_scan_networks(struct mwifiex_private *priv,
 			list_del(&cmd_node->list);
 			spin_unlock_irqrestore(&adapter->scan_pending_q_lock,
 					       flags);
-			mwifiex_insert_cmd_to_pending_q(adapter, cmd_node,
-							true);
+			mwifiex_insert_cmd_to_pending_q(adapter, cmd_node);
 			queue_work(adapter->workqueue, &adapter->main_work);
 
 			/* Perform internal scan synchronously */
@@ -1742,7 +1775,7 @@ mwifiex_parse_single_response_buf(struct mwifiex_private *priv, u8 **bss_info,
 
 	if (*bytes_left >= sizeof(beacon_size)) {
 		/* Extract & convert beacon size from command buffer */
-		beacon_size = le16_to_cpu(*(__le16 *)(*bss_info));
+		beacon_size = get_unaligned_le16((*bss_info));
 		*bytes_left -= sizeof(beacon_size);
 		*bss_info += sizeof(beacon_size);
 	}
@@ -1868,15 +1901,17 @@ mwifiex_parse_single_response_buf(struct mwifiex_private *priv, u8 **bss_info,
 					    ETH_ALEN))
 					mwifiex_update_curr_bss_params(priv,
 								       bss);
-				cfg80211_put_bss(priv->wdev.wiphy, bss);
-			}
 
-			if ((chan->flags & IEEE80211_CHAN_RADAR) ||
-			    (chan->flags & IEEE80211_CHAN_NO_IR)) {
-				mwifiex_dbg(adapter, INFO,
-					    "radar or passive channel %d\n",
-					    channel);
-				mwifiex_save_hidden_ssid_channels(priv, bss);
+				if ((chan->flags & IEEE80211_CHAN_RADAR) ||
+				    (chan->flags & IEEE80211_CHAN_NO_IR)) {
+					mwifiex_dbg(adapter, INFO,
+						    "radar or passive channel %d\n",
+						    channel);
+					mwifiex_save_hidden_ssid_channels(priv,
+									  bss);
+				}
+
+				cfg80211_put_bss(priv->wdev.wiphy, bss);
 			}
 		}
 	} else {
@@ -1927,8 +1962,6 @@ mwifiex_active_scan_req_for_passive_chan(struct mwifiex_private *priv)
 	if (!user_scan_cfg)
 		return -ENOMEM;
 
-	memset(user_scan_cfg, 0, sizeof(*user_scan_cfg));
-
 	for (id = 0; id < MWIFIEX_USER_SCAN_CHAN_MAX; id++) {
 		if (!priv->hidden_chan[id].chan_number)
 			break;
@@ -1938,7 +1971,9 @@ mwifiex_active_scan_req_for_passive_chan(struct mwifiex_private *priv)
 	}
 
 	adapter->active_scan_triggered = true;
-	ether_addr_copy(user_scan_cfg->random_mac, priv->random_mac);
+	if (priv->scan_request->flags & NL80211_SCAN_FLAG_RANDOM_ADDR)
+		ether_addr_copy(user_scan_cfg->random_mac,
+				priv->scan_request->mac_addr);
 	user_scan_cfg->num_ssids = priv->scan_request->n_ssids;
 	user_scan_cfg->ssid_list = priv->scan_request->ssids;
 
@@ -2023,7 +2058,7 @@ static void mwifiex_check_next_scan_command(struct mwifiex_private *priv)
 					    struct cmd_ctrl_node, list);
 		list_del(&cmd_node->list);
 		spin_unlock_irqrestore(&adapter->scan_pending_q_lock, flags);
-		mwifiex_insert_cmd_to_pending_q(adapter, cmd_node, true);
+		mwifiex_insert_cmd_to_pending_q(adapter, cmd_node);
 	}
 
 	return;
@@ -2369,8 +2404,9 @@ int mwifiex_cmd_802_11_bg_scan_config(struct mwifiex_private *priv,
 			temp_chan = chan_list_tlv->chan_scan_param + chan_idx;
 
 			/* Increment the TLV header length by size appended */
-			le16_add_cpu(&chan_list_tlv->header.len,
-				     sizeof(chan_list_tlv->chan_scan_param));
+			le16_unaligned_add_cpu(&chan_list_tlv->header.len,
+					       sizeof(
+					       chan_list_tlv->chan_scan_param));
 
 			temp_chan->chan_number =
 				bgscan_cfg_in->chan_list[chan_idx].chan_number;
@@ -2407,8 +2443,8 @@ int mwifiex_cmd_802_11_bg_scan_config(struct mwifiex_private *priv,
 			mwifiex_bgscan_create_channel_list(priv, bgscan_cfg_in,
 							   chan_list_tlv->
 							   chan_scan_param);
-		le16_add_cpu(&chan_list_tlv->header.len,
-			     chan_num *
+		le16_unaligned_add_cpu(&chan_list_tlv->header.len,
+				       chan_num *
 			     sizeof(chan_list_tlv->chan_scan_param[0]));
 	}
 
@@ -2432,7 +2468,7 @@ int mwifiex_cmd_802_11_bg_scan_config(struct mwifiex_private *priv,
 	/* Append vendor specific IE TLV */
 	mwifiex_cmd_append_vsie_tlv(priv, MWIFIEX_VSIE_MASK_BGSCAN, &tlv_pos);
 
-	le16_add_cpu(&cmd->size, tlv_pos - bgscan_config->tlv);
+	le16_unaligned_add_cpu(&cmd->size, tlv_pos - bgscan_config->tlv);
 
 	return 0;
 }
@@ -2481,6 +2517,12 @@ mwifiex_update_chan_statistics(struct mwifiex_private *priv,
 					      sizeof(struct mwifiex_chan_stats);
 
 	for (i = 0 ; i < num_chan; i++) {
+		if (adapter->survey_idx >= adapter->num_in_chan_stats) {
+			mwifiex_dbg(adapter, WARN,
+				    "FW reported too many channel results (max %d)\n",
+				    adapter->num_in_chan_stats);
+			return;
+		}
 		chan_stats.chan_num = fw_chan_stats->chan_num;
 		chan_stats.bandcfg = fw_chan_stats->bandcfg;
 		chan_stats.flags = fw_chan_stats->flags;
@@ -2774,7 +2816,6 @@ static int mwifiex_scan_specific_ssid(struct mwifiex_private *priv,
 	if (!scan_cfg)
 		return -ENOMEM;
 
-	ether_addr_copy(scan_cfg->random_mac, priv->random_mac);
 	scan_cfg->ssid_list = req_ssid;
 	scan_cfg->num_ssids = 1;
 
@@ -2798,7 +2839,7 @@ int mwifiex_request_scan(struct mwifiex_private *priv,
 {
 	int ret;
 
-	if (down_interruptible(&priv->async_sem)) {
+	if (mutex_lock_interruptible(&priv->async_mutex)) {
 		mwifiex_dbg(priv->adapter, ERROR,
 			    "%s: acquire semaphore fail\n",
 			    __func__);
@@ -2814,7 +2855,7 @@ int mwifiex_request_scan(struct mwifiex_private *priv,
 		/* Normal scan */
 		ret = mwifiex_scan_networks(priv, NULL);
 
-	up(&priv->async_sem);
+	mutex_unlock(&priv->async_mutex);
 
 	return ret;
 }

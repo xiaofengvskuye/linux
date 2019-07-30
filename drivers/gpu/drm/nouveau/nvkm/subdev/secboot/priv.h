@@ -25,20 +25,22 @@
 
 #include <subdev/secboot.h>
 #include <subdev/mmu.h>
+struct nvkm_gpuobj;
 
 struct nvkm_secboot_func {
 	int (*oneinit)(struct nvkm_secboot *);
 	int (*fini)(struct nvkm_secboot *, bool suspend);
 	void *(*dtor)(struct nvkm_secboot *);
-	int (*run_blob)(struct nvkm_secboot *, struct nvkm_gpuobj *);
+	int (*run_blob)(struct nvkm_secboot *, struct nvkm_gpuobj *,
+			struct nvkm_falcon *);
 };
-
-extern const char *nvkm_secboot_falcon_name[];
 
 int nvkm_secboot_ctor(const struct nvkm_secboot_func *, struct nvkm_acr *,
 		      struct nvkm_device *, int, struct nvkm_secboot *);
 int nvkm_secboot_falcon_reset(struct nvkm_secboot *);
 int nvkm_secboot_falcon_run(struct nvkm_secboot *);
+
+extern const struct nvkm_secboot_func gp102_secboot;
 
 struct flcn_u64 {
 	u32 lo;

@@ -31,6 +31,11 @@
  * WOWL_GTK: (WOWL) GTK rekeying offload
  * WOWL_ARP_ND: ARP and Neighbor Discovery offload support during WOWL.
  * MFP: 802.11w Management Frame Protection.
+ * GSCAN: enhanced scan offload feature.
+ * FWSUP: Firmware supplicant.
+ * MONITOR: firmware can pass monitor packets to host.
+ * MONITOR_FMT_RADIOTAP: firmware provides monitor packets with radiotap header
+ * MONITOR_FMT_HW_RX_HDR: firmware provides monitor packets with hw/ucode header
  */
 #define BRCMF_FEAT_LIST \
 	BRCMF_FEAT_DEF(MBSS) \
@@ -44,7 +49,12 @@
 	BRCMF_FEAT_DEF(WOWL_ND) \
 	BRCMF_FEAT_DEF(WOWL_GTK) \
 	BRCMF_FEAT_DEF(WOWL_ARP_ND) \
-	BRCMF_FEAT_DEF(MFP)
+	BRCMF_FEAT_DEF(MFP) \
+	BRCMF_FEAT_DEF(GSCAN) \
+	BRCMF_FEAT_DEF(FWSUP) \
+	BRCMF_FEAT_DEF(MONITOR) \
+	BRCMF_FEAT_DEF(MONITOR_FMT_RADIOTAP) \
+	BRCMF_FEAT_DEF(MONITOR_FMT_HW_RX_HDR)
 
 /*
  * Quirks:
@@ -84,6 +94,13 @@ enum brcmf_feat_quirk {
  * @drvr: driver instance.
  */
 void brcmf_feat_attach(struct brcmf_pub *drvr);
+
+/**
+ * brcmf_feat_debugfs_create() - create debugfs entries.
+ *
+ * @drvr: driver instance.
+ */
+void brcmf_feat_debugfs_create(struct brcmf_pub *drvr);
 
 /**
  * brcmf_feat_is_enabled() - query feature.

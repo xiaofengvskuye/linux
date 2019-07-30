@@ -1,17 +1,12 @@
+// SPDX-License-Identifier: GPL-2.0+
 /*
  * TI OMAP4 ISS V4L2 Driver - Generic video node
  *
  * Copyright (C) 2012 Texas Instruments, Inc.
  *
  * Author: Sergio Aguirre <sergio.a.aguirre@gmail.com>
- *
- * This program is free software; you can redistribute it and/or modify
- * it under the terms of the GNU General Public License as published by
- * the Free Software Foundation; either version 2 of the License, or
- * (at your option) any later version.
  */
 
-#include <asm/cacheflush.h>
 #include <linux/clk.h>
 #include <linux/mm.h>
 #include <linux/pagemap.h>
@@ -23,6 +18,8 @@
 #include <media/v4l2-dev.h>
 #include <media/v4l2-ioctl.h>
 #include <media/v4l2-mc.h>
+
+#include <asm/cacheflush.h>
 
 #include "iss_video.h"
 #include "iss.h"
@@ -128,7 +125,8 @@ static unsigned int iss_video_mbus_to_pix(const struct iss_video *video,
 	pix->width = mbus->width;
 	pix->height = mbus->height;
 
-	/* Skip the last format in the loop so that it will be selected if no
+	/*
+	 * Skip the last format in the loop so that it will be selected if no
 	 * match is found.
 	 */
 	for (i = 0; i < ARRAY_SIZE(formats) - 1; ++i) {
@@ -138,7 +136,8 @@ static unsigned int iss_video_mbus_to_pix(const struct iss_video *video,
 
 	min_bpl = pix->width * ALIGN(formats[i].bpp, 8) / 8;
 
-	/* Clamp the requested bytes per line value. If the maximum bytes per
+	/*
+	 * Clamp the requested bytes per line value. If the maximum bytes per
 	 * line value is zero, the module doesn't support user configurable line
 	 * sizes. Override the requested value with the minimum in that case.
 	 */
@@ -172,7 +171,8 @@ static void iss_video_pix_to_mbus(const struct v4l2_pix_format *pix,
 	mbus->width = pix->width;
 	mbus->height = pix->height;
 
-	/* Skip the last format in the loop so that it will be selected if no
+	/*
+	 * Skip the last format in the loop so that it will be selected if no
 	 * match is found.
 	 */
 	for (i = 0; i < ARRAY_SIZE(formats) - 1; ++i) {
@@ -298,7 +298,8 @@ iss_video_check_format(struct iss_video *video, struct iss_video_fh *vfh)
 
 static int iss_video_queue_setup(struct vb2_queue *vq,
 				 unsigned int *count, unsigned int *num_planes,
-				 unsigned int sizes[], struct device *alloc_devs[])
+				 unsigned int sizes[],
+				 struct device *alloc_devs[])
 {
 	struct iss_video_fh *vfh = vb2_get_drv_priv(vq);
 	struct iss_video *video = vfh->video;
@@ -360,7 +361,8 @@ static void iss_video_buf_queue(struct vb2_buffer *vb)
 
 	spin_lock_irqsave(&video->qlock, flags);
 
-	/* Mark the buffer is faulty and give it back to the queue immediately
+	/*
+	 * Mark the buffer is faulty and give it back to the queue immediately
 	 * if the video node has registered an error. vb2 will perform the same
 	 * check when preparing the buffer, but that is inherently racy, so we
 	 * need to handle the race condition with an authoritative check here.
@@ -443,7 +445,8 @@ struct iss_buffer *omap4iss_video_buffer_next(struct iss_video *video)
 
 	buf->vb.vb2_buf.timestamp = ktime_get_ns();
 
-	/* Do frame number propagation only if this is the output video node.
+	/*
+	 * Do frame number propagation only if this is the output video node.
 	 * Frame number either comes from the CSI receivers or it gets
 	 * incremented here if H3A is not active.
 	 * Note: There is no guarantee that the output buffer will finish
@@ -527,9 +530,9 @@ iss_video_querycap(struct file *file, void *fh, struct v4l2_capability *cap)
 {
 	struct iss_video *video = video_drvdata(file);
 
-	strlcpy(cap->driver, ISS_VIDEO_DRIVER_NAME, sizeof(cap->driver));
-	strlcpy(cap->card, video->video.name, sizeof(cap->card));
-	strlcpy(cap->bus_info, "media", sizeof(cap->bus_info));
+	strscpy(cap->driver, ISS_VIDEO_DRIVER_NAME, sizeof(cap->driver));
+	strscpy(cap->card, video->video.name, sizeof(cap->card));
+	strscpy(cap->bus_info, "media", sizeof(cap->bus_info));
 
 	if (video->type == V4L2_BUF_TYPE_VIDEO_CAPTURE)
 		cap->device_caps = V4L2_CAP_VIDEO_CAPTURE | V4L2_CAP_STREAMING;
@@ -566,7 +569,7 @@ iss_video_enum_format(struct file *file, void *fh, struct v4l2_fmtdesc *f)
 
 		if (index == 0) {
 			f->pixelformat = info->pixelformat;
-			strlcpy(f->description, info->description,
+			strscpy(f->description, info->description,
 				sizeof(f->description));
 			return 0;
 		}
@@ -605,7 +608,8 @@ iss_video_set_format(struct file *file, void *fh, struct v4l2_format *format)
 
 	mutex_lock(&video->mutex);
 
-	/* Fill the bytesperline and sizeimage fields by converting to media bus
+	/*
+	 * Fill the bytesperline and sizeimage fields by converting to media bus
 	 * format and back to pixel format.
 	 */
 	iss_video_pix_to_mbus(&format->fmt.pix, &fmt);
@@ -678,8 +682,9 @@ iss_video_get_selection(struct file *file, void *fh, struct v4l2_selection *sel)
 	if (subdev == NULL)
 		return -EINVAL;
 
-	/* Try the get selection operation first and fallback to get format if not
-	 * implemented.
+	/*
+	 * Try the get selection operation first and fallback to get format if
+	 * not implemented.
 	 */
 	sdsel.pad = pad;
 	ret = v4l2_subdev_call(subdev, pad, get_selection, NULL, &sdsel);
@@ -797,9 +802,10 @@ iss_video_querybuf(struct file *file, void *fh, struct v4l2_buffer *b)
 static int
 iss_video_qbuf(struct file *file, void *fh, struct v4l2_buffer *b)
 {
+	struct iss_video *video = video_drvdata(file);
 	struct iss_video_fh *vfh = to_iss_video_fh(fh);
 
-	return vb2_qbuf(&vfh->queue, b);
+	return vb2_qbuf(&vfh->queue, video->video.v4l2_dev->mdev, b);
 }
 
 static int
@@ -867,7 +873,8 @@ iss_video_streamon(struct file *file, void *fh, enum v4l2_buf_type type)
 
 	mutex_lock(&video->stream_lock);
 
-	/* Start streaming on the pipeline. No link touching an entity in the
+	/*
+	 * Start streaming on the pipeline. No link touching an entity in the
 	 * pipeline can be activated or deactivated once streaming is started.
 	 */
 	pipe = entity->pipe
@@ -895,7 +902,8 @@ iss_video_streamon(struct file *file, void *fh, enum v4l2_buf_type type)
 	while ((entity = media_graph_walk_next(&graph)))
 		media_entity_enum_set(&pipe->ent_enum, entity);
 
-	/* Verify that the currently configured format matches the output of
+	/*
+	 * Verify that the currently configured format matches the output of
 	 * the connected subdev.
 	 */
 	ret = iss_video_check_format(video, vfh);
@@ -905,7 +913,8 @@ iss_video_streamon(struct file *file, void *fh, enum v4l2_buf_type type)
 	video->bpl_padding = ret;
 	video->bpl_value = vfh->format.fmt.pix.bytesperline;
 
-	/* Find the ISS video node connected at the far end of the pipeline and
+	/*
+	 * Find the ISS video node connected at the far end of the pipeline and
 	 * update the pipeline.
 	 */
 	far_end = iss_video_far_end(video);
@@ -930,7 +939,8 @@ iss_video_streamon(struct file *file, void *fh, enum v4l2_buf_type type)
 	pipe->state |= state;
 	spin_unlock_irqrestore(&pipe->lock, flags);
 
-	/* Set the maximum time per frame as the value requested by userspace.
+	/*
+	 * Set the maximum time per frame as the value requested by userspace.
 	 * This is a soft limit that can be overridden if the hardware doesn't
 	 * support the request limit.
 	 */
@@ -946,7 +956,8 @@ iss_video_streamon(struct file *file, void *fh, enum v4l2_buf_type type)
 	if (ret < 0)
 		goto err_iss_video_check_format;
 
-	/* In sensor-to-memory mode, the stream can be started synchronously
+	/*
+	 * In sensor-to-memory mode, the stream can be started synchronously
 	 * to the stream on command. In memory-to-memory mode, it will be
 	 * started when buffers are queued on both the input and output.
 	 */
@@ -1039,7 +1050,7 @@ iss_video_enum_input(struct file *file, void *fh, struct v4l2_input *input)
 	if (input->index > 0)
 		return -EINVAL;
 
-	strlcpy(input->name, "camera", sizeof(input->name));
+	strscpy(input->name, "camera", sizeof(input->name));
 	input->type = V4L2_INPUT_TYPE_CAMERA;
 
 	return 0;
@@ -1172,7 +1183,7 @@ static int iss_video_release(struct file *file)
 	return 0;
 }
 
-static unsigned int iss_video_poll(struct file *file, poll_table *wait)
+static __poll_t iss_video_poll(struct file *file, poll_table *wait)
 {
 	struct iss_video_fh *vfh = to_iss_video_fh(file->private_data);
 
@@ -1186,7 +1197,7 @@ static int iss_video_mmap(struct file *file, struct vm_area_struct *vma)
 	return vb2_mmap(&vfh->queue, vma);
 }
 
-static struct v4l2_file_operations iss_video_fops = {
+static const struct v4l2_file_operations iss_video_fops = {
 	.owner = THIS_MODULE,
 	.unlocked_ioctl = video_ioctl2,
 	.open = iss_video_open,

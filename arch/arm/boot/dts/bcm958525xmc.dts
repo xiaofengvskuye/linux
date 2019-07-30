@@ -39,10 +39,6 @@
 	model = "NorthStar Plus XMC (BCM958525xmc)";
 	compatible = "brcm,bcm58525", "brcm,nsp";
 
-	aliases {
-		serial0 = &uart0;
-	};
-
 	chosen {
 		stdout-path = "serial0:115200n8";
 	};
@@ -55,6 +51,7 @@
 	gpio-restart {
 		compatible = "gpio-restart";
 		gpios = <&gpioa 31 GPIO_ACTIVE_LOW>;
+		open-source;
 		priority = <200>;
 	};
 };
@@ -65,7 +62,13 @@
 	status = "okay";
 };
 
+&ehci0 {
+	status = "okay";
+};
+
 &i2c0 {
+	status = "okay";
+
 	temperature-sensor@4c {
 		compatible = "adi,adt7461a";
 		reg = <0x4c>;
@@ -119,6 +122,10 @@
 			reg = <0x04000000 0x3c000000>;
 		};
 	};
+};
+
+&ohci0 {
+	status = "okay";
 };
 
 &pcie0 {
@@ -189,5 +196,13 @@
 };
 
 &uart0 {
+	status = "okay";
+};
+
+&usb3_phy {
+	status = "okay";
+};
+
+&xhci {
 	status = "okay";
 };

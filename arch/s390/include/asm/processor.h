@@ -1,3 +1,4 @@
+/* SPDX-License-Identifier: GPL-2.0 */
 /*
  *  S390 version
  *    Copyright IBM Corp. 1999
@@ -20,6 +21,8 @@
 #define CIF_FPU			4	/* restore FPU registers */
 #define CIF_IGNORE_IRQ		5	/* ignore interrupt (for udelay) */
 #define CIF_ENABLED_WAIT	6	/* in enabled wait state */
+#define CIF_MCCK_GUEST		7	/* machine check happening in guest */
+#define CIF_DEDICATED_CPU	8	/* this CPU is dedicated */
 
 #define _CIF_MCCK_PENDING	_BITUL(CIF_MCCK_PENDING)
 #define _CIF_ASCE_PRIMARY	_BITUL(CIF_ASCE_PRIMARY)
@@ -28,6 +31,8 @@
 #define _CIF_FPU		_BITUL(CIF_FPU)
 #define _CIF_IGNORE_IRQ		_BITUL(CIF_IGNORE_IRQ)
 #define _CIF_ENABLED_WAIT	_BITUL(CIF_ENABLED_WAIT)
+#define _CIF_MCCK_GUEST		_BITUL(CIF_MCCK_GUEST)
+#define _CIF_DEDICATED_CPU	_BITUL(CIF_DEDICATED_CPU)
 
 #ifndef __ASSEMBLY__
 
@@ -68,12 +73,6 @@ static inline int test_cpu_flag_of(int flag, int cpu)
 
 #define arch_needs_cpu() test_cpu_flag(CIF_NOHZ_DELAY)
 
-/*
- * Default implementation of macro that returns current
- * instruction pointer ("program counter").
- */
-#define current_text_addr() ({ void *pc; asm("basr %0,0" : "=a" (pc)); pc; })
-
 static inline void get_cpu_id(struct cpuid *ptr)
 {
 	asm volatile("stidp %0" : "=Q" (*ptr));
@@ -86,26 +85,26 @@ void cpu_detect_mhz_feature(void);
 extern const struct seq_operations cpuinfo_op;
 extern int sysctl_ieee_emulation_warnings;
 extern void execve_tail(void);
+extern void __bpon(void);
 
 /*
  * User space process size: 2GB for 31 bit, 4TB or 8PT for 64 bit.
  */
 
-#define TASK_SIZE_OF(tsk)	((tsk)->mm ? \
-				 (tsk)->mm->context.asce_limit : TASK_MAX_SIZE)
+#define TASK_SIZE_OF(tsk)	(test_tsk_thread_flag(tsk, TIF_31BIT) ? \
+					(1UL << 31) : -PAGE_SIZE)
 #define TASK_UNMAPPED_BASE	(test_thread_flag(TIF_31BIT) ? \
 					(1UL << 30) : (1UL << 41))
 #define TASK_SIZE		TASK_SIZE_OF(current)
-#define TASK_MAX_SIZE		(1UL << 53)
+#define TASK_SIZE_MAX		(-PAGE_SIZE)
 
-#define STACK_TOP		(1UL << (test_thread_flag(TIF_31BIT) ? 31:42))
+#define STACK_TOP		(test_thread_flag(TIF_31BIT) ? \
+					(1UL << 31) : (1UL << 42))
 #define STACK_TOP_MAX		(1UL << 42)
 
 #define HAVE_ARCH_PICK_MMAP_LAYOUT
 
-typedef struct {
-        __u32 ar4;
-} mm_segment_t;
+typedef unsigned int mm_segment_t;
 
 /*
  * Thread structure
@@ -135,6 +134,8 @@ struct thread_struct {
 	struct list_head list;
 	/* cpu runtime instrumentation */
 	struct runtime_instr_cb *ri_cb;
+	struct gs_cb *gs_cb;		/* Current guarded storage cb */
+	struct gs_cb *gs_bc_cb;		/* Broadcast guarded storage cb */
 	unsigned char trap_tdb[256];	/* Transaction abort diagnose block */
 	/*
 	 * Warning: 'fpu' is dynamically-sized. It *MUST* be at
@@ -154,25 +155,6 @@ struct thread_struct {
 #define PER_FLAG_TE_ABORT_RAND_TEND	4UL
 
 typedef struct thread_struct thread_struct;
-
-/*
- * Stack layout of a C stack frame.
- */
-#ifndef __PACK_STACK
-struct stack_frame {
-	unsigned long back_chain;
-	unsigned long empty1[5];
-	unsigned long gprs[10];
-	unsigned int  empty2[8];
-};
-#else
-struct stack_frame {
-	unsigned long empty1[5];
-	unsigned int  empty2[8];
-	unsigned long gprs[10];
-	unsigned long back_chain;
-};
-#endif
 
 #define ARCH_MIN_TASKALIGN	8
 
@@ -205,20 +187,14 @@ struct mm_struct;
 struct seq_file;
 struct pt_regs;
 
-typedef int (*dump_trace_func_t)(void *data, unsigned long address, int reliable);
-void dump_trace(dump_trace_func_t func, void *data,
-		struct task_struct *task, unsigned long sp);
 void show_registers(struct pt_regs *regs);
-
 void show_cacheinfo(struct seq_file *m);
 
 /* Free all resources held by a thread. */
-extern void release_thread(struct task_struct *);
+static inline void release_thread(struct task_struct *tsk) { }
 
-/*
- * Return saved PC of a blocked thread.
- */
-extern unsigned long thread_saved_pc(struct task_struct *t);
+/* Free guarded storage control block */
+void guarded_storage_release(struct task_struct *tsk);
 
 unsigned long get_wchan(struct task_struct *p);
 #define task_pt_regs(tsk) ((struct pt_regs *) \
@@ -237,11 +213,11 @@ static inline unsigned long current_stack_pointer(void)
 	return sp;
 }
 
-static inline unsigned short stap(void)
+static __no_kasan_or_inline unsigned short stap(void)
 {
 	unsigned short cpu_address;
 
-	asm volatile("stap %0" : "=m" (cpu_address));
+	asm volatile("stap %0" : "=Q" (cpu_address));
 	return cpu_address;
 }
 
@@ -282,7 +258,7 @@ static inline void __load_psw(psw_t psw)
  * Set PSW mask to specified value, while leaving the
  * PSW addr pointing to the next instruction.
  */
-static inline void __load_psw_mask(unsigned long mask)
+static __no_kasan_or_inline void __load_psw_mask(unsigned long mask)
 {
 	unsigned long addr;
 	psw_t psw;
@@ -291,10 +267,10 @@ static inline void __load_psw_mask(unsigned long mask)
 
 	asm volatile(
 		"	larl	%0,1f\n"
-		"	stg	%0,%O1+8(%R1)\n"
-		"	lpswe	%1\n"
+		"	stg	%0,%1\n"
+		"	lpswe	%2\n"
 		"1:"
-		: "=&d" (addr), "=Q" (psw) : "Q" (psw) : "memory", "cc");
+		: "=&d" (addr), "=Q" (psw.addr) : "Q" (psw) : "memory", "cc");
 }
 
 /*
@@ -339,12 +315,12 @@ void enabled_wait(void);
 /*
  * Function to drop a processor into disabled wait state
  */
-static inline void __noreturn disabled_wait(unsigned long code)
+static inline void __noreturn disabled_wait(void)
 {
 	psw_t psw;
 
 	psw.mask = PSW_MASK_BASE | PSW_MASK_WAIT | PSW_MASK_BA | PSW_MASK_EA;
-	psw.addr = code;
+	psw.addr = _THIS_IP_;
 	__load_psw(psw);
 	while (1);
 }
@@ -372,6 +348,9 @@ extern void memcpy_absolute(void *, void *, size_t);
 	BUILD_BUG_ON(sizeof(__tmp) != sizeof(val));		\
 	memcpy_absolute(&(dest), &__tmp, sizeof(__tmp));	\
 } while (0)
+
+extern int s390_isolate_bp(void);
+extern int s390_isolate_bp_guest(void);
 
 #endif /* __ASSEMBLY__ */
 

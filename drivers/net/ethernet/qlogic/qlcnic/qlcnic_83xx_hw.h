@@ -550,7 +550,8 @@ int qlcnic_83xx_wrt_reg_indirect(struct qlcnic_adapter *, ulong, u32);
 int qlcnic_83xx_nic_set_promisc(struct qlcnic_adapter *, u32);
 int qlcnic_83xx_config_hw_lro(struct qlcnic_adapter *, int);
 int qlcnic_83xx_config_rss(struct qlcnic_adapter *, int);
-void qlcnic_83xx_change_l2_filter(struct qlcnic_adapter *, u64 *, u16);
+void qlcnic_83xx_change_l2_filter(struct qlcnic_adapter *adapter, u64 *addr,
+				  u16 vlan, struct qlcnic_host_tx_ring *ring);
 int qlcnic_83xx_get_pci_info(struct qlcnic_adapter *, struct qlcnic_pci_info *);
 int qlcnic_83xx_set_nic_info(struct qlcnic_adapter *, struct qlcnic_info *);
 void qlcnic_83xx_initialize_nic(struct qlcnic_adapter *, int);
@@ -637,6 +638,7 @@ void qlcnic_83xx_get_pauseparam(struct qlcnic_adapter *,
 int qlcnic_83xx_set_pauseparam(struct qlcnic_adapter *,
 			       struct ethtool_pauseparam *);
 int qlcnic_83xx_test_link(struct qlcnic_adapter *);
+void qlcnic_83xx_get_port_type(struct qlcnic_adapter *adapter);
 int qlcnic_83xx_reg_test(struct qlcnic_adapter *);
 int qlcnic_83xx_get_regs_len(struct qlcnic_adapter *);
 int qlcnic_83xx_get_registers(struct qlcnic_adapter *, u32 *);

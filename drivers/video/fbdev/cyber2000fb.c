@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: GPL-2.0-only
 /*
  *  linux/drivers/video/cyber2000fb.c
  *
@@ -8,10 +9,6 @@
  *
  *  32 bit support, text color and panning fixes for modes != 8 bit
  *  Copyright (C) 2002 Denis Oliver Kropp <dok@directfb.org>
- *
- * This program is free software; you can redistribute it and/or modify
- * it under the terms of the GNU General Public License version 2 as
- * published by the Free Software Foundation.
  *
  * Integraphics CyberPro 2000, 2010 and 5000 frame buffer device
  *
@@ -1336,7 +1333,7 @@ static void cyber2000fb_i2c_unregister(struct cfb_info *cfb)
  * These parameters give
  * 640x480, hsync 31.5kHz, vsync 60Hz
  */
-static struct fb_videomode cyber2000fb_default_mode = {
+static const struct fb_videomode cyber2000fb_default_mode = {
 	.refresh	= 60,
 	.xres		= 640,
 	.yres		= 480,

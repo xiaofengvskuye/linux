@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: GPL-2.0
 /*
  * Intel INT3496 ACPI device extcon driver
  *
@@ -7,20 +8,11 @@
  *
  * Copyright (c) 2014, Intel Corporation.
  * Author: David Cohen <david.a.cohen@linux.intel.com>
- *
- * This program is free software; you can redistribute it and/or modify
- * it under the terms of the GNU General Public License version 2 as
- * published by the Free Software Foundation.
- *
- * This program is distributed in the hope that it will be useful,
- * but WITHOUT ANY WARRANTY; without even the implied warranty of
- * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
- * GNU General Public License for more details.
  */
 
 #include <linux/acpi.h>
-#include <linux/extcon.h>
-#include <linux/gpio.h>
+#include <linux/extcon-provider.h>
+#include <linux/gpio/consumer.h>
 #include <linux/interrupt.h>
 #include <linux/module.h>
 #include <linux/platform_device.h>
@@ -43,6 +35,21 @@ struct int3496_data {
 static const unsigned int int3496_cable[] = {
 	EXTCON_USB_HOST,
 	EXTCON_NONE,
+};
+
+static const struct acpi_gpio_params id_gpios = { INT3496_GPIO_USB_ID, 0, false };
+static const struct acpi_gpio_params vbus_gpios = { INT3496_GPIO_VBUS_EN, 0, false };
+static const struct acpi_gpio_params mux_gpios = { INT3496_GPIO_USB_MUX, 0, false };
+
+static const struct acpi_gpio_mapping acpi_int3496_default_gpios[] = {
+	/*
+	 * Some platforms have a bug in ACPI GPIO description making IRQ
+	 * GPIO to be output only. Ask the GPIO core to ignore this limit.
+	 */
+	{ "id-gpios", &id_gpios, 1, ACPI_GPIO_QUIRK_NO_IO_RESTRICTION },
+	{ "vbus-gpios", &vbus_gpios, 1 },
+	{ "mux-gpios", &mux_gpios, 1 },
+	{ },
 };
 
 static void int3496_do_usb_id(struct work_struct *work)
@@ -83,6 +90,12 @@ static int int3496_probe(struct platform_device *pdev)
 	struct int3496_data *data;
 	int ret;
 
+	ret = devm_acpi_dev_add_driver_gpios(dev, acpi_int3496_default_gpios);
+	if (ret) {
+		dev_err(dev, "can't add GPIO ACPI mapping\n");
+		return ret;
+	}
+
 	data = devm_kzalloc(dev, sizeof(*data), GFP_KERNEL);
 	if (!data)
 		return -ENOMEM;
@@ -90,9 +103,7 @@ static int int3496_probe(struct platform_device *pdev)
 	data->dev = dev;
 	INIT_DELAYED_WORK(&data->work, int3496_do_usb_id);
 
-	data->gpio_usb_id = devm_gpiod_get_index(dev, "id",
-						INT3496_GPIO_USB_ID,
-						GPIOD_IN);
+	data->gpio_usb_id = devm_gpiod_get(dev, "id", GPIOD_IN);
 	if (IS_ERR(data->gpio_usb_id)) {
 		ret = PTR_ERR(data->gpio_usb_id);
 		dev_err(dev, "can't request USB ID GPIO: %d\n", ret);
@@ -100,20 +111,16 @@ static int int3496_probe(struct platform_device *pdev)
 	}
 
 	data->usb_id_irq = gpiod_to_irq(data->gpio_usb_id);
-	if (data->usb_id_irq <= 0) {
+	if (data->usb_id_irq < 0) {
 		dev_err(dev, "can't get USB ID IRQ: %d\n", data->usb_id_irq);
-		return -EINVAL;
+		return data->usb_id_irq;
 	}
 
-	data->gpio_vbus_en = devm_gpiod_get_index(dev, "vbus en",
-						 INT3496_GPIO_VBUS_EN,
-						 GPIOD_ASIS);
+	data->gpio_vbus_en = devm_gpiod_get(dev, "vbus", GPIOD_ASIS);
 	if (IS_ERR(data->gpio_vbus_en))
 		dev_info(dev, "can't request VBUS EN GPIO\n");
 
-	data->gpio_usb_mux = devm_gpiod_get_index(dev, "usb mux",
-						 INT3496_GPIO_USB_MUX,
-						 GPIOD_ASIS);
+	data->gpio_usb_mux = devm_gpiod_get(dev, "mux", GPIOD_ASIS);
 	if (IS_ERR(data->gpio_usb_mux))
 		dev_info(dev, "can't request USB MUX GPIO\n");
 
@@ -139,8 +146,9 @@ static int int3496_probe(struct platform_device *pdev)
 		return ret;
 	}
 
-	/* queue initial processing of id-pin */
+	/* process id-pin so that we start with the right status */
 	queue_delayed_work(system_wq, &data->work, 0);
+	flush_delayed_work(&data->work);
 
 	platform_set_drvdata(pdev, data);
 
@@ -157,7 +165,7 @@ static int int3496_remove(struct platform_device *pdev)
 	return 0;
 }
 
-static struct acpi_device_id int3496_acpi_match[] = {
+static const struct acpi_device_id int3496_acpi_match[] = {
 	{ "INT3496" },
 	{ }
 };
@@ -176,4 +184,4 @@ module_platform_driver(int3496_driver);
 
 MODULE_AUTHOR("Hans de Goede <hdegoede@redhat.com>");
 MODULE_DESCRIPTION("Intel INT3496 ACPI device extcon driver");
-MODULE_LICENSE("GPL");
+MODULE_LICENSE("GPL v2");

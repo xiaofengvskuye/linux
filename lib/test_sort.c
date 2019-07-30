@@ -1,11 +1,9 @@
+// SPDX-License-Identifier: GPL-2.0-only
 #include <linux/sort.h>
 #include <linux/slab.h>
-#include <linux/init.h>
+#include <linux/module.h>
 
-/*
- * A simple boot-time regression test
- * License: GPL
- */
+/* a simple boot-time regression test */
 
 #define TEST_LEN 1000
 
@@ -41,4 +39,12 @@ exit:
 	kfree(a);
 	return err;
 }
-subsys_initcall(test_sort_init);
+
+static void __exit test_sort_exit(void)
+{
+}
+
+module_init(test_sort_init);
+module_exit(test_sort_exit);
+
+MODULE_LICENSE("GPL");

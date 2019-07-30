@@ -104,8 +104,6 @@ struct ast_private {
 	int fb_mtrr;
 
 	struct {
-		struct drm_global_reference mem_global_ref;
-		struct ttm_bo_global_ref bo_global_ref;
 		struct ttm_bo_device bdev;
 	} ttm;
 
@@ -245,7 +243,6 @@ struct ast_connector {
 
 struct ast_crtc {
 	struct drm_crtc base;
-	u8 lut_r[256], lut_g[256], lut_b[256];
 	struct drm_gem_object *cursor_bo;
 	uint64_t cursor_addr;
 	int cursor_width, cursor_height;
@@ -262,7 +259,7 @@ struct ast_framebuffer {
 };
 
 struct ast_fbdev {
-	struct drm_fb_helper helper;
+	struct drm_fb_helper helper; /* must be first */
 	struct ast_framebuffer afb;
 	void *sysram;
 	int size;
@@ -356,8 +353,6 @@ extern int ast_dumb_mmap_offset(struct drm_file *file,
 				uint32_t handle,
 				uint64_t *offset);
 
-#define DRM_FILE_PAGE_OFFSET (0x100000000ULL >> PAGE_SHIFT)
-
 int ast_mm_init(struct ast_private *ast);
 void ast_mm_fini(struct ast_private *ast);
 
@@ -401,11 +396,10 @@ void ast_post_gpu(struct drm_device *dev);
 u32 ast_mindwm(struct ast_private *ast, u32 r);
 void ast_moutdwm(struct ast_private *ast, u32 r, u32 v);
 /* ast dp501 */
-int ast_load_dp501_microcode(struct drm_device *dev);
 void ast_set_dp501_video_output(struct drm_device *dev, u8 mode);
-bool ast_launch_m68k(struct drm_device *dev);
 bool ast_backup_fw(struct drm_device *dev, u8 *addr, u32 size);
 bool ast_dp501_read_edid(struct drm_device *dev, u8 *ediddata);
 u8 ast_get_dp501_max_clk(struct drm_device *dev);
 void ast_init_3rdtx(struct drm_device *dev);
+void ast_release_firmware(struct drm_device *dev);
 #endif

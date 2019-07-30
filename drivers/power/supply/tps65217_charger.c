@@ -1,20 +1,8 @@
-/*
- * Battery charger driver for TI's tps65217
- *
- * Copyright (c) 2015, Collabora Ltd.
-
- * This program is free software; you can redistribute it and/or modify it
- * under the terms and conditions of the GNU General Public License,
- * version 2, as published by the Free Software Foundation.
-
- * This program is distributed in the hope it will be useful, but WITHOUT
- * ANY WARRANTY; without even the implied warranty of MERCHANTABILITY or
- * FITNESS FOR A PARTICULAR PURPOSE.  See the GNU General Public License for
- * more details.
-
- * You should have received a copy of the GNU General Public License
- * along with this program.  If not, see <http://www.gnu.org/licenses/>.
- */
+// SPDX-License-Identifier: GPL-2.0
+// Battery charger driver for TI's tps65217
+//
+// Copyright (C) 2015 Collabora Ltd.
+// Author: Enric Balletbo i Serra <enric.balletbo@collabora.com>
 
 /*
  * Battery charger driver for TI's tps65217
@@ -57,8 +45,6 @@ static enum power_supply_property tps65217_charger_props[] = {
 static int tps65217_config_charger(struct tps65217_charger *charger)
 {
 	int ret;
-
-	dev_dbg(charger->dev, "%s\n", __func__);
 
 	/*
 	 * tps65217 rev. G, p. 31 (see p. 32 for NTC schematic)
@@ -204,8 +190,6 @@ static int tps65217_charger_probe(struct platform_device *pdev)
 	int irq[NUM_CHARGER_IRQS];
 	int ret;
 	int i;
-
-	dev_dbg(&pdev->dev, "%s\n", __func__);
 
 	charger = devm_kzalloc(&pdev->dev, sizeof(*charger), GFP_KERNEL);
 	if (!charger)

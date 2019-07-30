@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: GPL-2.0-only
 /*
  * linux/sound/soc/pxa/z2.c
  *
@@ -5,10 +6,6 @@
  *
  * Copyright (C) 2009 Ken McGuire <kenm@desertweyr.com>
  * Copyright (C) 2010 Marek Vasut <marek.vasut@gmail.com>
- *
- * This program is free software; you can redistribute it and/or modify
- * it under the terms of the GNU General Public License version 2 as
- * published by the Free Software Foundation.
  */
 
 #include <linux/module.h>
@@ -119,8 +116,8 @@ static const struct snd_soc_dapm_route z2_audio_map[] = {
 	{"Headphone Jack", NULL, "ROUT1"},
 
 	/* ext speaker connected to LOUT2, ROUT2  */
-	{"Ext Spk", NULL , "ROUT2"},
-	{"Ext Spk", NULL , "LOUT2"},
+	{"Ext Spk", NULL, "ROUT2"},
+	{"Ext Spk", NULL, "LOUT2"},
 
 	/* mic is connected to R input 2 - with bias */
 	{"RINPUT2", NULL, "Mic Bias"},
@@ -152,7 +149,7 @@ err:
 	return ret;
 }
 
-static struct snd_soc_ops z2_ops = {
+static const struct snd_soc_ops z2_ops = {
 	.hw_params = z2_hw_params,
 };
 

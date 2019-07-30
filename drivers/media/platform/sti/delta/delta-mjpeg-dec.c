@@ -1,7 +1,7 @@
+// SPDX-License-Identifier: GPL-2.0
 /*
  * Copyright (C) STMicroelectronics SA 2013
  * Author: Hugues Fruchet <hugues.fruchet@st.com> for STMicroelectronics.
- * License terms:  GNU General Public License (GPL), version 2
  */
 
 #include <linux/slab.h>
@@ -375,7 +375,7 @@ static int delta_mjpeg_decode(struct delta_ctx *pctx, struct delta_au *pau)
 	struct delta_mjpeg_ctx *ctx = to_ctx(pctx);
 	int ret;
 	struct delta_au au = *pau;
-	unsigned int data_offset;
+	unsigned int data_offset = 0;
 	struct mjpeg_header *header = &ctx->header_struct;
 
 	if (!ctx->header) {

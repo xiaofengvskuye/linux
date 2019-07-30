@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: GPL-2.0-only
 /* DVB USB compliant linux driver for Conexant USB reference design.
  *
  * The Conexant reference design I saw on their website was only for analogue
@@ -17,15 +18,12 @@
  * Copyright (C) 2006 Michael Krufky (mkrufky@linuxtv.org)
  * Copyright (C) 2006, 2007 Chris Pascoe (c.pascoe@itee.uq.edu.au)
  *
- *   This program is free software; you can redistribute it and/or modify it
- *   under the terms of the GNU General Public License as published by the Free
- *   Software Foundation, version 2.
- *
- * see Documentation/dvb/README.dvb-usb for more information
+ * see Documentation/media/dvb-drivers/dvb-usb.rst for more information
  */
 #include <media/tuner.h>
 #include <linux/vmalloc.h>
 #include <linux/slab.h>
+#include <linux/kernel.h>
 
 #include "cxusb.h"
 
@@ -56,7 +54,7 @@ DVB_DEFINE_MOD_OPT_ADAPTER_NR(adapter_nr);
 #define deb_i2c(args...)    dprintk(dvb_usb_cxusb_debug, 0x02, args)
 
 static int cxusb_ctrl_msg(struct dvb_usb_device *d,
-			  u8 cmd, u8 *wbuf, int wlen, u8 *rbuf, int rlen)
+			  u8 cmd, const u8 *wbuf, int wlen, u8 *rbuf, int rlen)
 {
 	struct cxusb_state *st = d->priv;
 	int ret;
@@ -290,7 +288,8 @@ static int cxusb_aver_power_ctrl(struct dvb_usb_device *d, int onoff)
 		/* FIXME: We don't know why, but we need to configure the
 		 * lgdt3303 with the register settings below on resume */
 		int i;
-		u8 buf, bufs[] = {
+		u8 buf;
+		static const u8 bufs[] = {
 			0x0e, 0x2, 0x00, 0x7f,
 			0x0e, 0x2, 0x02, 0xfe,
 			0x0e, 0x2, 0x02, 0x01,
@@ -303,7 +302,7 @@ static int cxusb_aver_power_ctrl(struct dvb_usb_device *d, int onoff)
 			0x0e, 0x2, 0x47, 0x88,
 		};
 		msleep(20);
-		for (i = 0; i < sizeof(bufs)/sizeof(u8); i += 4/sizeof(u8)) {
+		for (i = 0; i < ARRAY_SIZE(bufs); i += 4 / sizeof(u8)) {
 			ret = cxusb_ctrl_msg(d, CMD_I2C_WRITE,
 					     bufs+i, 4, &buf, 1);
 			if (ret)
@@ -458,8 +457,8 @@ static int cxusb_rc_query(struct dvb_usb_device *d)
 	cxusb_ctrl_msg(d, CMD_GET_IR_CODE, NULL, 0, ircode, 4);
 
 	if (ircode[2] || ircode[3])
-		rc_keydown(d->rc_dev, RC_TYPE_UNKNOWN,
-			   RC_SCANCODE_RC5(ircode[2], ircode[3]), 0);
+		rc_keydown(d->rc_dev, RC_PROTO_NEC,
+			   RC_SCANCODE_NEC(~ircode[2] & 0xff, ircode[3]), 0);
 	return 0;
 }
 
@@ -473,8 +472,8 @@ static int cxusb_bluebird2_rc_query(struct dvb_usb_device *d)
 		return 0;
 
 	if (ircode[1] || ircode[2])
-		rc_keydown(d->rc_dev, RC_TYPE_UNKNOWN,
-			   RC_SCANCODE_RC5(ircode[1], ircode[2]), 0);
+		rc_keydown(d->rc_dev, RC_PROTO_NEC,
+			   RC_SCANCODE_NEC(~ircode[1] & 0xff, ircode[2]), 0);
 	return 0;
 }
 
@@ -486,7 +485,7 @@ static int cxusb_d680_dmb_rc_query(struct dvb_usb_device *d)
 		return 0;
 
 	if (ircode[0] || ircode[1])
-		rc_keydown(d->rc_dev, RC_TYPE_UNKNOWN,
+		rc_keydown(d->rc_dev, RC_PROTO_UNKNOWN,
 			   RC_SCANCODE_RC5(ircode[0], ircode[1]), 0);
 	return 0;
 }
@@ -538,12 +537,10 @@ static struct cx22702_config cxusb_cx22702_config = {
 };
 
 static struct lgdt330x_config cxusb_lgdt3303_config = {
-	.demod_address = 0x0e,
 	.demod_chip    = LGDT3303,
 };
 
 static struct lgdt330x_config cxusb_aver_lgdt3303_config = {
-	.demod_address       = 0x0e,
 	.demod_chip          = LGDT3303,
 	.clock_polarity_flip = 2,
 };
@@ -677,6 +674,8 @@ static int dvico_bluebird_xc2028_callback(void *ptr, int component,
 	case XC2028_RESET_CLK:
 		deb_info("%s: XC2028_RESET_CLK %d\n", __func__, arg);
 		break;
+	case XC2028_I2C_FLUSH:
+		break;
 	default:
 		deb_info("%s: unknown command %d, arg %d\n", __func__,
 			 command, arg);
@@ -759,6 +758,7 @@ static int cxusb_lgdt3303_frontend_attach(struct dvb_usb_adapter *adap)
 
 	adap->fe_adap[0].fe = dvb_attach(lgdt330x_attach,
 					 &cxusb_lgdt3303_config,
+					 0x0e,
 					 &adap->dev->i2c_adap);
 	if ((adap->fe_adap[0].fe) != NULL)
 		return 0;
@@ -768,8 +768,10 @@ static int cxusb_lgdt3303_frontend_attach(struct dvb_usb_adapter *adap)
 
 static int cxusb_aver_lgdt3303_frontend_attach(struct dvb_usb_adapter *adap)
 {
-	adap->fe_adap[0].fe = dvb_attach(lgdt330x_attach, &cxusb_aver_lgdt3303_config,
-			      &adap->dev->i2c_adap);
+	adap->fe_adap[0].fe = dvb_attach(lgdt330x_attach,
+					 &cxusb_aver_lgdt3303_config,
+					 0x0e,
+					 &adap->dev->i2c_adap);
 	if (adap->fe_adap[0].fe != NULL)
 		return 0;
 
@@ -1011,7 +1013,7 @@ static int cxusb_dualdig4_rev2_tuner_attach(struct dvb_usb_adapter *adap)
 	/*
 	 * No need to call dvb7000p_attach here, as it was called
 	 * already, as frontend_attach method is called first, and
-	 * tuner_attach is only called on sucess.
+	 * tuner_attach is only called on success.
 	 */
 	tun_i2c = st->dib7000p_ops.get_i2c_master(adap->fe_adap[0].fe,
 					DIBX000_I2C_INTERFACE_TUNER, 1);
@@ -1191,7 +1193,7 @@ static int cxusb_mygica_t230_frontend_attach(struct dvb_usb_adapter *adap)
 	si2168_config.ts_mode = SI2168_TS_PARALLEL;
 	si2168_config.ts_clock_inv = 1;
 	memset(&info, 0, sizeof(struct i2c_board_info));
-	strlcpy(info.type, "si2168", I2C_NAME_SIZE);
+	strscpy(info.type, "si2168", I2C_NAME_SIZE);
 	info.addr = 0x64;
 	info.platform_data = &si2168_config;
 	request_module(info.type);
@@ -1211,7 +1213,7 @@ static int cxusb_mygica_t230_frontend_attach(struct dvb_usb_adapter *adap)
 	si2157_config.fe = adap->fe_adap[0].fe;
 	si2157_config.if_port = 1;
 	memset(&info, 0, sizeof(struct i2c_board_info));
-	strlcpy(info.type, "si2157", I2C_NAME_SIZE);
+	strscpy(info.type, "si2157", I2C_NAME_SIZE);
 	info.addr = 0x60;
 	info.platform_data = &si2157_config;
 	request_module(info.type);
@@ -1563,7 +1565,7 @@ static struct dvb_usb_device_properties cxusb_bluebird_lgh064f_properties = {
 		.rc_codes	= RC_MAP_DVICO_PORTABLE,
 		.module_name	= KBUILD_MODNAME,
 		.rc_query	= cxusb_rc_query,
-		.allowed_protos = RC_BIT_UNKNOWN,
+		.allowed_protos = RC_PROTO_BIT_NEC,
 	},
 
 	.generic_bulk_ctrl_endpoint = 0x01,
@@ -1620,7 +1622,7 @@ static struct dvb_usb_device_properties cxusb_bluebird_dee1601_properties = {
 		.rc_codes	= RC_MAP_DVICO_MCE,
 		.module_name	= KBUILD_MODNAME,
 		.rc_query	= cxusb_rc_query,
-		.allowed_protos = RC_BIT_UNKNOWN,
+		.allowed_protos = RC_PROTO_BIT_NEC,
 	},
 
 	.generic_bulk_ctrl_endpoint = 0x01,
@@ -1685,7 +1687,7 @@ static struct dvb_usb_device_properties cxusb_bluebird_lgz201_properties = {
 		.rc_codes	= RC_MAP_DVICO_PORTABLE,
 		.module_name	= KBUILD_MODNAME,
 		.rc_query	= cxusb_rc_query,
-		.allowed_protos = RC_BIT_UNKNOWN,
+		.allowed_protos = RC_PROTO_BIT_NEC,
 	},
 
 	.generic_bulk_ctrl_endpoint = 0x01,
@@ -1741,7 +1743,7 @@ static struct dvb_usb_device_properties cxusb_bluebird_dtt7579_properties = {
 		.rc_codes	= RC_MAP_DVICO_PORTABLE,
 		.module_name	= KBUILD_MODNAME,
 		.rc_query	= cxusb_rc_query,
-		.allowed_protos = RC_BIT_UNKNOWN,
+		.allowed_protos = RC_PROTO_BIT_NEC,
 	},
 
 	.generic_bulk_ctrl_endpoint = 0x01,
@@ -1796,7 +1798,7 @@ static struct dvb_usb_device_properties cxusb_bluebird_dualdig4_properties = {
 		.rc_codes	= RC_MAP_DVICO_MCE,
 		.module_name	= KBUILD_MODNAME,
 		.rc_query	= cxusb_bluebird2_rc_query,
-		.allowed_protos = RC_BIT_UNKNOWN,
+		.allowed_protos = RC_PROTO_BIT_NEC,
 	},
 
 	.num_device_descs = 1,
@@ -1850,7 +1852,7 @@ static struct dvb_usb_device_properties cxusb_bluebird_nano2_properties = {
 		.rc_codes	= RC_MAP_DVICO_PORTABLE,
 		.module_name	= KBUILD_MODNAME,
 		.rc_query       = cxusb_bluebird2_rc_query,
-		.allowed_protos = RC_BIT_UNKNOWN,
+		.allowed_protos = RC_PROTO_BIT_NEC,
 	},
 
 	.num_device_descs = 1,
@@ -1906,7 +1908,7 @@ static struct dvb_usb_device_properties cxusb_bluebird_nano2_needsfirmware_prope
 		.rc_codes	= RC_MAP_DVICO_PORTABLE,
 		.module_name	= KBUILD_MODNAME,
 		.rc_query	= cxusb_rc_query,
-		.allowed_protos = RC_BIT_UNKNOWN,
+		.allowed_protos = RC_PROTO_BIT_NEC,
 	},
 
 	.num_device_descs = 1,
@@ -2005,7 +2007,7 @@ struct dvb_usb_device_properties cxusb_bluebird_dualdig4_rev2_properties = {
 		.rc_codes	= RC_MAP_DVICO_MCE,
 		.module_name	= KBUILD_MODNAME,
 		.rc_query	= cxusb_rc_query,
-		.allowed_protos = RC_BIT_UNKNOWN,
+		.allowed_protos = RC_PROTO_BIT_NEC,
 	},
 
 	.num_device_descs = 1,
@@ -2056,10 +2058,10 @@ static struct dvb_usb_device_properties cxusb_d680_dmb_properties = {
 
 	.rc.core = {
 		.rc_interval	= 100,
-		.rc_codes	= RC_MAP_D680_DMB,
+		.rc_codes	= RC_MAP_TOTAL_MEDIA_IN_HAND_02,
 		.module_name	= KBUILD_MODNAME,
 		.rc_query       = cxusb_d680_dmb_rc_query,
-		.allowed_protos = RC_BIT_UNKNOWN,
+		.allowed_protos = RC_PROTO_BIT_UNKNOWN,
 	},
 
 	.num_device_descs = 1,
@@ -2114,7 +2116,7 @@ static struct dvb_usb_device_properties cxusb_mygica_d689_properties = {
 		.rc_codes	= RC_MAP_D680_DMB,
 		.module_name	= KBUILD_MODNAME,
 		.rc_query       = cxusb_d680_dmb_rc_query,
-		.allowed_protos = RC_BIT_UNKNOWN,
+		.allowed_protos = RC_PROTO_BIT_UNKNOWN,
 	},
 
 	.num_device_descs = 1,
@@ -2168,7 +2170,7 @@ static struct dvb_usb_device_properties cxusb_mygica_t230_properties = {
 		.rc_codes	= RC_MAP_D680_DMB,
 		.module_name	= KBUILD_MODNAME,
 		.rc_query       = cxusb_d680_dmb_rc_query,
-		.allowed_protos = RC_BIT_UNKNOWN,
+		.allowed_protos = RC_PROTO_BIT_UNKNOWN,
 	},
 
 	.num_device_descs = 1,

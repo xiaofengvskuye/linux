@@ -1,3 +1,4 @@
+/* SPDX-License-Identifier: GPL-2.0 */
 #ifndef _BGMAC_H
 #define _BGMAC_H
 
@@ -402,7 +403,7 @@
 
 #define BGMAC_WEIGHT	64
 
-#define ETHER_MAX_LEN   1518
+#define ETHER_MAX_LEN	(ETH_FRAME_LEN + ETH_FCS_LEN)
 
 /* Feature Flags */
 #define BGMAC_FEAT_TX_MASK_SETUP	BIT(0)
@@ -425,6 +426,7 @@
 #define BGMAC_FEAT_CC4_IF_SW_TYPE	BIT(17)
 #define BGMAC_FEAT_CC4_IF_SW_TYPE_RGMII	BIT(18)
 #define BGMAC_FEAT_CC7_IF_TYPE_RGMII	BIT(19)
+#define BGMAC_FEAT_IDM_MASK		BIT(20)
 
 struct bgmac_slot_info {
 	union {
@@ -477,9 +479,9 @@ struct bgmac_rx_header {
 struct bgmac {
 	union {
 		struct {
-			void *base;
-			void *idm_base;
-			void *nicpm_base;
+			void __iomem *base;
+			void __iomem *idm_base;
+			void __iomem *nicpm_base;
 		} plat;
 		struct {
 			struct bcma_device *core;
@@ -537,6 +539,8 @@ int bgmac_enet_probe(struct bgmac *bgmac);
 void bgmac_enet_remove(struct bgmac *bgmac);
 void bgmac_adjust_link(struct net_device *net_dev);
 int bgmac_phy_connect_direct(struct bgmac *bgmac);
+int bgmac_enet_suspend(struct bgmac *bgmac);
+int bgmac_enet_resume(struct bgmac *bgmac);
 
 struct mii_bus *bcma_mdio_mii_register(struct bgmac *bgmac);
 void bcma_mdio_mii_unregister(struct mii_bus *mii_bus);

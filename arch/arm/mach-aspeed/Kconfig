@@ -1,10 +1,11 @@
+# SPDX-License-Identifier: GPL-2.0-only
 menuconfig ARCH_ASPEED
 	bool "Aspeed BMC architectures"
 	depends on ARCH_MULTI_V5 || ARCH_MULTI_V6
 	select SRAM
 	select WATCHDOG
 	select ASPEED_WATCHDOG
-	select MOXART_TIMER
+	select FTTMR010_TIMER
 	select MFD_SYSCON
 	select PINCTRL
 	help

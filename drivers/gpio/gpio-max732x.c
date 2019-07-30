@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: GPL-2.0-only
 /*
  *  MAX732x I2C Port Expander with 8/16 I/O
  *
@@ -7,10 +8,6 @@
  *  Copyright (C) 2015 Linus Walleij <linus.walleij@linaro.org>
  *
  *  Derived from drivers/gpio/pca953x.c
- *
- *  This program is free software; you can redistribute it and/or modify
- *  it under the terms of the GNU General Public License as published by
- *  the Free Software Foundation; version 2 of the License.
  */
 
 #include <linux/module.h>
@@ -20,7 +17,7 @@
 #include <linux/gpio/driver.h>
 #include <linux/interrupt.h>
 #include <linux/i2c.h>
-#include <linux/i2c/max732x.h>
+#include <linux/platform_data/max732x.h>
 #include <linux/of.h>
 
 
@@ -486,7 +483,7 @@ static irqreturn_t max732x_irq_handler(int irq, void *devid)
 
 	do {
 		level = __ffs(pending);
-		handle_nested_irq(irq_find_mapping(chip->gpio_chip.irqdomain,
+		handle_nested_irq(irq_find_mapping(chip->gpio_chip.irq.domain,
 						   level));
 
 		pending &= ~(1 << level);
@@ -653,6 +650,12 @@ static int max732x_probe(struct i2c_client *client,
 		chip->client_group_a = client;
 		if (nr_port > 8) {
 			c = i2c_new_dummy(client->adapter, addr_b);
+			if (!c) {
+				dev_err(&client->dev,
+					"Failed to allocate I2C device\n");
+				ret = -ENODEV;
+				goto out_failed;
+			}
 			chip->client_group_b = chip->client_dummy = c;
 		}
 		break;
@@ -660,6 +663,12 @@ static int max732x_probe(struct i2c_client *client,
 		chip->client_group_b = client;
 		if (nr_port > 8) {
 			c = i2c_new_dummy(client->adapter, addr_a);
+			if (!c) {
+				dev_err(&client->dev,
+					"Failed to allocate I2C device\n");
+				ret = -ENODEV;
+				goto out_failed;
+			}
 			chip->client_group_a = chip->client_dummy = c;
 		}
 		break;
@@ -709,8 +718,7 @@ static int max732x_probe(struct i2c_client *client,
 	return 0;
 
 out_failed:
-	if (chip->client_dummy)
-		i2c_unregister_device(chip->client_dummy);
+	i2c_unregister_device(chip->client_dummy);
 	return ret;
 }
 
@@ -734,8 +742,7 @@ static int max732x_remove(struct i2c_client *client)
 	gpiochip_remove(&chip->gpio_chip);
 
 	/* unregister any dummy i2c_client */
-	if (chip->client_dummy)
-		i2c_unregister_device(chip->client_dummy);
+	i2c_unregister_device(chip->client_dummy);
 
 	return 0;
 }

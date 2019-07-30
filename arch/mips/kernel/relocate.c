@@ -6,7 +6,7 @@
  * Support for Kernel relocation at boot time
  *
  * Copyright (C) 2015, Imagination Technologies Ltd.
- * Authors: Matt Redfearn (matt.redfearn@imgtec.com)
+ * Authors: Matt Redfearn (matt.redfearn@mips.com)
  */
 #include <asm/bootinfo.h>
 #include <asm/cacheflush.h>
@@ -18,7 +18,7 @@
 #include <linux/kernel.h>
 #include <linux/libfdt.h>
 #include <linux/of_fdt.h>
-#include <linux/sched.h>
+#include <linux/sched/task.h>
 #include <linux/start_kernel.h>
 #include <linux/string.h>
 #include <linux/printk.h>
@@ -146,7 +146,7 @@ int __init do_relocations(void *kbase_old, void *kbase_new, long offset)
 			break;
 
 		type = (*r >> 24) & 0xff;
-		loc_orig = (void *)(kbase_old + ((*r & 0x00ffffff) << 2));
+		loc_orig = kbase_old + ((*r & 0x00ffffff) << 2);
 		loc_new = RELOCATED(loc_orig);
 
 		if (reloc_handlers_rel[type] == NULL) {

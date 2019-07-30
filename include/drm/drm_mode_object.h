@@ -24,9 +24,11 @@
 #define __DRM_MODESET_H__
 
 #include <linux/kref.h>
+#include <drm/drm_lease.h>
 struct drm_object_properties;
 struct drm_property;
 struct drm_device;
+struct drm_file;
 
 /**
  * struct drm_mode_object - base structure for modeset objects
@@ -45,10 +47,10 @@ struct drm_device;
  *   drm_object_attach_property() before the object is visible to userspace.
  *
  * - For objects with dynamic lifetimes (as indicated by a non-NULL @free_cb) it
- *   provides reference counting through drm_mode_object_reference() and
- *   drm_mode_object_unreference(). This is used by &drm_framebuffer,
- *   &drm_connector and &drm_property_blob. These objects provide specialized
- *   reference counting wrappers.
+ *   provides reference counting through drm_mode_object_get() and
+ *   drm_mode_object_put(). This is used by &drm_framebuffer, &drm_connector
+ *   and &drm_property_blob. These objects provide specialized reference
+ *   counting wrappers.
  */
 struct drm_mode_object {
 	uint32_t id;
@@ -113,9 +115,10 @@ struct drm_object_properties {
 	}
 
 struct drm_mode_object *drm_mode_object_find(struct drm_device *dev,
+					     struct drm_file *file_priv,
 					     uint32_t id, uint32_t type);
-void drm_mode_object_reference(struct drm_mode_object *obj);
-void drm_mode_object_unreference(struct drm_mode_object *obj);
+void drm_mode_object_get(struct drm_mode_object *obj);
+void drm_mode_object_put(struct drm_mode_object *obj);
 
 int drm_object_property_set_value(struct drm_mode_object *obj,
 				  struct drm_property *property,
@@ -127,4 +130,6 @@ int drm_object_property_get_value(struct drm_mode_object *obj,
 void drm_object_attach_property(struct drm_mode_object *obj,
 				struct drm_property *property,
 				uint64_t init_val);
+
+bool drm_mode_object_lease_required(uint32_t type);
 #endif

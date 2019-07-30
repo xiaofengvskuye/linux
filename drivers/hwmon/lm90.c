@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: GPL-2.0-or-later
 /*
  * lm90.c - Part of lm_sensors, Linux kernel modules for hardware
  *          monitoring
@@ -68,20 +69,6 @@
  * Since the LM90 was the first chipset supported by this driver, most
  * comments will refer to this chipset, but are actually general and
  * concern all supported chipsets, unless mentioned otherwise.
- *
- * This program is free software; you can redistribute it and/or modify
- * it under the terms of the GNU General Public License as published by
- * the Free Software Foundation; either version 2 of the License, or
- * (at your option) any later version.
- *
- * This program is distributed in the hope that it will be useful,
- * but WITHOUT ANY WARRANTY; without even the implied warranty of
- * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
- * GNU General Public License for more details.
- *
- * You should have received a copy of the GNU General Public License
- * along with this program; if not, write to the Free Software
- * Foundation, Inc., 675 Mass Ave, Cambridge, MA 02139, USA.
  */
 
 #include <linux/module.h>
@@ -92,6 +79,7 @@
 #include <linux/hwmon.h>
 #include <linux/err.h>
 #include <linux/mutex.h>
+#include <linux/of_device.h>
 #include <linux/sysfs.h>
 #include <linux/interrupt.h>
 #include <linux/regulator/consumer.h>
@@ -234,6 +222,99 @@ static const struct i2c_device_id lm90_id[] = {
 	{ }
 };
 MODULE_DEVICE_TABLE(i2c, lm90_id);
+
+static const struct of_device_id __maybe_unused lm90_of_match[] = {
+	{
+		.compatible = "adi,adm1032",
+		.data = (void *)adm1032
+	},
+	{
+		.compatible = "adi,adt7461",
+		.data = (void *)adt7461
+	},
+	{
+		.compatible = "adi,adt7461a",
+		.data = (void *)adt7461
+	},
+	{
+		.compatible = "gmt,g781",
+		.data = (void *)g781
+	},
+	{
+		.compatible = "national,lm90",
+		.data = (void *)lm90
+	},
+	{
+		.compatible = "national,lm86",
+		.data = (void *)lm86
+	},
+	{
+		.compatible = "national,lm89",
+		.data = (void *)lm86
+	},
+	{
+		.compatible = "national,lm99",
+		.data = (void *)lm99
+	},
+	{
+		.compatible = "dallas,max6646",
+		.data = (void *)max6646
+	},
+	{
+		.compatible = "dallas,max6647",
+		.data = (void *)max6646
+	},
+	{
+		.compatible = "dallas,max6649",
+		.data = (void *)max6646
+	},
+	{
+		.compatible = "dallas,max6657",
+		.data = (void *)max6657
+	},
+	{
+		.compatible = "dallas,max6658",
+		.data = (void *)max6657
+	},
+	{
+		.compatible = "dallas,max6659",
+		.data = (void *)max6659
+	},
+	{
+		.compatible = "dallas,max6680",
+		.data = (void *)max6680
+	},
+	{
+		.compatible = "dallas,max6681",
+		.data = (void *)max6680
+	},
+	{
+		.compatible = "dallas,max6695",
+		.data = (void *)max6696
+	},
+	{
+		.compatible = "dallas,max6696",
+		.data = (void *)max6696
+	},
+	{
+		.compatible = "onnn,nct1008",
+		.data = (void *)adt7461
+	},
+	{
+		.compatible = "winbond,w83l771",
+		.data = (void *)w83l771
+	},
+	{
+		.compatible = "nxp,sa56004",
+		.data = (void *)sa56004
+	},
+	{
+		.compatible = "ti,tmp451",
+		.data = (void *)tmp451
+	},
+	{ },
+};
+MODULE_DEVICE_TABLE(of, lm90_of_match);
 
 /*
  * chip type specific parameters
@@ -1172,17 +1253,17 @@ static umode_t lm90_temp_is_visible(const void *data, u32 attr, int channel)
 	case hwmon_temp_emergency_alarm:
 	case hwmon_temp_emergency_hyst:
 	case hwmon_temp_fault:
-		return S_IRUGO;
+		return 0444;
 	case hwmon_temp_min:
 	case hwmon_temp_max:
 	case hwmon_temp_crit:
 	case hwmon_temp_emergency:
 	case hwmon_temp_offset:
-		return S_IRUGO | S_IWUSR;
+		return 0644;
 	case hwmon_temp_crit_hyst:
 		if (channel == 0)
-			return S_IRUGO | S_IWUSR;
-		return S_IRUGO;
+			return 0644;
+		return 0444;
 	default:
 		return 0;
 	}
@@ -1244,9 +1325,9 @@ static umode_t lm90_chip_is_visible(const void *data, u32 attr, int channel)
 {
 	switch (attr) {
 	case hwmon_chip_update_interval:
-		return S_IRUGO | S_IWUSR;
+		return 0644;
 	case hwmon_chip_alarms:
-		return S_IRUGO;
+		return 0444;
 	default:
 		return 0;
 	}
@@ -1626,16 +1707,6 @@ static void lm90_regulator_disable(void *regulator)
 	regulator_disable(regulator);
 }
 
-static const u32 lm90_chip_config[] = {
-	HWMON_C_REGISTER_TZ | HWMON_C_UPDATE_INTERVAL | HWMON_C_ALARMS,
-	0
-};
-
-static const struct hwmon_channel_info lm90_chip_info = {
-	.type = hwmon_chip,
-	.config = lm90_chip_config,
-};
-
 
 static const struct hwmon_ops lm90_ops = {
 	.is_visible = lm90_is_visible,
@@ -1677,7 +1748,10 @@ static int lm90_probe(struct i2c_client *client,
 	mutex_init(&data->update_lock);
 
 	/* Set the device type */
-	data->kind = id->driver_data;
+	if (client->dev.of_node)
+		data->kind = (enum chips)of_device_get_match_data(&client->dev);
+	else
+		data->kind = id->driver_data;
 	if (data->kind == adm1032) {
 		if (!i2c_check_functionality(adapter, I2C_FUNC_SMBUS_BYTE))
 			client->flags &= ~I2C_CLIENT_PEC;
@@ -1695,7 +1769,8 @@ static int lm90_probe(struct i2c_client *client,
 	data->chip.ops = &lm90_ops;
 	data->chip.info = data->info;
 
-	data->info[0] = &lm90_chip_info;
+	data->info[0] = HWMON_CHANNEL_INFO(chip,
+		HWMON_C_REGISTER_TZ | HWMON_C_UPDATE_INTERVAL | HWMON_C_ALARMS);
 	data->info[1] = &data->temp_info;
 
 	info = &data->temp_info;
@@ -1816,6 +1891,7 @@ static struct i2c_driver lm90_driver = {
 	.class		= I2C_CLASS_HWMON,
 	.driver = {
 		.name	= "lm90",
+		.of_match_table = of_match_ptr(lm90_of_match),
 	},
 	.probe		= lm90_probe,
 	.alert		= lm90_alert,

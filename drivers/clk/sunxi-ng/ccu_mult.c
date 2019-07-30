@@ -1,14 +1,11 @@
+// SPDX-License-Identifier: GPL-2.0-or-later
 /*
  * Copyright (C) 2016 Maxime Ripard
  * Maxime Ripard <maxime.ripard@free-electrons.com>
- *
- * This program is free software; you can redistribute it and/or
- * modify it under the terms of the GNU General Public License as
- * published by the Free Software Foundation; either version 2 of
- * the License, or (at your option) any later version.
  */
 
 #include <linux/clk-provider.h>
+#include <linux/io.h>
 
 #include "ccu_gate.h"
 #include "ccu_mult.h"
@@ -33,9 +30,10 @@ static void ccu_mult_find_best(unsigned long parent, unsigned long rate,
 }
 
 static unsigned long ccu_mult_round_rate(struct ccu_mux_internal *mux,
-					unsigned long parent_rate,
-					unsigned long rate,
-					void *data)
+					 struct clk_hw *parent,
+					 unsigned long *parent_rate,
+					 unsigned long rate,
+					 void *data)
 {
 	struct ccu_mult *cm = data;
 	struct _ccu_mult _cm;
@@ -47,9 +45,9 @@ static unsigned long ccu_mult_round_rate(struct ccu_mux_internal *mux,
 	else
 		_cm.max = (1 << cm->mult.width) + cm->mult.offset - 1;
 
-	ccu_mult_find_best(parent_rate, rate, &_cm);
+	ccu_mult_find_best(*parent_rate, rate, &_cm);
 
-	return parent_rate * _cm.mult;
+	return *parent_rate * _cm.mult;
 }
 
 static void ccu_mult_disable(struct clk_hw *hw)
@@ -87,8 +85,8 @@ static unsigned long ccu_mult_recalc_rate(struct clk_hw *hw,
 	val = reg >> cm->mult.shift;
 	val &= (1 << cm->mult.width) - 1;
 
-	ccu_mux_helper_adjust_parent_for_prediv(&cm->common, &cm->mux, -1,
-						&parent_rate);
+	parent_rate = ccu_mux_helper_apply_prediv(&cm->common, &cm->mux, -1,
+						  parent_rate);
 
 	return parent_rate * (val + cm->mult.offset);
 }
@@ -110,13 +108,17 @@ static int ccu_mult_set_rate(struct clk_hw *hw, unsigned long rate,
 	unsigned long flags;
 	u32 reg;
 
-	if (ccu_frac_helper_has_rate(&cm->common, &cm->frac, rate))
-		return ccu_frac_helper_set_rate(&cm->common, &cm->frac, rate);
-	else
-		ccu_frac_helper_disable(&cm->common, &cm->frac);
+	if (ccu_frac_helper_has_rate(&cm->common, &cm->frac, rate)) {
+		ccu_frac_helper_enable(&cm->common, &cm->frac);
 
-	ccu_mux_helper_adjust_parent_for_prediv(&cm->common, &cm->mux, -1,
-						&parent_rate);
+		return ccu_frac_helper_set_rate(&cm->common, &cm->frac,
+						rate, cm->lock);
+	} else {
+		ccu_frac_helper_disable(&cm->common, &cm->frac);
+	}
+
+	parent_rate = ccu_mux_helper_apply_prediv(&cm->common, &cm->mux, -1,
+						  parent_rate);
 
 	_cm.min = cm->mult.min;
 
@@ -136,6 +138,8 @@ static int ccu_mult_set_rate(struct clk_hw *hw, unsigned long rate,
 	writel(reg, cm->common.base + cm->common.reg);
 
 	spin_unlock_irqrestore(cm->common.lock, flags);
+
+	ccu_helper_wait_for_lock(&cm->common, cm->lock);
 
 	return 0;
 }

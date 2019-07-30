@@ -1,3 +1,4 @@
+/* SPDX-License-Identifier: GPL-2.0 */
 #ifndef _ASM_POWERPC_CACHE_H
 #define _ASM_POWERPC_CACHE_H
 
@@ -5,14 +6,17 @@
 
 
 /* bytes per L1 cache line */
-#if defined(CONFIG_8xx) || defined(CONFIG_403GCX)
+#if defined(CONFIG_PPC_8xx) || defined(CONFIG_403GCX)
 #define L1_CACHE_SHIFT		4
 #define MAX_COPY_PREFETCH	1
+#define IFETCH_ALIGN_SHIFT	2
 #elif defined(CONFIG_PPC_E500MC)
 #define L1_CACHE_SHIFT		6
 #define MAX_COPY_PREFETCH	4
+#define IFETCH_ALIGN_SHIFT	3
 #elif defined(CONFIG_PPC32)
 #define MAX_COPY_PREFETCH	4
+#define IFETCH_ALIGN_SHIFT	3	/* 603 fetches 2 insn at a time */
 #if defined(CONFIG_PPC_47x)
 #define L1_CACHE_SHIFT		7
 #else
@@ -67,7 +71,7 @@ extern struct ppc64_caches ppc64_caches;
 #else
 #define __read_mostly __attribute__((__section__(".data..read_mostly")))
 
-#ifdef CONFIG_6xx
+#ifdef CONFIG_PPC_BOOK3S_32
 extern long _get_L2CR(void);
 extern long _get_L3CR(void);
 extern void _set_L2CR(unsigned long);

@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: GPL-2.0-only
 /*
  * ROHM 1780GLI Ambient Light Sensor Driver
  *
@@ -128,7 +129,6 @@ static int bh1780_read_raw(struct iio_dev *indio_dev,
 }
 
 static const struct iio_info bh1780_info = {
-	.driver_module = THIS_MODULE,
 	.read_raw = bh1780_read_raw,
 	.debugfs_reg_access = bh1780_debugfs_reg_access,
 };

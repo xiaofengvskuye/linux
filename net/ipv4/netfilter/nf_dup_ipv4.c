@@ -1,12 +1,9 @@
+// SPDX-License-Identifier: GPL-2.0-or-later
 /*
  * (C) 2007 by Sebastian Claßen <sebastian.classen@freenet.ag>
  * (C) 2007-2010 by Jan Engelhardt <jengelh@medozas.de>
  *
  * Extracted from xt_TEE.c
- *
- * This program is free software; you can redistribute it and/or modify it
- * under the terms of the GNU General Public License version 2 or later, as
- * published by the Free Software Foundation.
  */
 #include <linux/ip.h>
 #include <linux/module.h>
@@ -69,8 +66,7 @@ void nf_dup_ipv4(struct net *net, struct sk_buff *skb, unsigned int hooknum,
 #if IS_ENABLED(CONFIG_NF_CONNTRACK)
 	/* Avoid counting cloned packets towards the original connection. */
 	nf_reset(skb);
-	nf_ct_set(skb, nf_ct_untracked_get(), IP_CT_NEW);
-	nf_conntrack_get(skb_nfct(skb));
+	nf_ct_set(skb, NULL, IP_CT_UNTRACKED);
 #endif
 	/*
 	 * If we are in PREROUTING/INPUT, decrease the TTL to mitigate potential

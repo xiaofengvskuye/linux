@@ -1,22 +1,21 @@
+// SPDX-License-Identifier: GPL-2.0-only
 /*
  * Copyright (C) 2015 Cavium, Inc.
- *
- * This program is free software; you can redistribute it and/or modify it
- * under the terms of version 2 of the GNU General Public License
- * as published by the Free Software Foundation.
  */
 
 /* ETHTOOL Support for VNIC_VF Device*/
 
 #include <linux/pci.h>
+#include <linux/net_tstamp.h>
 
 #include "nic_reg.h"
 #include "nic.h"
 #include "nicvf_queues.h"
 #include "q_struct.h"
 #include "thunder_bgx.h"
+#include "../common/cavium_ptp.h"
 
-#define DRV_NAME	"thunder-nicvf"
+#define DRV_NAME	"nicvf"
 #define DRV_VERSION     "1.0"
 
 struct nicvf_stat {
@@ -100,11 +99,12 @@ static const struct nicvf_stat nicvf_drv_stats[] = {
 	NICVF_DRV_STAT(tx_csum_overlap),
 	NICVF_DRV_STAT(tx_csum_overflow),
 
-	NICVF_DRV_STAT(rcv_buffer_alloc_failures),
 	NICVF_DRV_STAT(tx_tso),
 	NICVF_DRV_STAT(tx_timeout),
 	NICVF_DRV_STAT(txq_stop),
 	NICVF_DRV_STAT(txq_wake),
+	NICVF_DRV_STAT(rcv_buffer_alloc_failures),
+	NICVF_DRV_STAT(page_alloc),
 };
 
 static const struct nicvf_stat nicvf_queue_stats[] = {
@@ -524,6 +524,7 @@ static int nicvf_get_rss_hash_opts(struct nicvf *nic,
 	case SCTP_V4_FLOW:
 	case SCTP_V6_FLOW:
 		info->data |= RXH_L4_B_0_1 | RXH_L4_B_2_3;
+		/* Fall through */
 	case IPV4_FLOW:
 	case IPV6_FLOW:
 		info->data |= RXH_IP_SRC | RXH_IP_DST;
@@ -720,7 +721,7 @@ static int nicvf_set_channels(struct net_device *dev,
 	struct nicvf *nic = netdev_priv(dev);
 	int err = 0;
 	bool if_up = netif_running(dev);
-	int cqcount;
+	u8 cqcount, txq_count;
 
 	if (!channel->rx_count || !channel->tx_count)
 		return -EINVAL;
@@ -729,10 +730,26 @@ static int nicvf_set_channels(struct net_device *dev,
 	if (channel->tx_count > nic->max_queues)
 		return -EINVAL;
 
+	if (nic->xdp_prog &&
+	    ((channel->tx_count + channel->rx_count) > nic->max_queues)) {
+		netdev_err(nic->netdev,
+			   "XDP mode, RXQs + TXQs > Max %d\n",
+			   nic->max_queues);
+		return -EINVAL;
+	}
+
 	if (if_up)
 		nicvf_stop(dev);
 
-	cqcount = max(channel->rx_count, channel->tx_count);
+	nic->rx_queues = channel->rx_count;
+	nic->tx_queues = channel->tx_count;
+	if (!nic->xdp_prog)
+		nic->xdp_tx_queues = 0;
+	else
+		nic->xdp_tx_queues = channel->rx_count;
+
+	txq_count = nic->xdp_tx_queues + nic->tx_queues;
+	cqcount = max(nic->rx_queues, txq_count);
 
 	if (cqcount > MAX_CMP_QUEUES_PER_QS) {
 		nic->sqs_count = roundup(cqcount, MAX_CMP_QUEUES_PER_QS);
@@ -741,12 +758,10 @@ static int nicvf_set_channels(struct net_device *dev,
 		nic->sqs_count = 0;
 	}
 
-	nic->qs->rq_cnt = min_t(u32, channel->rx_count, MAX_RCV_QUEUES_PER_QS);
-	nic->qs->sq_cnt = min_t(u32, channel->tx_count, MAX_SND_QUEUES_PER_QS);
+	nic->qs->rq_cnt = min_t(u8, nic->rx_queues, MAX_RCV_QUEUES_PER_QS);
+	nic->qs->sq_cnt = min_t(u8, txq_count, MAX_SND_QUEUES_PER_QS);
 	nic->qs->cq_cnt = max(nic->qs->rq_cnt, nic->qs->sq_cnt);
 
-	nic->rx_queues = channel->rx_count;
-	nic->tx_queues = channel->tx_count;
 	err = nicvf_set_real_num_queues(dev, nic->tx_queues, nic->rx_queues);
 	if (err)
 		return err;
@@ -809,6 +824,31 @@ static int nicvf_set_pauseparam(struct net_device *dev,
 	return 0;
 }
 
+static int nicvf_get_ts_info(struct net_device *netdev,
+			     struct ethtool_ts_info *info)
+{
+	struct nicvf *nic = netdev_priv(netdev);
+
+	if (!nic->ptp_clock)
+		return ethtool_op_get_ts_info(netdev, info);
+
+	info->so_timestamping = SOF_TIMESTAMPING_TX_SOFTWARE |
+				SOF_TIMESTAMPING_RX_SOFTWARE |
+				SOF_TIMESTAMPING_SOFTWARE |
+				SOF_TIMESTAMPING_TX_HARDWARE |
+				SOF_TIMESTAMPING_RX_HARDWARE |
+				SOF_TIMESTAMPING_RAW_HARDWARE;
+
+	info->phc_index = cavium_ptp_clock_index(nic->ptp_clock);
+
+	info->tx_types = (1 << HWTSTAMP_TX_OFF) | (1 << HWTSTAMP_TX_ON);
+
+	info->rx_filters = (1 << HWTSTAMP_FILTER_NONE) |
+			   (1 << HWTSTAMP_FILTER_ALL);
+
+	return 0;
+}
+
 static const struct ethtool_ops nicvf_ethtool_ops = {
 	.get_link		= nicvf_get_link,
 	.get_drvinfo		= nicvf_get_drvinfo,
@@ -832,7 +872,7 @@ static const struct ethtool_ops nicvf_ethtool_ops = {
 	.set_channels		= nicvf_set_channels,
 	.get_pauseparam         = nicvf_get_pauseparam,
 	.set_pauseparam         = nicvf_set_pauseparam,
-	.get_ts_info		= ethtool_op_get_ts_info,
+	.get_ts_info		= nicvf_get_ts_info,
 	.get_link_ksettings	= nicvf_get_link_ksettings,
 };
 

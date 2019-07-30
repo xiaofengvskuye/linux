@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: GPL-2.0-only
 /*
  * Process number limiting controller for cgroups.
  *
@@ -25,10 +26,6 @@
  * a superset of parent/child/pids.current.
  *
  * Copyright (C) 2015 Aleksa Sarai <cyphar@cyphar.com>
- *
- * This file is subject to the terms and conditions of version 2 of the GNU
- * General Public License.  See the file COPYING in the main directory of the
- * Linux distribution for more details.
  */
 
 #include <linux/kernel.h>
@@ -229,7 +226,7 @@ static int pids_can_fork(struct task_struct *task)
 		/* Only log the first time events_limit is incremented. */
 		if (atomic64_inc_return(&pids->events_limit) == 1) {
 			pr_info("cgroup: fork rejected by pids controller in ");
-			pr_cont_cgroup_path(task_cgroup(current, pids_cgrp_id));
+			pr_cont_cgroup_path(css->cgroup);
 			pr_cont("\n");
 		}
 		cgroup_file_notify(&pids->events_file);
@@ -247,7 +244,7 @@ static void pids_cancel_fork(struct task_struct *task)
 	pids_uncharge(pids, 1);
 }
 
-static void pids_free(struct task_struct *task)
+static void pids_release(struct task_struct *task)
 {
 	struct pids_cgroup *pids = css_pids(task_css(task, pids_cgrp_id));
 
@@ -342,7 +339,8 @@ struct cgroup_subsys pids_cgrp_subsys = {
 	.cancel_attach 	= pids_cancel_attach,
 	.can_fork	= pids_can_fork,
 	.cancel_fork	= pids_cancel_fork,
-	.free		= pids_free,
+	.release	= pids_release,
 	.legacy_cftypes	= pids_files,
 	.dfl_cftypes	= pids_files,
+	.threaded	= true,
 };

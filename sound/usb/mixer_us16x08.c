@@ -1,18 +1,8 @@
+// SPDX-License-Identifier: GPL-2.0-or-later
 /*
  *   Tascam US-16x08 ALSA driver
  *
  *   Copyright (c) 2016 by Detlef Urban (onkel@paraair.de)
- *
- *   This program is free software; you can redistribute it and/or modify
- *   it under the terms of the GNU General Public License as published by
- *   the Free Software Foundation; either version 2 of the License, or
- *   (at your option) any later version.
- *
- *   This program is distributed in the hope that it will be useful,
- *   but WITHOUT ANY WARRANTY; without even the implied warranty of
- *   MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
- *   GNU General Public License for more details.
- *
  */
 
 #include <linux/slab.h>
@@ -698,16 +688,18 @@ static int snd_us16x08_meter_get(struct snd_kcontrol *kcontrol,
 	struct snd_usb_audio *chip = elem->head.mixer->chip;
 	struct snd_us16x08_meter_store *store = elem->private_data;
 	u8 meter_urb[64];
-	char tmp[sizeof(mix_init_msg2)] = {0};
 
 	switch (kcontrol->private_value) {
-	case 0:
-		snd_us16x08_send_urb(chip, (char *)mix_init_msg1,
-				     sizeof(mix_init_msg1));
+	case 0: {
+		char tmp[sizeof(mix_init_msg1)];
+
+		memcpy(tmp, mix_init_msg1, sizeof(mix_init_msg1));
+		snd_us16x08_send_urb(chip, tmp, 4);
 		snd_us16x08_recv_urb(chip, meter_urb,
 			sizeof(meter_urb));
 		kcontrol->private_value++;
 		break;
+	}
 	case 1:
 		snd_us16x08_recv_urb(chip, meter_urb,
 			sizeof(meter_urb));
@@ -718,14 +710,17 @@ static int snd_us16x08_meter_get(struct snd_kcontrol *kcontrol,
 			sizeof(meter_urb));
 		kcontrol->private_value++;
 		break;
-	case 3:
+	case 3: {
+		char tmp[sizeof(mix_init_msg2)];
+
 		memcpy(tmp, mix_init_msg2, sizeof(mix_init_msg2));
 		tmp[2] = snd_get_meter_comp_index(store);
-		snd_us16x08_send_urb(chip, tmp, sizeof(mix_init_msg2));
+		snd_us16x08_send_urb(chip, tmp, 10);
 		snd_us16x08_recv_urb(chip, meter_urb,
 			sizeof(meter_urb));
 		kcontrol->private_value = 0;
 		break;
+	}
 	}
 
 	for (set = 0; set < 6; set++)
@@ -1135,7 +1130,7 @@ static const struct snd_us16x08_control_params eq_controls[] = {
 		.control_id = SND_US16X08_ID_EQLOWMIDWIDTH,
 		.type = USB_MIXER_U8,
 		.num_channels = 16,
-		.name = "EQ MidQLow Q",
+		.name = "EQ MidLow Q",
 	},
 	{ /* EQ mid high gain */
 		.kcontrol_new = &snd_us16x08_eq_gain_ctl,

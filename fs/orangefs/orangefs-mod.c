@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: GPL-2.0-only
 /*
  * (C) 2001 Clemson University and The University of Chicago
  *
@@ -30,6 +31,7 @@ static ulong module_parm_debug_mask;
 __u64 orangefs_gossip_debug_mask;
 int op_timeout_secs = ORANGEFS_DEFAULT_OP_TIMEOUT_SECS;
 int slot_timeout_secs = ORANGEFS_DEFAULT_SLOT_TIMEOUT_SECS;
+int orangefs_cache_timeout_msecs = 50;
 int orangefs_dcache_timeout_msecs = 50;
 int orangefs_getattr_timeout_msecs = 50;
 
@@ -98,7 +100,6 @@ static int __init orangefs_init(void)
 	orangefs_htable_ops_in_progress =
 	    kcalloc(hash_table_size, sizeof(struct list_head), GFP_KERNEL);
 	if (!orangefs_htable_ops_in_progress) {
-		gossip_err("Failed to initialize op hashtable");
 		ret = -ENOMEM;
 		goto cleanup_inode;
 	}

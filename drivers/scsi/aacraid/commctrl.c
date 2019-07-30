@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: GPL-2.0-or-later
 /*
  *	Adaptec AAC series RAID controller driver
  *	(c) Copyright 2001 Red Hat Inc.
@@ -9,25 +10,10 @@
  *               2010-2015 PMC-Sierra, Inc. (aacraid@pmc-sierra.com)
  *		 2016-2017 Microsemi Corp. (aacraid@microsemi.com)
  *
- * This program is free software; you can redistribute it and/or modify
- * it under the terms of the GNU General Public License as published by
- * the Free Software Foundation; either version 2, or (at your option)
- * any later version.
- *
- * This program is distributed in the hope that it will be useful,
- * but WITHOUT ANY WARRANTY; without even the implied warranty of
- * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
- * GNU General Public License for more details.
- *
- * You should have received a copy of the GNU General Public License
- * along with this program; see the file COPYING.  If not, write to
- * the Free Software Foundation, 675 Mass Ave, Cambridge, MA 02139, USA.
- *
  * Module Name:
  *  commctrl.c
  *
  * Abstract: Contains all routines for control of the AFA comm layer
- *
  */
 
 #include <linux/kernel.h>
@@ -41,7 +27,6 @@
 #include <linux/blkdev.h>
 #include <linux/delay.h> /* ssleep prototype */
 #include <linux/kthread.h>
-#include <linux/semaphore.h>
 #include <linux/uaccess.h>
 #include <scsi/scsi_host.h>
 
@@ -100,7 +85,8 @@ static int ioctl_send_fib(struct aac_dev * dev, void __user *arg)
 			goto cleanup;
 		}
 
-		kfib = pci_alloc_consistent(dev->pdev, size, &daddr);
+		kfib = dma_alloc_coherent(&dev->pdev->dev, size, &daddr,
+					  GFP_KERNEL);
 		if (!kfib) {
 			retval = -ENOMEM;
 			goto cleanup;
@@ -160,7 +146,8 @@ static int ioctl_send_fib(struct aac_dev * dev, void __user *arg)
 		retval = -EFAULT;
 cleanup:
 	if (hw_fib) {
-		pci_free_consistent(dev->pdev, size, kfib, fibptr->hw_fib_pa);
+		dma_free_coherent(&dev->pdev->dev, size, kfib,
+				  fibptr->hw_fib_pa);
 		fibptr->hw_fib_pa = hw_fib_pa;
 		fibptr->hw_fib_va = hw_fib;
 	}
@@ -201,7 +188,7 @@ static int open_getadapter_fib(struct aac_dev * dev, void __user *arg)
 		/*
 		 *	Initialize the mutex used to wait for the next AIF.
 		 */
-		sema_init(&fibctx->wait_sem, 0);
+		init_completion(&fibctx->completion);
 		fibctx->wait = 0;
 		/*
 		 *	Initialize the fibs and set the count of fibs on
@@ -333,7 +320,7 @@ return_fib:
 			ssleep(1);
 		}
 		if (f.wait) {
-			if(down_interruptible(&fibctx->wait_sem) < 0) {
+			if (wait_for_completion_interruptible(&fibctx->completion) < 0) {
 				status = -ERESTARTSYS;
 			} else {
 				/* Lock again and retry */
@@ -666,7 +653,7 @@ static int aac_send_raw_srb(struct aac_dev* dev, void __user * arg)
 				goto cleanup;
 			}
 
-			p = kmalloc(sg_count[i], GFP_KERNEL|__GFP_DMA);
+			p = kmalloc(sg_count[i], GFP_KERNEL);
 			if (!p) {
 				rcode = -ENOMEM;
 				goto cleanup;
@@ -730,8 +717,8 @@ static int aac_send_raw_srb(struct aac_dev* dev, void __user * arg)
 					rcode = -EINVAL;
 					goto cleanup;
 				}
-				/* Does this really need to be GFP_DMA? */
-				p = kmalloc(sg_count[i], GFP_KERNEL|__GFP_DMA);
+
+				p = kmalloc(sg_count[i], GFP_KERNEL);
 				if(!p) {
 					dprintk((KERN_DEBUG"aacraid: Could not allocate SG buffer - size = %d buffer number %d of %d\n",
 					  sg_count[i], i, upsg->count));
@@ -786,8 +773,8 @@ static int aac_send_raw_srb(struct aac_dev* dev, void __user * arg)
 					rcode = -EINVAL;
 					goto cleanup;
 				}
-				/* Does this really need to be GFP_DMA? */
-				p = kmalloc(sg_count[i], GFP_KERNEL|__GFP_DMA);
+
+				p = kmalloc(sg_count[i], GFP_KERNEL);
 				if(!p) {
 					dprintk((KERN_DEBUG "aacraid: Could not allocate SG buffer - size = %d buffer number %d of %d\n",
 						sg_count[i], i, usg->count));
@@ -843,8 +830,7 @@ static int aac_send_raw_srb(struct aac_dev* dev, void __user * arg)
 					rcode = -EINVAL;
 					goto cleanup;
 				}
-				/* Does this really need to be GFP_DMA? */
-				p = kmalloc(sg_count[i], GFP_KERNEL|__GFP_DMA);
+				p = kmalloc(sg_count[i], GFP_KERNEL);
 				if (!p) {
 					dprintk((KERN_DEBUG"aacraid: Could not allocate SG buffer - size = %d buffer number %d of %d\n",
 						sg_count[i], i, usg->count));
@@ -948,12 +934,15 @@ static int aac_send_raw_srb(struct aac_dev* dev, void __user * arg)
 			&((struct aac_native_hba *)srbfib->hw_fib_va)->resp.err;
 		struct aac_srb_reply reply;
 
+		memset(&reply, 0, sizeof(reply));
 		reply.status = ST_OK;
 		if (srbfib->flags & FIB_CONTEXT_FLAG_FASTRESP) {
 			/* fast response */
 			reply.srb_status = SRB_STATUS_SUCCESS;
 			reply.scsi_status = 0;
 			reply.data_xfer_length = byte_count;
+			reply.sense_data_size = 0;
+			memset(reply.sense_data, 0, AAC_SENSE_BUFFERSIZE);
 		} else {
 			reply.srb_status = err->service_response;
 			reply.scsi_status = err->status;
@@ -1017,6 +1006,7 @@ static int aac_get_hba_info(struct aac_dev *dev, void __user *arg)
 {
 	struct aac_hba_info hbainfo;
 
+	memset(&hbainfo, 0, sizeof(hbainfo));
 	hbainfo.adapter_number		= (u8) dev->id;
 	hbainfo.system_io_bus_number	= dev->pdev->bus->number;
 	hbainfo.device_number		= (dev->pdev->devfn >> 3);
@@ -1047,12 +1037,16 @@ static int aac_send_reset_adapter(struct aac_dev *dev, void __user *arg)
 	if (copy_from_user((void *)&reset, arg, sizeof(struct aac_reset_iop)))
 		return -EFAULT;
 
-	retval = aac_reset_adapter(dev, 0, reset.reset_type);
-	return retval;
+	dev->adapter_shutdown = 1;
 
+	mutex_unlock(&dev->ioctl_mutex);
+	retval = aac_reset_adapter(dev, 0, reset.reset_type);
+	mutex_lock(&dev->ioctl_mutex);
+
+	return retval;
 }
 
-int aac_do_ioctl(struct aac_dev * dev, int cmd, void __user *arg)
+int aac_do_ioctl(struct aac_dev *dev, unsigned int cmd, void __user *arg)
 {
 	int status;
 

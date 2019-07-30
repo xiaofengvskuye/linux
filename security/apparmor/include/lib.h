@@ -1,14 +1,10 @@
+/* SPDX-License-Identifier: GPL-2.0-only */
 /*
  * AppArmor security module
  *
  * This file contains AppArmor lib definitions
  *
  * 2017 Canonical Ltd.
- *
- * This program is free software; you can redistribute it and/or
- * modify it under the terms of the GNU General Public License as
- * published by the Free Software Foundation, version 2 of the
- * License.
  */
 
 #ifndef __AA_LIB_H
@@ -16,19 +12,9 @@
 
 #include <linux/slab.h>
 #include <linux/fs.h>
+#include <linux/lsm_hooks.h>
 
 #include "match.h"
-
-/* Provide our own test for whether a write lock is held for asserts
- * this is because on none SMP systems write_can_lock will always
- * resolve to true, which is what you want for code making decisions
- * based on it, but wrong for asserts checking that the lock is held
- */
-#ifdef CONFIG_SMP
-#define write_is_locked(X) !write_can_lock(X)
-#else
-#define write_is_locked(X) (1)
-#endif /* CONFIG_SMP */
 
 /*
  * DEBUG remains global (no per profile flag) since it is mostly used in sysctl
@@ -57,24 +43,17 @@
 	pr_err_ratelimited("AppArmor: " fmt, ##args)
 
 /* Flag indicating whether initialization completed */
-extern int apparmor_initialized __initdata;
+extern int apparmor_initialized;
 
 /* fn's in lib */
+const char *skipn_spaces(const char *str, size_t n);
 char *aa_split_fqname(char *args, char **ns_name);
 const char *aa_splitn_fqname(const char *fqname, size_t n, const char **ns_name,
 			     size_t *ns_len);
 void aa_info_message(const char *str);
-void *__aa_kvmalloc(size_t size, gfp_t flags);
 
-static inline void *kvmalloc(size_t size)
-{
-	return __aa_kvmalloc(size, 0);
-}
-
-static inline void *kvzalloc(size_t size)
-{
-	return __aa_kvmalloc(size, __GFP_ZERO);
-}
+/* Security blob offsets */
+extern struct lsm_blob_sizes apparmor_blob_sizes;
 
 /**
  * aa_strneq - compare null terminated @str to a non null terminated substring
@@ -107,8 +86,38 @@ static inline unsigned int aa_dfa_null_transition(struct aa_dfa *dfa,
 
 static inline bool path_mediated_fs(struct dentry *dentry)
 {
-	return !(dentry->d_sb->s_flags & MS_NOUSER);
+	return !(dentry->d_sb->s_flags & SB_NOUSER);
 }
+
+
+struct counted_str {
+	struct kref count;
+	char name[];
+};
+
+#define str_to_counted(str) \
+	((struct counted_str *)(str - offsetof(struct counted_str, name)))
+
+#define __counted	/* atm just a notation */
+
+void aa_str_kref(struct kref *kref);
+char *aa_str_alloc(int size, gfp_t gfp);
+
+
+static inline __counted char *aa_get_str(__counted char *str)
+{
+	if (str)
+		kref_get(&(str_to_counted(str)->count));
+
+	return str;
+}
+
+static inline void aa_put_str(__counted char *str)
+{
+	if (str)
+		kref_put(&str_to_counted(str)->count, aa_str_kref);
+}
+
 
 /* struct aa_policy - common part of both namespaces and profiles
  * @name: name of the object
@@ -118,7 +127,7 @@ static inline bool path_mediated_fs(struct dentry *dentry)
  */
 struct aa_policy {
 	const char *name;
-	const char *hname;
+	__counted char *hname;
 	struct list_head list;
 	struct list_head profiles;
 };
@@ -191,4 +200,89 @@ bool aa_policy_init(struct aa_policy *policy, const char *prefix,
 		    const char *name, gfp_t gfp);
 void aa_policy_destroy(struct aa_policy *policy);
 
-#endif /* AA_LIB_H */
+
+/*
+ * fn_label_build - abstract out the build of a label transition
+ * @L: label the transition is being computed for
+ * @P: profile parameter derived from L by this macro, can be passed to FN
+ * @GFP: memory allocation type to use
+ * @FN: fn to call for each profile transition. @P is set to the profile
+ *
+ * Returns: new label on success
+ *          ERR_PTR if build @FN fails
+ *          NULL if label_build fails due to low memory conditions
+ *
+ * @FN must return a label or ERR_PTR on failure. NULL is not allowed
+ */
+#define fn_label_build(L, P, GFP, FN)					\
+({									\
+	__label__ __cleanup, __done;					\
+	struct aa_label *__new_;					\
+									\
+	if ((L)->size > 1) {						\
+		/* TODO: add cache of transitions already done */	\
+		struct label_it __i;					\
+		int __j, __k, __count;					\
+		DEFINE_VEC(label, __lvec);				\
+		DEFINE_VEC(profile, __pvec);				\
+		if (vec_setup(label, __lvec, (L)->size, (GFP)))	{	\
+			__new_ = NULL;					\
+			goto __done;					\
+		}							\
+		__j = 0;						\
+		label_for_each(__i, (L), (P)) {				\
+			__new_ = (FN);					\
+			AA_BUG(!__new_);				\
+			if (IS_ERR(__new_))				\
+				goto __cleanup;				\
+			__lvec[__j++] = __new_;				\
+		}							\
+		for (__j = __count = 0; __j < (L)->size; __j++)		\
+			__count += __lvec[__j]->size;			\
+		if (!vec_setup(profile, __pvec, __count, (GFP))) {	\
+			for (__j = __k = 0; __j < (L)->size; __j++) {	\
+				label_for_each(__i, __lvec[__j], (P))	\
+					__pvec[__k++] = aa_get_profile(P); \
+			}						\
+			__count -= aa_vec_unique(__pvec, __count, 0);	\
+			if (__count > 1) {				\
+				__new_ = aa_vec_find_or_create_label(__pvec,\
+						     __count, (GFP));	\
+				/* only fails if out of Mem */		\
+				if (!__new_)				\
+					__new_ = NULL;			\
+			} else						\
+				__new_ = aa_get_label(&__pvec[0]->label); \
+			vec_cleanup(profile, __pvec, __count);		\
+		} else							\
+			__new_ = NULL;					\
+__cleanup:								\
+		vec_cleanup(label, __lvec, (L)->size);			\
+	} else {							\
+		(P) = labels_profile(L);				\
+		__new_ = (FN);						\
+	}								\
+__done:									\
+	if (!__new_)							\
+		AA_DEBUG("label build failed\n");			\
+	(__new_);							\
+})
+
+
+#define __fn_build_in_ns(NS, P, NS_FN, OTHER_FN)			\
+({									\
+	struct aa_label *__new;						\
+	if ((P)->ns != (NS))						\
+		__new = (OTHER_FN);					\
+	else								\
+		__new = (NS_FN);					\
+	(__new);							\
+})
+
+#define fn_label_build_in_ns(L, P, GFP, NS_FN, OTHER_FN)		\
+({									\
+	fn_label_build((L), (P), (GFP),					\
+		__fn_build_in_ns(labels_ns(L), (P), (NS_FN), (OTHER_FN))); \
+})
+
+#endif /* __AA_LIB_H */

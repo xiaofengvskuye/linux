@@ -1,35 +1,5 @@
-/*
- * Copyright (C) 2015-2017 Netronome Systems, Inc.
- *
- * This software is dual licensed under the GNU General License Version 2,
- * June 1991 as shown in the file COPYING in the top-level directory of this
- * source tree or the BSD 2-Clause License provided below.  You have the
- * option to license this software under the complete terms of either license.
- *
- * The BSD 2-Clause License:
- *
- *     Redistribution and use in source and binary forms, with or
- *     without modification, are permitted provided that the following
- *     conditions are met:
- *
- *      1. Redistributions of source code must retain the above
- *         copyright notice, this list of conditions and the following
- *         disclaimer.
- *
- *      2. Redistributions in binary form must reproduce the above
- *         copyright notice, this list of conditions and the following
- *         disclaimer in the documentation and/or other materials
- *         provided with the distribution.
- *
- * THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND,
- * EXPRESS OR IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF
- * MERCHANTABILITY, FITNESS FOR A PARTICULAR PURPOSE AND
- * NONINFRINGEMENT. IN NO EVENT SHALL THE AUTHORS OR COPYRIGHT HOLDERS
- * BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER LIABILITY, WHETHER IN AN
- * ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM, OUT OF OR IN
- * CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
- * SOFTWARE.
- */
+// SPDX-License-Identifier: (GPL-2.0-only OR BSD-2-Clause)
+/* Copyright (C) 2015-2018 Netronome Systems, Inc. */
 
 /*
  * nfp_rtsym.c
@@ -39,6 +9,8 @@
  *          Espen Skoglund <espen.skoglund@netronome.com>
  *          Francois H. Theron <francois.theron@netronome.com>
  */
+
+#include <asm/unaligned.h>
 #include <linux/kernel.h>
 #include <linux/module.h>
 #include <linux/slab.h>
@@ -65,7 +37,8 @@ struct nfp_rtsym_entry {
 	__le32	size_lo;
 };
 
-struct nfp_rtsym_cache {
+struct nfp_rtsym_table {
+	struct nfp_cpp *cpp;
 	int num;
 	char *strtab;
 	struct nfp_rtsym symtab[];
@@ -78,7 +51,7 @@ static int nfp_meid(u8 island_id, u8 menum)
 }
 
 static void
-nfp_rtsym_sw_entry_init(struct nfp_rtsym_cache *cache, u32 strtab_size,
+nfp_rtsym_sw_entry_init(struct nfp_rtsym_table *cache, u32 strtab_size,
 			struct nfp_rtsym *sw, struct nfp_rtsym_entry *fw)
 {
 	sw->type = fw->type;
@@ -106,26 +79,36 @@ nfp_rtsym_sw_entry_init(struct nfp_rtsym_cache *cache, u32 strtab_size,
 		sw->domain = -1;
 }
 
-static int nfp_rtsymtab_probe(struct nfp_cpp *cpp)
+struct nfp_rtsym_table *nfp_rtsym_table_read(struct nfp_cpp *cpp)
+{
+	struct nfp_rtsym_table *rtbl;
+	const struct nfp_mip *mip;
+
+	mip = nfp_mip_open(cpp);
+	rtbl = __nfp_rtsym_table_read(cpp, mip);
+	nfp_mip_close(mip);
+
+	return rtbl;
+}
+
+struct nfp_rtsym_table *
+__nfp_rtsym_table_read(struct nfp_cpp *cpp, const struct nfp_mip *mip)
 {
 	const u32 dram = NFP_CPP_ID(NFP_CPP_TARGET_MU, NFP_CPP_ACTION_RW, 0) |
 		NFP_ISL_EMEM0;
 	u32 strtab_addr, symtab_addr, strtab_size, symtab_size;
 	struct nfp_rtsym_entry *rtsymtab;
-	struct nfp_rtsym_cache *cache;
-	const struct nfp_mip *mip;
+	struct nfp_rtsym_table *cache;
 	int err, n, size;
 
-	mip = nfp_mip_open(cpp);
 	if (!mip)
-		return -EIO;
+		return NULL;
 
 	nfp_mip_strtab(mip, &strtab_addr, &strtab_size);
 	nfp_mip_symtab(mip, &symtab_addr, &symtab_size);
-	nfp_mip_close(mip);
 
 	if (!symtab_size || !strtab_size || symtab_size % sizeof(*rtsymtab))
-		return -ENXIO;
+		return NULL;
 
 	/* Align to 64 bits */
 	symtab_size = round_up(symtab_size, 8);
@@ -133,27 +116,26 @@ static int nfp_rtsymtab_probe(struct nfp_cpp *cpp)
 
 	rtsymtab = kmalloc(symtab_size, GFP_KERNEL);
 	if (!rtsymtab)
-		return -ENOMEM;
+		return NULL;
 
 	size = sizeof(*cache);
 	size += symtab_size / sizeof(*rtsymtab) * sizeof(struct nfp_rtsym);
 	size +=	strtab_size + 1;
 	cache = kmalloc(size, GFP_KERNEL);
-	if (!cache) {
-		err = -ENOMEM;
-		goto err_free_rtsym_raw;
-	}
+	if (!cache)
+		goto exit_free_rtsym_raw;
 
+	cache->cpp = cpp;
 	cache->num = symtab_size / sizeof(*rtsymtab);
 	cache->strtab = (void *)&cache->symtab[cache->num];
 
 	err = nfp_cpp_read(cpp, dram, symtab_addr, rtsymtab, symtab_size);
 	if (err != symtab_size)
-		goto err_free_cache;
+		goto exit_free_cache;
 
 	err = nfp_cpp_read(cpp, dram, strtab_addr, cache->strtab, strtab_size);
 	if (err != strtab_size)
-		goto err_free_cache;
+		goto exit_free_cache;
 	cache->strtab[strtab_size] = '\0';
 
 	for (n = 0; n < cache->num; n++)
@@ -161,97 +143,294 @@ static int nfp_rtsymtab_probe(struct nfp_cpp *cpp)
 					&cache->symtab[n], &rtsymtab[n]);
 
 	kfree(rtsymtab);
-	nfp_rtsym_cache_set(cpp, cache);
-	return 0;
 
-err_free_cache:
+	return cache;
+
+exit_free_cache:
 	kfree(cache);
-err_free_rtsym_raw:
+exit_free_rtsym_raw:
 	kfree(rtsymtab);
-	return err;
-}
-
-static struct nfp_rtsym_cache *nfp_rtsym(struct nfp_cpp *cpp)
-{
-	struct nfp_rtsym_cache *cache;
-	int err;
-
-	cache = nfp_rtsym_cache(cpp);
-	if (cache)
-		return cache;
-
-	err = nfp_rtsymtab_probe(cpp);
-	if (err < 0)
-		return ERR_PTR(err);
-
-	return nfp_rtsym_cache(cpp);
-}
-
-/**
- * nfp_rtsym_count() - Get the number of RTSYM descriptors
- * @cpp:	NFP CPP handle
- *
- * Return: Number of RTSYM descriptors, or -ERRNO
- */
-int nfp_rtsym_count(struct nfp_cpp *cpp)
-{
-	struct nfp_rtsym_cache *cache;
-
-	cache = nfp_rtsym(cpp);
-	if (IS_ERR(cache))
-		return PTR_ERR(cache);
-
-	return cache->num;
-}
-
-/**
- * nfp_rtsym_get() - Get the Nth RTSYM descriptor
- * @cpp:	NFP CPP handle
- * @idx:	Index (0-based) of the RTSYM descriptor
- *
- * Return: const pointer to a struct nfp_rtsym descriptor, or NULL
- */
-const struct nfp_rtsym *nfp_rtsym_get(struct nfp_cpp *cpp, int idx)
-{
-	struct nfp_rtsym_cache *cache;
-
-	cache = nfp_rtsym(cpp);
-	if (IS_ERR(cache))
-		return NULL;
-
-	if (idx >= cache->num)
-		return NULL;
-
-	return &cache->symtab[idx];
-}
-
-/**
- * nfp_rtsym_lookup() - Return the RTSYM descriptor for a symbol name
- * @cpp:	NFP CPP handle
- * @name:	Symbol name
- *
- * Return: const pointer to a struct nfp_rtsym descriptor, or NULL
- */
-const struct nfp_rtsym *nfp_rtsym_lookup(struct nfp_cpp *cpp, const char *name)
-{
-	struct nfp_rtsym_cache *cache;
-	int n;
-
-	cache = nfp_rtsym(cpp);
-	if (IS_ERR(cache))
-		return NULL;
-
-	for (n = 0; n < cache->num; n++) {
-		if (strcmp(name, cache->symtab[n].name) == 0)
-			return &cache->symtab[n];
-	}
-
 	return NULL;
 }
 
 /**
+ * nfp_rtsym_count() - Get the number of RTSYM descriptors
+ * @rtbl:	NFP RTsym table
+ *
+ * Return: Number of RTSYM descriptors
+ */
+int nfp_rtsym_count(struct nfp_rtsym_table *rtbl)
+{
+	if (!rtbl)
+		return -EINVAL;
+	return rtbl->num;
+}
+
+/**
+ * nfp_rtsym_get() - Get the Nth RTSYM descriptor
+ * @rtbl:	NFP RTsym table
+ * @idx:	Index (0-based) of the RTSYM descriptor
+ *
+ * Return: const pointer to a struct nfp_rtsym descriptor, or NULL
+ */
+const struct nfp_rtsym *nfp_rtsym_get(struct nfp_rtsym_table *rtbl, int idx)
+{
+	if (!rtbl)
+		return NULL;
+	if (idx >= rtbl->num)
+		return NULL;
+
+	return &rtbl->symtab[idx];
+}
+
+/**
+ * nfp_rtsym_lookup() - Return the RTSYM descriptor for a symbol name
+ * @rtbl:	NFP RTsym table
+ * @name:	Symbol name
+ *
+ * Return: const pointer to a struct nfp_rtsym descriptor, or NULL
+ */
+const struct nfp_rtsym *
+nfp_rtsym_lookup(struct nfp_rtsym_table *rtbl, const char *name)
+{
+	int n;
+
+	if (!rtbl)
+		return NULL;
+
+	for (n = 0; n < rtbl->num; n++)
+		if (strcmp(name, rtbl->symtab[n].name) == 0)
+			return &rtbl->symtab[n];
+
+	return NULL;
+}
+
+u64 nfp_rtsym_size(const struct nfp_rtsym *sym)
+{
+	switch (sym->type) {
+	case NFP_RTSYM_TYPE_NONE:
+		pr_err("rtsym '%s': type NONE\n", sym->name);
+		return 0;
+	default:
+		pr_warn("rtsym '%s': unknown type: %d\n", sym->name, sym->type);
+		/* fall through */
+	case NFP_RTSYM_TYPE_OBJECT:
+	case NFP_RTSYM_TYPE_FUNCTION:
+		return sym->size;
+	case NFP_RTSYM_TYPE_ABS:
+		return sizeof(u64);
+	}
+}
+
+static int
+nfp_rtsym_to_dest(struct nfp_cpp *cpp, const struct nfp_rtsym *sym,
+		  u8 action, u8 token, u64 off, u32 *cpp_id, u64 *addr)
+{
+	if (sym->type != NFP_RTSYM_TYPE_OBJECT) {
+		nfp_err(cpp, "rtsym '%s': direct access to non-object rtsym\n",
+			sym->name);
+		return -EINVAL;
+	}
+
+	*addr = sym->addr + off;
+
+	if (sym->target == NFP_RTSYM_TARGET_EMU_CACHE) {
+		int locality_off = nfp_cpp_mu_locality_lsb(cpp);
+
+		*addr &= ~(NFP_MU_ADDR_ACCESS_TYPE_MASK << locality_off);
+		*addr |= NFP_MU_ADDR_ACCESS_TYPE_DIRECT << locality_off;
+
+		*cpp_id = NFP_CPP_ISLAND_ID(NFP_CPP_TARGET_MU, action, token,
+					    sym->domain);
+	} else if (sym->target < 0) {
+		nfp_err(cpp, "rtsym '%s': unhandled target encoding: %d\n",
+			sym->name, sym->target);
+		return -EINVAL;
+	} else {
+		*cpp_id = NFP_CPP_ISLAND_ID(sym->target, action, token,
+					    sym->domain);
+	}
+
+	return 0;
+}
+
+int __nfp_rtsym_read(struct nfp_cpp *cpp, const struct nfp_rtsym *sym,
+		     u8 action, u8 token, u64 off, void *buf, size_t len)
+{
+	u64 sym_size = nfp_rtsym_size(sym);
+	u32 cpp_id;
+	u64 addr;
+	int err;
+
+	if (off > sym_size) {
+		nfp_err(cpp, "rtsym '%s': read out of bounds: off: %lld + len: %zd > size: %lld\n",
+			sym->name, off, len, sym_size);
+		return -ENXIO;
+	}
+	len = min_t(size_t, len, sym_size - off);
+
+	if (sym->type == NFP_RTSYM_TYPE_ABS) {
+		u8 tmp[8];
+
+		put_unaligned_le64(sym->addr, tmp);
+		memcpy(buf, &tmp[off], len);
+
+		return len;
+	}
+
+	err = nfp_rtsym_to_dest(cpp, sym, action, token, off, &cpp_id, &addr);
+	if (err)
+		return err;
+
+	return nfp_cpp_read(cpp, cpp_id, addr, buf, len);
+}
+
+int nfp_rtsym_read(struct nfp_cpp *cpp, const struct nfp_rtsym *sym, u64 off,
+		   void *buf, size_t len)
+{
+	return __nfp_rtsym_read(cpp, sym, NFP_CPP_ACTION_RW, 0, off, buf, len);
+}
+
+int __nfp_rtsym_readl(struct nfp_cpp *cpp, const struct nfp_rtsym *sym,
+		      u8 action, u8 token, u64 off, u32 *value)
+{
+	u32 cpp_id;
+	u64 addr;
+	int err;
+
+	if (off + 4 > nfp_rtsym_size(sym)) {
+		nfp_err(cpp, "rtsym '%s': readl out of bounds: off: %lld + 4 > size: %lld\n",
+			sym->name, off, nfp_rtsym_size(sym));
+		return -ENXIO;
+	}
+
+	err = nfp_rtsym_to_dest(cpp, sym, action, token, off, &cpp_id, &addr);
+	if (err)
+		return err;
+
+	return nfp_cpp_readl(cpp, cpp_id, addr, value);
+}
+
+int nfp_rtsym_readl(struct nfp_cpp *cpp, const struct nfp_rtsym *sym, u64 off,
+		    u32 *value)
+{
+	return __nfp_rtsym_readl(cpp, sym, NFP_CPP_ACTION_RW, 0, off, value);
+}
+
+int __nfp_rtsym_readq(struct nfp_cpp *cpp, const struct nfp_rtsym *sym,
+		      u8 action, u8 token, u64 off, u64 *value)
+{
+	u32 cpp_id;
+	u64 addr;
+	int err;
+
+	if (off + 8 > nfp_rtsym_size(sym)) {
+		nfp_err(cpp, "rtsym '%s': readq out of bounds: off: %lld + 8 > size: %lld\n",
+			sym->name, off, nfp_rtsym_size(sym));
+		return -ENXIO;
+	}
+
+	if (sym->type == NFP_RTSYM_TYPE_ABS) {
+		*value = sym->addr;
+		return 0;
+	}
+
+	err = nfp_rtsym_to_dest(cpp, sym, action, token, off, &cpp_id, &addr);
+	if (err)
+		return err;
+
+	return nfp_cpp_readq(cpp, cpp_id, addr, value);
+}
+
+int nfp_rtsym_readq(struct nfp_cpp *cpp, const struct nfp_rtsym *sym, u64 off,
+		    u64 *value)
+{
+	return __nfp_rtsym_readq(cpp, sym, NFP_CPP_ACTION_RW, 0, off, value);
+}
+
+int __nfp_rtsym_write(struct nfp_cpp *cpp, const struct nfp_rtsym *sym,
+		      u8 action, u8 token, u64 off, void *buf, size_t len)
+{
+	u64 sym_size = nfp_rtsym_size(sym);
+	u32 cpp_id;
+	u64 addr;
+	int err;
+
+	if (off > sym_size) {
+		nfp_err(cpp, "rtsym '%s': write out of bounds: off: %lld + len: %zd > size: %lld\n",
+			sym->name, off, len, sym_size);
+		return -ENXIO;
+	}
+	len = min_t(size_t, len, sym_size - off);
+
+	err = nfp_rtsym_to_dest(cpp, sym, action, token, off, &cpp_id, &addr);
+	if (err)
+		return err;
+
+	return nfp_cpp_write(cpp, cpp_id, addr, buf, len);
+}
+
+int nfp_rtsym_write(struct nfp_cpp *cpp, const struct nfp_rtsym *sym, u64 off,
+		    void *buf, size_t len)
+{
+	return __nfp_rtsym_write(cpp, sym, NFP_CPP_ACTION_RW, 0, off, buf, len);
+}
+
+int __nfp_rtsym_writel(struct nfp_cpp *cpp, const struct nfp_rtsym *sym,
+		       u8 action, u8 token, u64 off, u32 value)
+{
+	u32 cpp_id;
+	u64 addr;
+	int err;
+
+	if (off + 4 > nfp_rtsym_size(sym)) {
+		nfp_err(cpp, "rtsym '%s': writel out of bounds: off: %lld + 4 > size: %lld\n",
+			sym->name, off, nfp_rtsym_size(sym));
+		return -ENXIO;
+	}
+
+	err = nfp_rtsym_to_dest(cpp, sym, action, token, off, &cpp_id, &addr);
+	if (err)
+		return err;
+
+	return nfp_cpp_writel(cpp, cpp_id, addr, value);
+}
+
+int nfp_rtsym_writel(struct nfp_cpp *cpp, const struct nfp_rtsym *sym, u64 off,
+		     u32 value)
+{
+	return __nfp_rtsym_writel(cpp, sym, NFP_CPP_ACTION_RW, 0, off, value);
+}
+
+int __nfp_rtsym_writeq(struct nfp_cpp *cpp, const struct nfp_rtsym *sym,
+		       u8 action, u8 token, u64 off, u64 value)
+{
+	u32 cpp_id;
+	u64 addr;
+	int err;
+
+	if (off + 8 > nfp_rtsym_size(sym)) {
+		nfp_err(cpp, "rtsym '%s': writeq out of bounds: off: %lld + 8 > size: %lld\n",
+			sym->name, off, nfp_rtsym_size(sym));
+		return -ENXIO;
+	}
+
+	err = nfp_rtsym_to_dest(cpp, sym, action, token, off, &cpp_id, &addr);
+	if (err)
+		return err;
+
+	return nfp_cpp_writeq(cpp, cpp_id, addr, value);
+}
+
+int nfp_rtsym_writeq(struct nfp_cpp *cpp, const struct nfp_rtsym *sym, u64 off,
+		     u64 value)
+{
+	return __nfp_rtsym_writeq(cpp, sym, NFP_CPP_ACTION_RW, 0, off, value);
+}
+
+/**
  * nfp_rtsym_read_le() - Read a simple unsigned scalar value from symbol
- * @cpp:	NFP CPP handle
+ * @rtbl:	NFP RTsym table
  * @name:	Symbol name
  * @error:	Poniter to error code (optional)
  *
@@ -261,41 +440,36 @@ const struct nfp_rtsym *nfp_rtsym_lookup(struct nfp_cpp *cpp, const char *name)
  *
  * Return: value read, on error sets the error and returns ~0ULL.
  */
-u64 nfp_rtsym_read_le(struct nfp_cpp *cpp, const char *name, int *error)
+u64 nfp_rtsym_read_le(struct nfp_rtsym_table *rtbl, const char *name,
+		      int *error)
 {
 	const struct nfp_rtsym *sym;
-	u32 val32, id;
+	u32 val32;
 	u64 val;
 	int err;
 
-	sym = nfp_rtsym_lookup(cpp, name);
+	sym = nfp_rtsym_lookup(rtbl, name);
 	if (!sym) {
 		err = -ENOENT;
 		goto exit;
 	}
 
-	id = NFP_CPP_ISLAND_ID(sym->target, NFP_CPP_ACTION_RW, 0, sym->domain);
-
-	switch (sym->size) {
+	switch (nfp_rtsym_size(sym)) {
 	case 4:
-		err = nfp_cpp_readl(cpp, id, sym->addr, &val32);
+		err = nfp_rtsym_readl(rtbl->cpp, sym, 0, &val32);
 		val = val32;
 		break;
 	case 8:
-		err = nfp_cpp_readq(cpp, id, sym->addr, &val);
+		err = nfp_rtsym_readq(rtbl->cpp, sym, 0, &val);
 		break;
 	default:
-		nfp_err(cpp,
-			"rtsym '%s' unsupported or non-scalar size: %lld\n",
-			name, sym->size);
+		nfp_err(rtbl->cpp,
+			"rtsym '%s': unsupported or non-scalar size: %lld\n",
+			name, nfp_rtsym_size(sym));
 		err = -EINVAL;
 		break;
 	}
 
-	if (err == sym->size)
-		err = 0;
-	else if (err >= 0)
-		err = -EIO;
 exit:
 	if (error)
 		*error = err;
@@ -303,4 +477,80 @@ exit:
 	if (err)
 		return ~0ULL;
 	return val;
+}
+
+/**
+ * nfp_rtsym_write_le() - Write an unsigned scalar value to a symbol
+ * @rtbl:	NFP RTsym table
+ * @name:	Symbol name
+ * @value:	Value to write
+ *
+ * Lookup a symbol and write a value to it. Symbol can be 4 or 8 bytes in size.
+ * If 4 bytes then the lower 32-bits of 'value' are used. Value will be
+ * written as simple little-endian unsigned value.
+ *
+ * Return: 0 on success or error code.
+ */
+int nfp_rtsym_write_le(struct nfp_rtsym_table *rtbl, const char *name,
+		       u64 value)
+{
+	const struct nfp_rtsym *sym;
+	int err;
+
+	sym = nfp_rtsym_lookup(rtbl, name);
+	if (!sym)
+		return -ENOENT;
+
+	switch (nfp_rtsym_size(sym)) {
+	case 4:
+		err = nfp_rtsym_writel(rtbl->cpp, sym, 0, value);
+		break;
+	case 8:
+		err = nfp_rtsym_writeq(rtbl->cpp, sym, 0, value);
+		break;
+	default:
+		nfp_err(rtbl->cpp,
+			"rtsym '%s': unsupported or non-scalar size: %lld\n",
+			name, nfp_rtsym_size(sym));
+		err = -EINVAL;
+		break;
+	}
+
+	return err;
+}
+
+u8 __iomem *
+nfp_rtsym_map(struct nfp_rtsym_table *rtbl, const char *name, const char *id,
+	      unsigned int min_size, struct nfp_cpp_area **area)
+{
+	const struct nfp_rtsym *sym;
+	u8 __iomem *mem;
+	u32 cpp_id;
+	u64 addr;
+	int err;
+
+	sym = nfp_rtsym_lookup(rtbl, name);
+	if (!sym)
+		return (u8 __iomem *)ERR_PTR(-ENOENT);
+
+	err = nfp_rtsym_to_dest(rtbl->cpp, sym, NFP_CPP_ACTION_RW, 0, 0,
+				&cpp_id, &addr);
+	if (err) {
+		nfp_err(rtbl->cpp, "rtsym '%s': mapping failed\n", name);
+		return (u8 __iomem *)ERR_PTR(err);
+	}
+
+	if (sym->size < min_size) {
+		nfp_err(rtbl->cpp, "rtsym '%s': too small\n", name);
+		return (u8 __iomem *)ERR_PTR(-EINVAL);
+	}
+
+	mem = nfp_cpp_map_area(rtbl->cpp, id, cpp_id, addr, sym->size, area);
+	if (IS_ERR(mem)) {
+		nfp_err(rtbl->cpp, "rtysm '%s': failed to map: %ld\n",
+			name, PTR_ERR(mem));
+		return mem;
+	}
+
+	return mem;
 }

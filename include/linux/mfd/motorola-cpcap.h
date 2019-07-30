@@ -1,3 +1,4 @@
+/* SPDX-License-Identifier: GPL-2.0-only */
 /*
  * The register defines are based on earlier cpcap.h in Motorola Linux kernel
  * tree.
@@ -8,11 +9,10 @@
  * to make the defines usable with Linux kernel regmap support
  *
  * Copyright (C) 2016 Tony Lindgren <tony@atomide.com>
- *
- * This program is free software; you can redistribute it and/or modify
- * it under the terms of the GNU General Public License version 2 as
- * published by the Free Software Foundation.
  */
+
+#include <linux/device.h>
+#include <linux/regmap.h>
 
 #define CPCAP_VENDOR_ST		0
 #define CPCAP_VENDOR_TI		1
@@ -290,3 +290,5 @@ static inline int cpcap_get_vendor(struct device *dev,
 
 	return 0;
 }
+
+extern int cpcap_sense_virq(struct regmap *regmap, int virq);

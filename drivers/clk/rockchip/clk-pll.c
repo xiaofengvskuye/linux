@@ -1,19 +1,10 @@
+// SPDX-License-Identifier: GPL-2.0-or-later
 /*
  * Copyright (c) 2014 MundoReader S.L.
  * Author: Heiko Stuebner <heiko@sntech.de>
  *
  * Copyright (c) 2015 Rockchip Electronics Co. Ltd.
  * Author: Xing Zheng <zhengxing@rock-chips.com>
- *
- * This program is free software; you can redistribute it and/or modify
- * it under the terms of the GNU General Public License as published by
- * the Free Software Foundation; either version 2 of the License, or
- * (at your option) any later version.
- *
- * This program is distributed in the hope that it will be useful,
- * but WITHOUT ANY WARRANTY; without even the implied warranty of
- * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
- * GNU General Public License for more details.
  */
 
 #include <asm/div64.h>
@@ -269,6 +260,7 @@ static int rockchip_rk3036_pll_enable(struct clk_hw *hw)
 
 	writel(HIWORD_UPDATE(0, RK3036_PLLCON1_PWRDOWN, 0),
 	       pll->reg_base + RK3036_PLLCON(1));
+	rockchip_pll_wait_lock(pll);
 
 	return 0;
 }
@@ -501,6 +493,7 @@ static int rockchip_rk3066_pll_enable(struct clk_hw *hw)
 
 	writel(HIWORD_UPDATE(0, RK3066_PLLCON3_PWRDOWN, 0),
 	       pll->reg_base + RK3066_PLLCON(3));
+	rockchip_pll_wait_lock(pll);
 
 	return 0;
 }
@@ -746,6 +739,7 @@ static int rockchip_rk3399_pll_enable(struct clk_hw *hw)
 
 	writel(HIWORD_UPDATE(0, RK3399_PLLCON3_PWRDOWN, 0),
 	       pll->reg_base + RK3399_PLLCON(3));
+	rockchip_rk3399_pll_wait_lock(pll);
 
 	return 0;
 }

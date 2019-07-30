@@ -1,22 +1,10 @@
+/* SPDX-License-Identifier: GPL-2.0-only */
 /*
  * irq.h: in kernel interrupt controller related definitions
  * Copyright (c) 2007, Intel Corporation.
  *
- * This program is free software; you can redistribute it and/or modify it
- * under the terms and conditions of the GNU General Public License,
- * version 2, as published by the Free Software Foundation.
- *
- * This program is distributed in the hope it will be useful, but WITHOUT
- * ANY WARRANTY; without even the implied warranty of MERCHANTABILITY or
- * FITNESS FOR A PARTICULAR PURPOSE.  See the GNU General Public License for
- * more details.
- *
- * You should have received a copy of the GNU General Public License along with
- * this program; if not, write to the Free Software Foundation, Inc., 59 Temple
- * Place - Suite 330, Boston, MA 02111-1307 USA.
  * Authors:
  *   Yaozu (Eddie) Dong <Eddie.dong@intel.com>
- *
  */
 
 #ifndef __IRQ_H
@@ -78,40 +66,43 @@ void kvm_pic_destroy(struct kvm *kvm);
 int kvm_pic_read_irq(struct kvm *kvm);
 void kvm_pic_update_irq(struct kvm_pic *s);
 
-static inline struct kvm_pic *pic_irqchip(struct kvm *kvm)
-{
-	return kvm->arch.vpic;
-}
-
 static inline int pic_in_kernel(struct kvm *kvm)
 {
-	int ret;
+	int mode = kvm->arch.irqchip_mode;
 
-	ret = (pic_irqchip(kvm) != NULL);
-	return ret;
+	/* Matches smp_wmb() when setting irqchip_mode */
+	smp_rmb();
+	return mode == KVM_IRQCHIP_KERNEL;
 }
 
 static inline int irqchip_split(struct kvm *kvm)
 {
-	return kvm->arch.irqchip_mode == KVM_IRQCHIP_SPLIT;
+	int mode = kvm->arch.irqchip_mode;
+
+	/* Matches smp_wmb() when setting irqchip_mode */
+	smp_rmb();
+	return mode == KVM_IRQCHIP_SPLIT;
 }
 
 static inline int irqchip_kernel(struct kvm *kvm)
 {
-	return kvm->arch.irqchip_mode == KVM_IRQCHIP_KERNEL;
+	int mode = kvm->arch.irqchip_mode;
+
+	/* Matches smp_wmb() when setting irqchip_mode */
+	smp_rmb();
+	return mode == KVM_IRQCHIP_KERNEL;
 }
 
 static inline int irqchip_in_kernel(struct kvm *kvm)
 {
-	bool ret = kvm->arch.irqchip_mode != KVM_IRQCHIP_NONE;
+	int mode = kvm->arch.irqchip_mode;
 
-	/* Matches with wmb after initializing kvm->irq_routing. */
+	/* Matches smp_wmb() when setting irqchip_mode */
 	smp_rmb();
-	return ret;
+	return mode != KVM_IRQCHIP_NONE;
 }
 
-void kvm_pic_reset(struct kvm_kpic_state *s);
-
+bool kvm_arch_irqfd_allowed(struct kvm *kvm, struct kvm_irqfd *args);
 void kvm_inject_pending_timer_irqs(struct kvm_vcpu *vcpu);
 void kvm_inject_apic_timer_irqs(struct kvm_vcpu *vcpu);
 void kvm_apic_nmi_wd_deliver(struct kvm_vcpu *vcpu);

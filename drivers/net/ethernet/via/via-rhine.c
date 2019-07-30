@@ -571,7 +571,6 @@ static void rhine_ack_events(struct rhine_private *rp, u32 mask)
 	if (rp->quirks & rqStatusWBRace)
 		iowrite8(mask >> 16, ioaddr + IntrStatus2);
 	iowrite16(mask, ioaddr + IntrStatus);
-	mmiowb();
 }
 
 /*
@@ -863,7 +862,6 @@ static int rhine_napipoll(struct napi_struct *napi, int budget)
 	if (work_done < budget) {
 		napi_complete_done(napi, work_done);
 		iowrite16(enable_mask, ioaddr + IntrEnable);
-		mmiowb();
 	}
 	return work_done;
 }
@@ -995,8 +993,8 @@ static int rhine_init_one_common(struct device *hwdev, u32 quirks,
 	else
 		name = "Rhine III";
 
-	netdev_info(dev, "VIA %s at 0x%lx, %pM, IRQ %d\n",
-		    name, (long)ioaddr, dev->dev_addr, rp->irq);
+	netdev_info(dev, "VIA %s at %p, %pM, IRQ %d\n",
+		    name, ioaddr, dev->dev_addr, rp->irq);
 
 	dev_set_drvdata(hwdev, dev);
 
@@ -1893,7 +1891,6 @@ static netdev_tx_t rhine_start_tx(struct sk_buff *skb,
 static void rhine_irq_disable(struct rhine_private *rp)
 {
 	iowrite16(0x0000, rp->base + IntrEnable);
-	mmiowb();
 }
 
 /* The interrupt handler does all of the Rx thread work and cleans up
@@ -2303,25 +2300,26 @@ static void netdev_get_drvinfo(struct net_device *dev, struct ethtool_drvinfo *i
 	strlcpy(info->bus_info, dev_name(hwdev), sizeof(info->bus_info));
 }
 
-static int netdev_get_settings(struct net_device *dev, struct ethtool_cmd *cmd)
+static int netdev_get_link_ksettings(struct net_device *dev,
+				     struct ethtool_link_ksettings *cmd)
 {
 	struct rhine_private *rp = netdev_priv(dev);
-	int rc;
 
 	mutex_lock(&rp->task_lock);
-	rc = mii_ethtool_gset(&rp->mii_if, cmd);
+	mii_ethtool_get_link_ksettings(&rp->mii_if, cmd);
 	mutex_unlock(&rp->task_lock);
 
-	return rc;
+	return 0;
 }
 
-static int netdev_set_settings(struct net_device *dev, struct ethtool_cmd *cmd)
+static int netdev_set_link_ksettings(struct net_device *dev,
+				     const struct ethtool_link_ksettings *cmd)
 {
 	struct rhine_private *rp = netdev_priv(dev);
 	int rc;
 
 	mutex_lock(&rp->task_lock);
-	rc = mii_ethtool_sset(&rp->mii_if, cmd);
+	rc = mii_ethtool_set_link_ksettings(&rp->mii_if, cmd);
 	rhine_set_carrier(&rp->mii_if);
 	mutex_unlock(&rp->task_lock);
 
@@ -2391,14 +2389,14 @@ static int rhine_set_wol(struct net_device *dev, struct ethtool_wolinfo *wol)
 
 static const struct ethtool_ops netdev_ethtool_ops = {
 	.get_drvinfo		= netdev_get_drvinfo,
-	.get_settings		= netdev_get_settings,
-	.set_settings		= netdev_set_settings,
 	.nway_reset		= netdev_nway_reset,
 	.get_link		= netdev_get_link,
 	.get_msglevel		= netdev_get_msglevel,
 	.set_msglevel		= netdev_set_msglevel,
 	.get_wol		= rhine_get_wol,
 	.set_wol		= rhine_set_wol,
+	.get_link_ksettings	= netdev_get_link_ksettings,
+	.set_link_ksettings	= netdev_set_link_ksettings,
 };
 
 static int netdev_ioctl(struct net_device *dev, struct ifreq *rq, int cmd)
@@ -2597,7 +2595,7 @@ static struct platform_driver rhine_driver_platform = {
 	}
 };
 
-static struct dmi_system_id rhine_dmi_table[] __initdata = {
+static const struct dmi_system_id rhine_dmi_table[] __initconst = {
 	{
 		.ident = "EPIA-M",
 		.matches = {

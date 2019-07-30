@@ -1,20 +1,9 @@
+// SPDX-License-Identifier: GPL-2.0-only
 /*
  * An implementation of host initiated guest snapshot.
  *
- *
  * Copyright (C) 2013, Microsoft, Inc.
  * Author : K. Y. Srinivasan <kys@microsoft.com>
- *
- * This program is free software; you can redistribute it and/or modify it
- * under the terms of the GNU General Public License version 2 as published
- * by the Free Software Foundation.
- *
- * This program is distributed in the hope that it will be useful, but
- * WITHOUT ANY WARRANTY; without even the implied warranty of
- * MERCHANTABILITY OR FITNESS FOR A PARTICULAR PURPOSE, GOOD TITLE or
- * NON INFRINGEMENT.  See the GNU General Public License for more
- * details.
- *
  */
 #define pr_fmt(fmt) KBUILD_MODNAME ": " fmt
 
@@ -79,7 +68,6 @@ static int dm_reg_value;
 static const char vss_devname[] = "vmbus/hv_vss";
 static __u8 *recv_buffer;
 static struct hvutil_transport *hvt;
-static struct completion release_event;
 
 static void vss_timeout_func(struct work_struct *dummy);
 static void vss_handle_request(struct work_struct *dummy);
@@ -213,8 +201,6 @@ static void vss_send_op(void)
 	}
 
 	kfree(vss_msg);
-
-	return;
 }
 
 static void vss_handle_request(struct work_struct *dummy)
@@ -361,13 +347,11 @@ static void vss_on_reset(void)
 	if (cancel_delayed_work_sync(&vss_timeout_work))
 		vss_respond_to_host(HV_E_FAIL);
 	vss_transaction.state = HVUTIL_DEVICE_INIT;
-	complete(&release_event);
 }
 
 int
 hv_vss_init(struct hv_util_service *srv)
 {
-	init_completion(&release_event);
 	if (vmbus_proto_version < VERSION_WIN8_1) {
 		pr_warn("Integration service 'Backup (volume snapshot)'"
 			" not supported on this host version.\n");
@@ -400,5 +384,4 @@ void hv_vss_deinit(void)
 	cancel_delayed_work_sync(&vss_timeout_work);
 	cancel_work_sync(&vss_handle_request_work);
 	hvutil_transport_destroy(hvt);
-	wait_for_completion(&release_event);
 }

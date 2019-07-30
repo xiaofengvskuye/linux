@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: GPL-2.0
 #include <linux/kernel.h>
 #include <linux/gfp.h>
 #include <linux/ide.h>
@@ -18,16 +19,16 @@ int generic_ide_suspend(struct device *dev, pm_message_t mesg)
 	}
 
 	memset(&rqpm, 0, sizeof(rqpm));
-	rq = blk_get_request(drive->queue, REQ_OP_DRV_IN, __GFP_RECLAIM);
-	scsi_req_init(rq);
+	rq = blk_get_request(drive->queue, REQ_OP_DRV_IN, 0);
 	ide_req(rq)->type = ATA_PRIV_PM_SUSPEND;
-	rq->special = &rqpm;
+	ide_req(rq)->special = &rqpm;
 	rqpm.pm_step = IDE_PM_START_SUSPEND;
 	if (mesg.event == PM_EVENT_PRETHAW)
 		mesg.event = PM_EVENT_FREEZE;
 	rqpm.pm_state = mesg.event;
 
-	ret = blk_execute_rq(drive->queue, NULL, rq, 0);
+	blk_execute_rq(drive->queue, NULL, rq, 0);
+	ret = scsi_req(rq)->result ? -EIO : 0;
 	blk_put_request(rq);
 
 	if (ret == 0 && ide_port_acpi(hwif)) {
@@ -39,34 +40,19 @@ int generic_ide_suspend(struct device *dev, pm_message_t mesg)
 	return ret;
 }
 
-static void ide_end_sync_rq(struct request *rq, int error)
-{
-	complete(rq->end_io_data);
-}
-
 static int ide_pm_execute_rq(struct request *rq)
 {
 	struct request_queue *q = rq->q;
-	DECLARE_COMPLETION_ONSTACK(wait);
 
-	rq->end_io_data = &wait;
-	rq->end_io = ide_end_sync_rq;
-
-	spin_lock_irq(q->queue_lock);
 	if (unlikely(blk_queue_dying(q))) {
 		rq->rq_flags |= RQF_QUIET;
-		rq->errors = -ENXIO;
-		__blk_end_request_all(rq, rq->errors);
-		spin_unlock_irq(q->queue_lock);
+		scsi_req(rq)->result = -ENXIO;
+		blk_mq_end_request(rq, BLK_STS_OK);
 		return -ENXIO;
 	}
-	__elv_add_request(q, rq, ELEVATOR_INSERT_FRONT);
-	__blk_run_queue_uncond(q);
-	spin_unlock_irq(q->queue_lock);
+	blk_execute_rq(q, NULL, rq, true);
 
-	wait_for_completion_io(&wait);
-
-	return rq->errors ? -EIO : 0;
+	return scsi_req(rq)->result ? -EIO : 0;
 }
 
 int generic_ide_resume(struct device *dev)
@@ -77,6 +63,8 @@ int generic_ide_resume(struct device *dev)
 	struct request *rq;
 	struct ide_pm_state rqpm;
 	int err;
+
+	blk_mq_start_stopped_hw_queues(drive->queue, true);
 
 	if (ide_port_acpi(hwif)) {
 		/* call ACPI _PS0 / _STM only once */
@@ -89,11 +77,9 @@ int generic_ide_resume(struct device *dev)
 	}
 
 	memset(&rqpm, 0, sizeof(rqpm));
-	rq = blk_get_request(drive->queue, REQ_OP_DRV_IN, __GFP_RECLAIM);
-	scsi_req_init(rq);
+	rq = blk_get_request(drive->queue, REQ_OP_DRV_IN, BLK_MQ_REQ_PREEMPT);
 	ide_req(rq)->type = ATA_PRIV_PM_RESUME;
-	rq->rq_flags |= RQF_PREEMPT;
-	rq->special = &rqpm;
+	ide_req(rq)->special = &rqpm;
 	rqpm.pm_step = IDE_PM_START_RESUME;
 	rqpm.pm_state = PM_EVENT_ON;
 
@@ -112,7 +98,7 @@ int generic_ide_resume(struct device *dev)
 
 void ide_complete_power_step(ide_drive_t *drive, struct request *rq)
 {
-	struct ide_pm_state *pm = rq->special;
+	struct ide_pm_state *pm = ide_req(rq)->special;
 
 #ifdef DEBUG_PM
 	printk(KERN_INFO "%s: complete_power_step(step: %d)\n",
@@ -142,7 +128,7 @@ void ide_complete_power_step(ide_drive_t *drive, struct request *rq)
 
 ide_startstop_t ide_start_power_step(ide_drive_t *drive, struct request *rq)
 {
-	struct ide_pm_state *pm = rq->special;
+	struct ide_pm_state *pm = ide_req(rq)->special;
 	struct ide_cmd cmd = { };
 
 	switch (pm->pm_step) {
@@ -214,8 +200,7 @@ out_do_tf:
 void ide_complete_pm_rq(ide_drive_t *drive, struct request *rq)
 {
 	struct request_queue *q = drive->queue;
-	struct ide_pm_state *pm = rq->special;
-	unsigned long flags;
+	struct ide_pm_state *pm = ide_req(rq)->special;
 
 	ide_complete_power_step(drive, rq);
 	if (pm->pm_step != IDE_PM_COMPLETED)
@@ -225,22 +210,19 @@ void ide_complete_pm_rq(ide_drive_t *drive, struct request *rq)
 	printk("%s: completing PM request, %s\n", drive->name,
 	       (ide_req(rq)->type == ATA_PRIV_PM_SUSPEND) ? "suspend" : "resume");
 #endif
-	spin_lock_irqsave(q->queue_lock, flags);
 	if (ide_req(rq)->type == ATA_PRIV_PM_SUSPEND)
-		blk_stop_queue(q);
+		blk_mq_stop_hw_queues(q);
 	else
 		drive->dev_flags &= ~IDE_DFLAG_BLOCKED;
-	spin_unlock_irqrestore(q->queue_lock, flags);
 
 	drive->hwif->rq = NULL;
 
-	if (blk_end_request(rq, 0, 0))
-		BUG();
+	blk_mq_end_request(rq, BLK_STS_OK);
 }
 
 void ide_check_pm_state(ide_drive_t *drive, struct request *rq)
 {
-	struct ide_pm_state *pm = rq->special;
+	struct ide_pm_state *pm = ide_req(rq)->special;
 
 	if (blk_rq_is_private(rq) &&
 	    ide_req(rq)->type == ATA_PRIV_PM_SUSPEND &&
@@ -261,7 +243,6 @@ void ide_check_pm_state(ide_drive_t *drive, struct request *rq)
 		ide_hwif_t *hwif = drive->hwif;
 		const struct ide_tp_ops *tp_ops = hwif->tp_ops;
 		struct request_queue *q = drive->queue;
-		unsigned long flags;
 		int rc;
 #ifdef DEBUG_PM
 		printk("%s: Wakeup request inited, waiting for !BSY...\n", drive->name);
@@ -275,8 +256,6 @@ void ide_check_pm_state(ide_drive_t *drive, struct request *rq)
 		if (rc)
 			printk(KERN_WARNING "%s: drive not ready on wakeup\n", drive->name);
 
-		spin_lock_irqsave(q->queue_lock, flags);
-		blk_start_queue(q);
-		spin_unlock_irqrestore(q->queue_lock, flags);
+		blk_mq_start_hw_queues(q);
 	}
 }

@@ -67,17 +67,12 @@ static LIST_HEAD(bridge_list);
  * drm_bridge_add - add the given bridge to the global bridge list
  *
  * @bridge: bridge control structure
- *
- * RETURNS:
- * Unconditionally returns Zero.
  */
-int drm_bridge_add(struct drm_bridge *bridge)
+void drm_bridge_add(struct drm_bridge *bridge)
 {
 	mutex_lock(&bridge_lock);
 	list_add_tail(&bridge->list, &bridge_list);
 	mutex_unlock(&bridge_lock);
-
-	return 0;
 }
 EXPORT_SYMBOL(drm_bridge_add);
 
@@ -108,6 +103,10 @@ EXPORT_SYMBOL(drm_bridge_remove);
  *
  * If non-NULL the previous bridge must be already attached by a call to this
  * function.
+ *
+ * Note that bridges attached to encoders are auto-detached during encoder
+ * cleanup in drm_encoder_cleanup(), so drm_bridge_attach() should generally
+ * *not* be balanced with a drm_bridge_detach() in driver code.
  *
  * RETURNS:
  * Zero on success, error code on failure
@@ -206,6 +205,39 @@ bool drm_bridge_mode_fixup(struct drm_bridge *bridge,
 EXPORT_SYMBOL(drm_bridge_mode_fixup);
 
 /**
+ * drm_bridge_mode_valid - validate the mode against all bridges in the
+ * 			   encoder chain.
+ * @bridge: bridge control structure
+ * @mode: desired mode to be validated
+ *
+ * Calls &drm_bridge_funcs.mode_valid for all the bridges in the encoder
+ * chain, starting from the first bridge to the last. If at least one bridge
+ * does not accept the mode the function returns the error code.
+ *
+ * Note: the bridge passed should be the one closest to the encoder.
+ *
+ * RETURNS:
+ * MODE_OK on success, drm_mode_status Enum error code on failure
+ */
+enum drm_mode_status drm_bridge_mode_valid(struct drm_bridge *bridge,
+					   const struct drm_display_mode *mode)
+{
+	enum drm_mode_status ret = MODE_OK;
+
+	if (!bridge)
+		return ret;
+
+	if (bridge->funcs->mode_valid)
+		ret = bridge->funcs->mode_valid(bridge, mode);
+
+	if (ret != MODE_OK)
+		return ret;
+
+	return drm_bridge_mode_valid(bridge->next, mode);
+}
+EXPORT_SYMBOL(drm_bridge_mode_valid);
+
+/**
  * drm_bridge_disable - disables all bridges in the encoder chain
  * @bridge: bridge control structure
  *
@@ -262,8 +294,8 @@ EXPORT_SYMBOL(drm_bridge_post_disable);
  * Note: the bridge passed should be the one closest to the encoder
  */
 void drm_bridge_mode_set(struct drm_bridge *bridge,
-			struct drm_display_mode *mode,
-			struct drm_display_mode *adjusted_mode)
+			 const struct drm_display_mode *mode,
+			 const struct drm_display_mode *adjusted_mode)
 {
 	if (!bridge)
 		return;

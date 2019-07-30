@@ -474,7 +474,7 @@ isdn_tty_senddown(modem_info *info)
 		return;
 	}
 	skb_reserve(skb, skb_res);
-	memcpy(skb_put(skb, buflen), info->port.xmit_buf, buflen);
+	skb_put_data(skb, info->port.xmit_buf, buflen);
 	info->xmit_count = 0;
 #ifdef CONFIG_ISDN_AUDIO
 	if (info->vonline & 2) {
@@ -541,9 +541,9 @@ isdn_tty_senddown(modem_info *info)
  * into the tty's buffer.
  */
 static void
-isdn_tty_modem_do_ncarrier(unsigned long data)
+isdn_tty_modem_do_ncarrier(struct timer_list *t)
 {
-	modem_info *info = (modem_info *) data;
+	modem_info *info = from_timer(info, t, nc_timer);
 	isdn_tty_modem_result(RESULT_NO_CARRIER, info);
 }
 
@@ -787,7 +787,7 @@ isdn_tty_suspend(char *id, modem_info *info, atemu *m)
 		cmd.parm.cmsg.para[3] = 4; /* 16 bit 0x0004 Suspend */
 		cmd.parm.cmsg.para[4] = 0;
 		cmd.parm.cmsg.para[5] = l;
-		strncpy(&cmd.parm.cmsg.para[6], id, l);
+		memcpy(&cmd.parm.cmsg.para[6], id, l);
 		cmd.command = CAPI_PUT_MESSAGE;
 		cmd.driver = info->isdn_driver;
 		cmd.arg = info->isdn_channel;
@@ -877,7 +877,7 @@ isdn_tty_resume(char *id, modem_info *info, atemu *m)
 		cmd.parm.cmsg.para[3] = 5; /* 16 bit 0x0005 Resume */
 		cmd.parm.cmsg.para[4] = 0;
 		cmd.parm.cmsg.para[5] = l;
-		strncpy(&cmd.parm.cmsg.para[6], id, l);
+		memcpy(&cmd.parm.cmsg.para[6], id, l);
 		cmd.command = CAPI_PUT_MESSAGE;
 		info->dialing = 1;
 //		strcpy(dev->num[i], n);
@@ -1412,31 +1412,12 @@ static int
 isdn_tty_ioctl(struct tty_struct *tty, uint cmd, ulong arg)
 {
 	modem_info *info = (modem_info *) tty->driver_data;
-	int retval;
 
 	if (isdn_tty_paranoia_check(info, tty->name, "isdn_tty_ioctl"))
 		return -ENODEV;
 	if (tty_io_error(tty))
 		return -EIO;
 	switch (cmd) {
-	case TCSBRK:   /* SVID version: non-zero arg --> no break */
-#ifdef ISDN_DEBUG_MODEM_IOCTL
-		printk(KERN_DEBUG "ttyI%d ioctl TCSBRK\n", info->line);
-#endif
-		retval = tty_check_change(tty);
-		if (retval)
-			return retval;
-		tty_wait_until_sent(tty, 0);
-		return 0;
-	case TCSBRKP:  /* support for POSIX tcsendbreak() */
-#ifdef ISDN_DEBUG_MODEM_IOCTL
-		printk(KERN_DEBUG "ttyI%d ioctl TCSBRKP\n", info->line);
-#endif
-		retval = tty_check_change(tty);
-		if (retval)
-			return retval;
-		tty_wait_until_sent(tty, 0);
-		return 0;
 	case TIOCSERGETLSR:	/* Get line status register */
 #ifdef ISDN_DEBUG_MODEM_IOCTL
 		printk(KERN_DEBUG "ttyI%d ioctl TIOCSERGETLSR\n", info->line);
@@ -1456,15 +1437,19 @@ isdn_tty_set_termios(struct tty_struct *tty, struct ktermios *old_termios)
 {
 	modem_info *info = (modem_info *) tty->driver_data;
 
+	mutex_lock(&modem_info_mutex);
 	if (!old_termios)
 		isdn_tty_change_speed(info);
 	else {
 		if (tty->termios.c_cflag == old_termios->c_cflag &&
 		    tty->termios.c_ispeed == old_termios->c_ispeed &&
-		    tty->termios.c_ospeed == old_termios->c_ospeed)
+		    tty->termios.c_ospeed == old_termios->c_ospeed) {
+			mutex_unlock(&modem_info_mutex);
 			return;
+		}
 		isdn_tty_change_speed(info);
 	}
+	mutex_unlock(&modem_info_mutex);
 }
 
 /*
@@ -1812,9 +1797,7 @@ isdn_tty_modem_init(void)
 		info->isdn_channel = -1;
 		info->drv_index = -1;
 		info->xmit_size = ISDN_SERIAL_XMIT_SIZE;
-		init_timer(&info->nc_timer);
-		info->nc_timer.function = isdn_tty_modem_do_ncarrier;
-		info->nc_timer.data = (unsigned long) info;
+		timer_setup(&info->nc_timer, isdn_tty_modem_do_ncarrier, 0);
 		skb_queue_head_init(&info->xmit_queue);
 #ifdef CONFIG_ISDN_AUDIO
 		skb_queue_head_init(&info->dtmf_queue);
@@ -3659,7 +3642,7 @@ isdn_tty_edit_at(const char *p, int count, modem_info *info)
 						break;
 					} else
 						m->mdmcmdl = 0;
-					/* Fall through, check for 'A' */
+					/* Fall through - check for 'A' */
 				case 0:
 					if (c == 'A') {
 						m->mdmcmd[m->mdmcmdl] = c;

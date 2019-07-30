@@ -1,17 +1,8 @@
+/* SPDX-License-Identifier: GPL-2.0-or-later */
 /*
  * Copyright 2016 Maxime Ripard
  *
  * Maxime Ripard <maxime.ripard@free-electrons.com>
- *
- * This program is free software; you can redistribute it and/or modify
- * it under the terms of the GNU General Public License as published by
- * the Free Software Foundation; either version 2 of the License, or
- * (at your option) any later version.
- *
- * This program is distributed in the hope that it will be useful,
- * but WITHOUT ANY WARRANTY; without even the implied warranty of
- * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
- * GNU General Public License for more details.
  */
 
 #ifndef _CCU_SUN5I_H_
@@ -28,15 +19,17 @@
 #define CLK_PLL_AUDIO_4X	6
 #define CLK_PLL_AUDIO_8X	7
 #define CLK_PLL_VIDEO0		8
-#define CLK_PLL_VIDEO0_2X	9
+
+/* The PLL_VIDEO0_2X is exported for HDMI */
+
 #define CLK_PLL_VE		10
 #define CLK_PLL_DDR_BASE	11
 #define CLK_PLL_DDR		12
 #define CLK_PLL_DDR_OTHER	13
 #define CLK_PLL_PERIPH		14
 #define CLK_PLL_VIDEO1		15
-#define CLK_PLL_VIDEO1_2X	16
 
+/* The PLL_VIDEO1_2X is exported for HDMI */
 /* The CPU clock is exported */
 
 #define CLK_AXI			18
@@ -57,10 +50,6 @@
 #define CLK_TCON_CH1_SCLK	91
 
 /* The rest of the module clocks are exported */
-
-#define CLK_MBUS		99
-
-/* And finally the IEP clock */
 
 #define CLK_NUMBER		(CLK_IEP + 1)
 

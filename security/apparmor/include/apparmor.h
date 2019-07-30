@@ -1,15 +1,11 @@
+/* SPDX-License-Identifier: GPL-2.0-only */
 /*
  * AppArmor security module
  *
  * This file contains AppArmor basic global
  *
  * Copyright (C) 1998-2008 Novell/SUSE
- * Copyright 2009-2010 Canonical Ltd.
- *
- * This program is free software; you can redistribute it and/or
- * modify it under the terms of the GNU General Public License as
- * published by the Free Software Foundation, version 2 of the
- * License.
+ * Copyright 2009-2017 Canonical Ltd.
  */
 
 #ifndef __APPARMOR_H
@@ -24,11 +20,16 @@
 #define AA_CLASS_UNKNOWN	1
 #define AA_CLASS_FILE		2
 #define AA_CLASS_CAP		3
-#define AA_CLASS_NET		4
+#define AA_CLASS_DEPRECATED	4
 #define AA_CLASS_RLIMITS	5
 #define AA_CLASS_DOMAIN		6
+#define AA_CLASS_MOUNT		7
+#define AA_CLASS_PTRACE		9
+#define AA_CLASS_SIGNAL		10
+#define AA_CLASS_NET		14
+#define AA_CLASS_LABEL		16
 
-#define AA_CLASS_LAST		AA_CLASS_DOMAIN
+#define AA_CLASS_LAST		AA_CLASS_LABEL
 
 /* Control parameters settable through module/boot flags */
 extern enum audit_mode aa_g_audit;

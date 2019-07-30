@@ -1,6 +1,4 @@
-menu "Kernel hacking"
-
-source "lib/Kconfig.debug"
+# SPDX-License-Identifier: GPL-2.0-only
 
 config ARM64_PTDUMP_CORE
 	def_bool n
@@ -92,6 +90,8 @@ config DEBUG_EFI
 	  the kernel that are only useful when using a debug build of the
 	  UEFI firmware
 
-source "drivers/hwtracing/coresight/Kconfig"
+config ARM64_RELOC_TEST
+	depends on m
+	tristate "Relocation testing module"
 
-endmenu
+source "drivers/hwtracing/coresight/Kconfig"

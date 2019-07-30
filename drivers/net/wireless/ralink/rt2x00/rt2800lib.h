@@ -1,30 +1,47 @@
+/* SPDX-License-Identifier: GPL-2.0-or-later */
 /*
 	Copyright (C) 2010 Willow Garage <http://www.willowgarage.com>
 	Copyright (C) 2010 Ivo van Doorn <IvDoorn@gmail.com>
 	Copyright (C) 2009 Bartlomiej Zolnierkiewicz
 
-	This program is free software; you can redistribute it and/or modify
-	it under the terms of the GNU General Public License as published by
-	the Free Software Foundation; either version 2 of the License, or
-	(at your option) any later version.
-
-	This program is distributed in the hope that it will be useful,
-	but WITHOUT ANY WARRANTY; without even the implied warranty of
-	MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE. See the
-	GNU General Public License for more details.
-
-	You should have received a copy of the GNU General Public License
-	along with this program; if not, see <http://www.gnu.org/licenses/>.
  */
 
 #ifndef RT2800LIB_H
 #define RT2800LIB_H
 
+/*
+ * Hardware has 255 WCID table entries. First 32 entries are reserved for
+ * shared keys. Since parts of the pairwise key table might be shared with
+ * the beacon frame buffers 6 & 7 we could only use the first 222 entries.
+ */
+#define WCID_START	33
+#define WCID_END	222
+#define STA_IDS_SIZE	(WCID_END - WCID_START + 2)
+
+/* RT2800 driver data structure */
+struct rt2800_drv_data {
+	u8 calibration_bw20;
+	u8 calibration_bw40;
+	char rx_calibration_bw20;
+	char rx_calibration_bw40;
+	char tx_calibration_bw20;
+	char tx_calibration_bw40;
+	u8 bbp25;
+	u8 bbp26;
+	u8 txmixer_gain_24g;
+	u8 txmixer_gain_5g;
+	u8 max_psdu;
+	unsigned int tbtt_tick;
+	unsigned int ampdu_factor_cnt[4];
+	DECLARE_BITMAP(sta_ids, STA_IDS_SIZE);
+	struct ieee80211_sta *wcid_to_sta[STA_IDS_SIZE];
+};
+
 struct rt2800_ops {
-	void (*register_read)(struct rt2x00_dev *rt2x00dev,
-			      const unsigned int offset, u32 *value);
-	void (*register_read_lock)(struct rt2x00_dev *rt2x00dev,
-				   const unsigned int offset, u32 *value);
+	u32 (*register_read)(struct rt2x00_dev *rt2x00dev,
+			      const unsigned int offset);
+	u32 (*register_read_lock)(struct rt2x00_dev *rt2x00dev,
+				   const unsigned int offset);
 	void (*register_write)(struct rt2x00_dev *rt2x00dev,
 			       const unsigned int offset, u32 value);
 	void (*register_write_lock)(struct rt2x00_dev *rt2x00dev,
@@ -50,22 +67,20 @@ struct rt2800_ops {
 	__le32 *(*drv_get_txwi)(struct queue_entry *entry);
 };
 
-static inline void rt2800_register_read(struct rt2x00_dev *rt2x00dev,
-					const unsigned int offset,
-					u32 *value)
+static inline u32 rt2800_register_read(struct rt2x00_dev *rt2x00dev,
+				       const unsigned int offset)
 {
 	const struct rt2800_ops *rt2800ops = rt2x00dev->ops->drv;
 
-	rt2800ops->register_read(rt2x00dev, offset, value);
+	return rt2800ops->register_read(rt2x00dev, offset);
 }
 
-static inline void rt2800_register_read_lock(struct rt2x00_dev *rt2x00dev,
-					     const unsigned int offset,
-					     u32 *value)
+static inline u32 rt2800_register_read_lock(struct rt2x00_dev *rt2x00dev,
+					    const unsigned int offset)
 {
 	const struct rt2800_ops *rt2800ops = rt2x00dev->ops->drv;
 
-	rt2800ops->register_read_lock(rt2x00dev, offset, value);
+	return rt2800ops->register_read_lock(rt2x00dev, offset);
 }
 
 static inline void rt2800_register_write(struct rt2x00_dev *rt2x00dev,
@@ -167,7 +182,12 @@ void rt2800_write_tx_data(struct queue_entry *entry,
 			  struct txentry_desc *txdesc);
 void rt2800_process_rxwi(struct queue_entry *entry, struct rxdone_entry_desc *txdesc);
 
-void rt2800_txdone_entry(struct queue_entry *entry, u32 status, __le32* txwi);
+void rt2800_txdone_entry(struct queue_entry *entry, u32 status, __le32 *txwi,
+			 bool match);
+void rt2800_txdone(struct rt2x00_dev *rt2x00dev, unsigned int quota);
+void rt2800_txdone_nostatus(struct rt2x00_dev *rt2x00dev);
+bool rt2800_txstatus_timeout(struct rt2x00_dev *rt2x00dev);
+bool rt2800_txstatus_pending(struct rt2x00_dev *rt2x00dev);
 
 void rt2800_write_beacon(struct queue_entry *entry, struct txentry_desc *txdesc);
 void rt2800_clear_beacon(struct queue_entry *entry);
@@ -181,9 +201,10 @@ int rt2800_config_shared_key(struct rt2x00_dev *rt2x00dev,
 int rt2800_config_pairwise_key(struct rt2x00_dev *rt2x00dev,
 			       struct rt2x00lib_crypto *crypto,
 			       struct ieee80211_key_conf *key);
-int rt2800_sta_add(struct rt2x00_dev *rt2x00dev, struct ieee80211_vif *vif,
+int rt2800_sta_add(struct ieee80211_hw *hw, struct ieee80211_vif *vif,
 		   struct ieee80211_sta *sta);
-int rt2800_sta_remove(struct rt2x00_dev *rt2x00dev, struct ieee80211_sta *sta);
+int rt2800_sta_remove(struct ieee80211_hw *hw, struct ieee80211_vif *vif,
+		      struct ieee80211_sta *sta);
 void rt2800_config_filter(struct rt2x00_dev *rt2x00dev,
 			  const unsigned int filter_flags);
 void rt2800_config_intf(struct rt2x00_dev *rt2x00dev, struct rt2x00_intf *intf,

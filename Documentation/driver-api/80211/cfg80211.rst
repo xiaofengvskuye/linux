@@ -2,6 +2,9 @@
 cfg80211 subsystem
 ==================
 
+.. kernel-doc:: include/net/cfg80211.h
+   :doc: Introduction
+
 Device registration
 ===================
 
@@ -180,6 +183,12 @@ Actions and configuration
    :functions: cfg80211_ibss_joined
 
 .. kernel-doc:: include/net/cfg80211.h
+   :functions: cfg80211_connect_resp_params
+
+.. kernel-doc:: include/net/cfg80211.h
+   :functions: cfg80211_connect_done
+
+.. kernel-doc:: include/net/cfg80211.h
    :functions: cfg80211_connect_result
 
 .. kernel-doc:: include/net/cfg80211.h
@@ -289,9 +298,6 @@ Data path helpers
 
 .. kernel-doc:: include/net/cfg80211.h
    :functions: ieee80211_data_to_8023
-
-.. kernel-doc:: include/net/cfg80211.h
-   :functions: ieee80211_data_from_8023
 
 .. kernel-doc:: include/net/cfg80211.h
    :functions: ieee80211_amsdu_to_8023s

@@ -1,11 +1,7 @@
+// SPDX-License-Identifier: GPL-2.0-only
 /*
  * Copyright 2016 Linaro Ltd.
  * Copyright 2016 ZTE Corporation.
- *
- * This program is free software; you can redistribute it and/or modify
- * it under the terms of the GNU General Public License version 2 as
- * published by the Free Software Foundation.
- *
  */
 
 #include <linux/clk.h>
@@ -15,14 +11,15 @@
 
 #include <drm/drm_atomic_helper.h>
 #include <drm/drm_crtc.h>
-#include <drm/drm_crtc_helper.h>
 #include <drm/drm_fb_cma_helper.h>
 #include <drm/drm_fb_helper.h>
 #include <drm/drm_gem_cma_helper.h>
 #include <drm/drm_of.h>
 #include <drm/drm_plane_helper.h>
+#include <drm/drm_probe_helper.h>
 #include <drm/drmP.h>
 
+#include "zx_common_regs.h"
 #include "zx_drm_drv.h"
 #include "zx_plane.h"
 #include "zx_vou.h"
@@ -122,6 +119,8 @@ struct zx_crtc {
 	struct drm_plane *primary;
 	struct zx_vou_hw *vou;
 	void __iomem *chnreg;
+	void __iomem *chncsc;
+	void __iomem *dither;
 	const struct zx_crtc_regs *regs;
 	const struct zx_crtc_bits *bits;
 	enum vou_chn_type chn_type;
@@ -204,6 +203,11 @@ static struct vou_inf vou_infs[] = {
 		.clocks_en_bits = BIT(15),
 		.clocks_sel_bits = BIT(11) | BIT(0),
 	},
+	[VOU_VGA] = {
+		.data_sel = VOU_RGB_888,
+		.clocks_en_bits = BIT(1),
+		.clocks_sel_bits = BIT(10),
+	},
 };
 
 static inline struct zx_vou_hw *crtc_to_vou(struct drm_crtc *crtc)
@@ -227,8 +231,25 @@ void vou_inf_enable(enum vou_inf_id id, struct drm_crtc *crtc)
 	struct zx_crtc *zcrtc = to_zx_crtc(crtc);
 	struct zx_vou_hw *vou = zcrtc->vou;
 	struct vou_inf *inf = &vou_infs[id];
+	void __iomem *dither = zcrtc->dither;
+	void __iomem *csc = zcrtc->chncsc;
 	bool is_main = zcrtc->chn_type == VOU_CHN_MAIN;
 	u32 data_sel_shift = id << 1;
+
+	if (inf->data_sel != VOU_YUV444) {
+		/* Enable channel CSC for RGB output */
+		zx_writel_mask(csc + CSC_CTRL0, CSC_COV_MODE_MASK,
+			       CSC_BT709_IMAGE_YCBCR2RGB << CSC_COV_MODE_SHIFT);
+		zx_writel_mask(csc + CSC_CTRL0, CSC_WORK_ENABLE,
+			       CSC_WORK_ENABLE);
+
+		/* Bypass Dither block for RGB output */
+		zx_writel_mask(dither + OSD_DITHER_CTRL0, DITHER_BYSPASS,
+			       DITHER_BYSPASS);
+	} else {
+		zx_writel_mask(csc + CSC_CTRL0, CSC_WORK_ENABLE, 0);
+		zx_writel_mask(dither + OSD_DITHER_CTRL0, DITHER_BYSPASS, 0);
+	}
 
 	/* Select data format */
 	zx_writel_mask(vou->vouctl + VOU_INF_DATA_SEL, 0x3 << data_sel_shift,
@@ -325,7 +346,8 @@ static inline void vou_chn_set_update(struct zx_crtc *zcrtc)
 	zx_writel(zcrtc->chnreg + CHN_UPDATE, 1);
 }
 
-static void zx_crtc_enable(struct drm_crtc *crtc)
+static void zx_crtc_atomic_enable(struct drm_crtc *crtc,
+				  struct drm_crtc_state *old_state)
 {
 	struct drm_display_mode *mode = &crtc->state->adjusted_mode;
 	bool interlaced = mode->flags & DRM_MODE_FLAG_INTERLACE;
@@ -429,7 +451,8 @@ static void zx_crtc_enable(struct drm_crtc *crtc)
 		DRM_DEV_ERROR(vou->dev, "failed to enable pixclk: %d\n", ret);
 }
 
-static void zx_crtc_disable(struct drm_crtc *crtc)
+static void zx_crtc_atomic_disable(struct drm_crtc *crtc,
+				   struct drm_crtc_state *old_state)
 {
 	struct zx_crtc *zcrtc = to_zx_crtc(crtc);
 	const struct zx_crtc_bits *bits = zcrtc->bits;
@@ -465,10 +488,31 @@ static void zx_crtc_atomic_flush(struct drm_crtc *crtc,
 }
 
 static const struct drm_crtc_helper_funcs zx_crtc_helper_funcs = {
-	.enable = zx_crtc_enable,
-	.disable = zx_crtc_disable,
 	.atomic_flush = zx_crtc_atomic_flush,
+	.atomic_enable = zx_crtc_atomic_enable,
+	.atomic_disable = zx_crtc_atomic_disable,
 };
+
+static int zx_vou_enable_vblank(struct drm_crtc *crtc)
+{
+	struct zx_crtc *zcrtc = to_zx_crtc(crtc);
+	struct zx_vou_hw *vou = crtc_to_vou(crtc);
+	u32 int_frame_mask = zcrtc->bits->int_frame_mask;
+
+	zx_writel_mask(vou->timing + TIMING_INT_CTRL, int_frame_mask,
+		       int_frame_mask);
+
+	return 0;
+}
+
+static void zx_vou_disable_vblank(struct drm_crtc *crtc)
+{
+	struct zx_crtc *zcrtc = to_zx_crtc(crtc);
+	struct zx_vou_hw *vou = crtc_to_vou(crtc);
+
+	zx_writel_mask(vou->timing + TIMING_INT_CTRL,
+		       zcrtc->bits->int_frame_mask, 0);
+}
 
 static const struct drm_crtc_funcs zx_crtc_funcs = {
 	.destroy = drm_crtc_cleanup,
@@ -477,6 +521,8 @@ static const struct drm_crtc_funcs zx_crtc_funcs = {
 	.reset = drm_atomic_helper_crtc_reset,
 	.atomic_duplicate_state = drm_atomic_helper_crtc_duplicate_state,
 	.atomic_destroy_state = drm_atomic_helper_crtc_destroy_state,
+	.enable_vblank = zx_vou_enable_vblank,
+	.disable_vblank = zx_vou_disable_vblank,
 };
 
 static int zx_crtc_init(struct drm_device *drm, struct zx_vou_hw *vou,
@@ -502,20 +548,24 @@ static int zx_crtc_init(struct drm_device *drm, struct zx_vou_hw *vou,
 
 	if (chn_type == VOU_CHN_MAIN) {
 		zplane->layer = vou->osd + MAIN_GL_OFFSET;
-		zplane->csc = vou->osd + MAIN_CSC_OFFSET;
+		zplane->csc = vou->osd + MAIN_GL_CSC_OFFSET;
 		zplane->hbsc = vou->osd + MAIN_HBSC_OFFSET;
 		zplane->rsz = vou->otfppu + MAIN_RSZ_OFFSET;
 		zplane->bits = &zx_gl_bits[0];
 		zcrtc->chnreg = vou->osd + OSD_MAIN_CHN;
+		zcrtc->chncsc = vou->osd + MAIN_CHN_CSC_OFFSET;
+		zcrtc->dither = vou->osd + MAIN_DITHER_OFFSET;
 		zcrtc->regs = &main_crtc_regs;
 		zcrtc->bits = &main_crtc_bits;
 	} else {
 		zplane->layer = vou->osd + AUX_GL_OFFSET;
-		zplane->csc = vou->osd + AUX_CSC_OFFSET;
+		zplane->csc = vou->osd + AUX_GL_CSC_OFFSET;
 		zplane->hbsc = vou->osd + AUX_HBSC_OFFSET;
 		zplane->rsz = vou->otfppu + AUX_RSZ_OFFSET;
 		zplane->bits = &zx_gl_bits[1];
 		zcrtc->chnreg = vou->osd + OSD_AUX_CHN;
+		zcrtc->chncsc = vou->osd + AUX_CHN_CSC_OFFSET;
+		zcrtc->dither = vou->osd + AUX_DITHER_OFFSET;
 		zcrtc->regs = &aux_crtc_regs;
 		zcrtc->bits = &aux_crtc_bits;
 	}
@@ -553,44 +603,6 @@ static int zx_crtc_init(struct drm_device *drm, struct zx_vou_hw *vou,
 	return 0;
 }
 
-int zx_vou_enable_vblank(struct drm_device *drm, unsigned int pipe)
-{
-	struct drm_crtc *crtc;
-	struct zx_crtc *zcrtc;
-	struct zx_vou_hw *vou;
-	u32 int_frame_mask;
-
-	crtc = drm_crtc_from_index(drm, pipe);
-	if (!crtc)
-		return 0;
-
-	vou = crtc_to_vou(crtc);
-	zcrtc = to_zx_crtc(crtc);
-	int_frame_mask = zcrtc->bits->int_frame_mask;
-
-	zx_writel_mask(vou->timing + TIMING_INT_CTRL, int_frame_mask,
-		       int_frame_mask);
-
-	return 0;
-}
-
-void zx_vou_disable_vblank(struct drm_device *drm, unsigned int pipe)
-{
-	struct drm_crtc *crtc;
-	struct zx_crtc *zcrtc;
-	struct zx_vou_hw *vou;
-
-	crtc = drm_crtc_from_index(drm, pipe);
-	if (!crtc)
-		return;
-
-	vou = crtc_to_vou(crtc);
-	zcrtc = to_zx_crtc(crtc);
-
-	zx_writel_mask(vou->timing + TIMING_INT_CTRL,
-		       zcrtc->bits->int_frame_mask, 0);
-}
-
 void zx_vou_layer_enable(struct drm_plane *plane)
 {
 	struct zx_crtc *zcrtc = to_zx_crtc(plane->state->crtc);
@@ -611,9 +623,10 @@ void zx_vou_layer_enable(struct drm_plane *plane)
 	zx_writel_mask(vou->osd + OSD_CTRL0, bits->enable, bits->enable);
 }
 
-void zx_vou_layer_disable(struct drm_plane *plane)
+void zx_vou_layer_disable(struct drm_plane *plane,
+			  struct drm_plane_state *old_state)
 {
-	struct zx_crtc *zcrtc = to_zx_crtc(plane->crtc);
+	struct zx_crtc *zcrtc = to_zx_crtc(old_state->crtc);
 	struct zx_vou_hw *vou = zcrtc->vou;
 	struct zx_plane *zplane = to_zx_plane(plane);
 	const struct vou_layer_bits *bits = zplane->bits;
@@ -719,9 +732,6 @@ static void vou_hw_init(struct zx_vou_hw *vou)
 {
 	/* Release reset for all VOU modules */
 	zx_writel(vou->vouctl + VOU_SOFT_RST, ~0);
-
-	/* Enable clock auto-gating for all VOU modules */
-	zx_writel(vou->vouctl + VOU_CLK_REQEN, ~0);
 
 	/* Enable all VOU module clocks */
 	zx_writel(vou->vouctl + VOU_CLK_EN, ~0);

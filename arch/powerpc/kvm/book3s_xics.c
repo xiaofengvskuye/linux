@@ -1,10 +1,7 @@
+// SPDX-License-Identifier: GPL-2.0-only
 /*
  * Copyright 2012 Michael Ellerman, IBM Corporation.
  * Copyright 2012 Benjamin Herrenschmidt, IBM Corporation.
- *
- * This program is free software; you can redistribute it and/or modify
- * it under the terms of the GNU General Public License, version 2, as
- * published by the Free Software Foundation.
  */
 
 #include <linux/kernel.h>
@@ -19,10 +16,9 @@
 #include <asm/kvm_ppc.h>
 #include <asm/hvcall.h>
 #include <asm/xics.h>
-#include <asm/debug.h>
+#include <asm/debugfs.h>
 #include <asm/time.h>
 
-#include <linux/debugfs.h>
 #include <linux/seq_file.h>
 
 #include "book3s_xics.h"
@@ -311,7 +307,7 @@ static inline bool icp_try_update(struct kvmppc_icp *icp,
 	 */
 	if (new.out_ee) {
 		kvmppc_book3s_queue_irqprio(icp->vcpu,
-					    BOOK3S_INTERRUPT_EXTERNAL_LEVEL);
+					    BOOK3S_INTERRUPT_EXTERNAL);
 		if (!change_self)
 			kvmppc_fast_vcpu_kick(icp->vcpu);
 	}
@@ -594,8 +590,7 @@ static noinline unsigned long kvmppc_h_xirr(struct kvm_vcpu *vcpu)
 	u32 xirr;
 
 	/* First, remove EE from the processor */
-	kvmppc_book3s_dequeue_irqprio(icp->vcpu,
-				      BOOK3S_INTERRUPT_EXTERNAL_LEVEL);
+	kvmppc_book3s_dequeue_irqprio(icp->vcpu, BOOK3S_INTERRUPT_EXTERNAL);
 
 	/*
 	 * ICP State: Accept_Interrupt
@@ -755,8 +750,7 @@ static noinline void kvmppc_h_cppr(struct kvm_vcpu *vcpu, unsigned long cppr)
 	 * We can remove EE from the current processor, the update
 	 * transaction will set it again if needed
 	 */
-	kvmppc_book3s_dequeue_irqprio(icp->vcpu,
-				      BOOK3S_INTERRUPT_EXTERNAL_LEVEL);
+	kvmppc_book3s_dequeue_irqprio(icp->vcpu, BOOK3S_INTERRUPT_EXTERNAL);
 
 	do {
 		old_state = new_state = READ_ONCE(icp->state);
@@ -1018,17 +1012,7 @@ static int xics_debug_show(struct seq_file *m, void *private)
 	return 0;
 }
 
-static int xics_debug_open(struct inode *inode, struct file *file)
-{
-	return single_open(file, xics_debug_show, inode->i_private);
-}
-
-static const struct file_operations xics_debug_fops = {
-	.open = xics_debug_open,
-	.read = seq_read,
-	.llseek = seq_lseek,
-	.release = single_release,
-};
+DEFINE_SHOW_ATTRIBUTE(xics_debug);
 
 static void xics_debugfs_init(struct kvmppc_xics *xics)
 {
@@ -1040,7 +1024,7 @@ static void xics_debugfs_init(struct kvmppc_xics *xics)
 		return;
 	}
 
-	xics->dentry = debugfs_create_file(name, S_IRUGO, powerpc_debugfs_root,
+	xics->dentry = debugfs_create_file(name, 0444, powerpc_debugfs_root,
 					   xics, &xics_debug_fops);
 
 	pr_debug("%s: created %s\n", __func__, name);
@@ -1084,7 +1068,7 @@ static struct kvmppc_ics *kvmppc_xics_create_ics(struct kvm *kvm,
 	return xics->ics[icsid];
 }
 
-int kvmppc_xics_create_icp(struct kvm_vcpu *vcpu, unsigned long server_num)
+static int kvmppc_xics_create_icp(struct kvm_vcpu *vcpu, unsigned long server_num)
 {
 	struct kvmppc_icp *icp;
 
@@ -1168,8 +1152,7 @@ int kvmppc_xics_set_icp(struct kvm_vcpu *vcpu, u64 icpval)
 	 * Deassert the CPU interrupt request.
 	 * icp_try_update will reassert it if necessary.
 	 */
-	kvmppc_book3s_dequeue_irqprio(icp->vcpu,
-				      BOOK3S_INTERRUPT_EXTERNAL_LEVEL);
+	kvmppc_book3s_dequeue_irqprio(icp->vcpu, BOOK3S_INTERRUPT_EXTERNAL);
 
 	/*
 	 * Note that if we displace an interrupt from old_state.xisr,
@@ -1307,22 +1290,14 @@ static int xics_set_source(struct kvmppc_xics *xics, long irq, u64 addr)
 	return 0;
 }
 
-int kvm_set_irq(struct kvm *kvm, int irq_source_id, u32 irq, int level,
-		bool line_status)
+int kvmppc_xics_set_irq(struct kvm *kvm, int irq_source_id, u32 irq, int level,
+			bool line_status)
 {
 	struct kvmppc_xics *xics = kvm->arch.xics;
 
 	if (!xics)
 		return -ENODEV;
 	return ics_deliver_irq(xics, irq, level);
-}
-
-int kvm_arch_set_irq_inatomic(struct kvm_kernel_irq_routing_entry *irq_entry,
-			      struct kvm *kvm, int irq_source_id,
-			      int level, bool line_status)
-{
-	return kvm_set_irq(kvm, irq_source_id, irq_entry->gsi,
-			   level, line_status);
 }
 
 static int xics_set_attr(struct kvm_device *dev, struct kvm_device_attr *attr)
@@ -1402,7 +1377,8 @@ static int kvmppc_xics_create(struct kvm_device *dev, u32 type)
 	}
 
 #ifdef CONFIG_KVM_BOOK3S_HV_POSSIBLE
-	if (cpu_has_feature(CPU_FTR_ARCH_206)) {
+	if (cpu_has_feature(CPU_FTR_ARCH_206) &&
+	    cpu_has_feature(CPU_FTR_HVMODE)) {
 		/* Enable real mode support */
 		xics->real_mode = ENABLE_REALMODE;
 		xics->real_mode_dbg = DEBUG_REALMODE;
@@ -1456,29 +1432,6 @@ void kvmppc_xics_free_icp(struct kvm_vcpu *vcpu)
 	kfree(vcpu->arch.icp);
 	vcpu->arch.icp = NULL;
 	vcpu->arch.irq_type = KVMPPC_IRQ_DEFAULT;
-}
-
-static int xics_set_irq(struct kvm_kernel_irq_routing_entry *e,
-			struct kvm *kvm, int irq_source_id, int level,
-			bool line_status)
-{
-	return kvm_set_irq(kvm, irq_source_id, e->gsi, level, line_status);
-}
-
-int kvm_irq_map_gsi(struct kvm *kvm,
-		    struct kvm_kernel_irq_routing_entry *entries, int gsi)
-{
-	entries->gsi = gsi;
-	entries->type = KVM_IRQ_ROUTING_IRQCHIP;
-	entries->set = xics_set_irq;
-	entries->irqchip.irqchip = 0;
-	entries->irqchip.pin = gsi;
-	return 1;
-}
-
-int kvm_irq_map_chip_pin(struct kvm *kvm, unsigned irqchip, unsigned pin)
-{
-	return pin;
 }
 
 void kvmppc_xics_set_mapped(struct kvm *kvm, unsigned long irq,

@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: GPL-2.0
 /* arch/sparc64/mm/tsb.c
  *
  * Copyright (C) 2006, 2008 David S. Miller <davem@davemloft.net>
@@ -122,7 +123,7 @@ void flush_tsb_user(struct tlb_batch *tb)
 
 	spin_lock_irqsave(&mm->context.lock, flags);
 
-	if (tb->hugepage_shift < HPAGE_SHIFT) {
+	if (tb->hugepage_shift < REAL_HPAGE_SHIFT) {
 		base = (unsigned long) mm->context.tsb_block[MM_TSB_BASE].tsb;
 		nentries = mm->context.tsb_block[MM_TSB_BASE].tsb_nentries;
 		if (tlb_type == cheetah_plus || tlb_type == hypervisor)
@@ -155,7 +156,7 @@ void flush_tsb_user_page(struct mm_struct *mm, unsigned long vaddr,
 
 	spin_lock_irqsave(&mm->context.lock, flags);
 
-	if (hugepage_shift < HPAGE_SHIFT) {
+	if (hugepage_shift < REAL_HPAGE_SHIFT) {
 		base = (unsigned long) mm->context.tsb_block[MM_TSB_BASE].tsb;
 		nentries = mm->context.tsb_block[MM_TSB_BASE].tsb_nentries;
 		if (tlb_type == cheetah_plus || tlb_type == hypervisor)
@@ -496,7 +497,8 @@ retry_tsb_alloc:
 		extern void copy_tsb(unsigned long old_tsb_base,
 				     unsigned long old_tsb_size,
 				     unsigned long new_tsb_base,
-				     unsigned long new_tsb_size);
+				     unsigned long new_tsb_size,
+				     unsigned long page_size_shift);
 		unsigned long old_tsb_base = (unsigned long) old_tsb;
 		unsigned long new_tsb_base = (unsigned long) new_tsb;
 
@@ -504,7 +506,9 @@ retry_tsb_alloc:
 			old_tsb_base = __pa(old_tsb_base);
 			new_tsb_base = __pa(new_tsb_base);
 		}
-		copy_tsb(old_tsb_base, old_size, new_tsb_base, new_size);
+		copy_tsb(old_tsb_base, old_size, new_tsb_base, new_size,
+			tsb_index == MM_TSB_BASE ?
+			PAGE_SHIFT : REAL_HPAGE_SHIFT);
 	}
 
 	mm->context.tsb_block[tsb_index].tsb = new_tsb;
@@ -541,6 +545,9 @@ int init_new_context(struct task_struct *tsk, struct mm_struct *mm)
 	spin_lock_init(&mm->context.lock);
 
 	mm->context.sparc64_ctx_val = 0UL;
+
+	mm->context.tag_store = NULL;
+	spin_lock_init(&mm->context.tag_lock);
 
 #if defined(CONFIG_HUGETLB_PAGE) || defined(CONFIG_TRANSPARENT_HUGEPAGE)
 	/* We reset them to zero because the fork() page copying
@@ -607,4 +614,22 @@ void destroy_context(struct mm_struct *mm)
 	}
 
 	spin_unlock_irqrestore(&ctx_alloc_lock, flags);
+
+	/* If ADI tag storage was allocated for this task, free it */
+	if (mm->context.tag_store) {
+		tag_storage_desc_t *tag_desc;
+		unsigned long max_desc;
+		unsigned char *tags;
+
+		tag_desc = mm->context.tag_store;
+		max_desc = PAGE_SIZE/sizeof(tag_storage_desc_t);
+		for (i = 0; i < max_desc; i++) {
+			tags = tag_desc->tags;
+			tag_desc->tags = NULL;
+			kfree(tags);
+			tag_desc++;
+		}
+		kfree(mm->context.tag_store);
+		mm->context.tag_store = NULL;
+	}
 }

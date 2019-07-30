@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: GPL-2.0-only
 /*******************************************************************************
   This is the driver for the GMAC on-chip Ethernet controller for ST SoCs.
   DWC Ether MAC 10/100/1000 Universal version 3.41a  has been used for
@@ -7,17 +8,6 @@
 
   Copyright (C) 2007-2009  STMicroelectronics Ltd
 
-  This program is free software; you can redistribute it and/or modify it
-  under the terms and conditions of the GNU General Public License,
-  version 2, as published by the Free Software Foundation.
-
-  This program is distributed in the hope it will be useful, but WITHOUT
-  ANY WARRANTY; without even the implied warranty of MERCHANTABILITY or
-  FITNESS FOR A PARTICULAR PURPOSE.  See the GNU General Public License for
-  more details.
-
-  The full GNU General Public License is included in this distribution in
-  the file called "COPYING".
 
   Author: Giuseppe Cavallaro <peppe.cavallaro@st.com>
 *******************************************************************************/
@@ -25,17 +15,28 @@
 #include <linux/crc32.h>
 #include <linux/slab.h>
 #include <linux/ethtool.h>
+#include <net/dsa.h>
 #include <asm/io.h>
+#include "stmmac.h"
 #include "stmmac_pcs.h"
 #include "dwmac1000.h"
 
-static void dwmac1000_core_init(struct mac_device_info *hw, int mtu)
+static void dwmac1000_core_init(struct mac_device_info *hw,
+				struct net_device *dev)
 {
 	void __iomem *ioaddr = hw->pcsr;
 	u32 value = readl(ioaddr + GMAC_CONTROL);
+	int mtu = dev->mtu;
 
 	/* Configure GMAC core */
 	value |= GMAC_CORE_INIT;
+
+	/* Clear ACS bit because Ethernet switch tagging formats such as
+	 * Broadcom tags can look like invalid LLC/SNAP packets and cause the
+	 * hardware to truncate packets on reception.
+	 */
+	if (netdev_uses_dsa(dev))
+		value &= ~GMAC_CONTROL_ACS;
 
 	if (mtu > 1500)
 		value |= GMAC_CONTROL_2K;
@@ -45,15 +46,17 @@ static void dwmac1000_core_init(struct mac_device_info *hw, int mtu)
 	if (hw->ps) {
 		value |= GMAC_CONTROL_TE;
 
-		if (hw->ps == SPEED_1000) {
-			value &= ~GMAC_CONTROL_PS;
-		} else {
-			value |= GMAC_CONTROL_PS;
-
-			if (hw->ps == SPEED_10)
-				value &= ~GMAC_CONTROL_FES;
-			else
-				value |= GMAC_CONTROL_FES;
+		value &= ~hw->link.speed_mask;
+		switch (hw->ps) {
+		case SPEED_1000:
+			value |= hw->link.speed1000;
+			break;
+		case SPEED_100:
+			value |= hw->link.speed100;
+			break;
+		case SPEED_10:
+			value |= hw->link.speed10;
+			break;
 		}
 	}
 
@@ -62,8 +65,6 @@ static void dwmac1000_core_init(struct mac_device_info *hw, int mtu)
 	/* Mask GMAC interrupts */
 	value = GMAC_INT_DEFAULT_MASK;
 
-	if (hw->pmt)
-		value &= ~GMAC_INT_DISABLE_PMT;
 	if (hw->pcs)
 		value &= ~GMAC_INT_DISABLE_PCS;
 
@@ -216,7 +217,8 @@ static void dwmac1000_set_filter(struct mac_device_info *hw,
 
 
 static void dwmac1000_flow_ctrl(struct mac_device_info *hw, unsigned int duplex,
-				unsigned int fc, unsigned int pause_time)
+				unsigned int fc, unsigned int pause_time,
+				u32 tx_cnt)
 {
 	void __iomem *ioaddr = hw->pcsr;
 	/* Set flow such that DZPQ in Mac Register 6 is 0,
@@ -412,7 +414,8 @@ static void dwmac1000_get_adv_lp(void __iomem *ioaddr, struct rgmii_adv *adv)
 	dwmac_get_adv_lp(ioaddr, GMAC_PCS_BASE, adv);
 }
 
-static void dwmac1000_debug(void __iomem *ioaddr, struct stmmac_extra_stats *x)
+static void dwmac1000_debug(void __iomem *ioaddr, struct stmmac_extra_stats *x,
+			    u32 rx_queues, u32 tx_queues)
 {
 	u32 value = readl(ioaddr + GMAC_DEBUG);
 
@@ -486,8 +489,9 @@ static void dwmac1000_debug(void __iomem *ioaddr, struct stmmac_extra_stats *x)
 		x->mac_gmii_rx_proto_engine++;
 }
 
-static const struct stmmac_ops dwmac1000_ops = {
+const struct stmmac_ops dwmac1000_ops = {
 	.core_init = dwmac1000_core_init,
+	.set_mac = stmmac_set_mac,
 	.rx_ipc = dwmac1000_rx_ipc_enable,
 	.dump_regs = dwmac1000_dump_regs,
 	.host_irq_status = dwmac1000_irq_status,
@@ -506,31 +510,26 @@ static const struct stmmac_ops dwmac1000_ops = {
 	.pcs_get_adv_lp = dwmac1000_get_adv_lp,
 };
 
-struct mac_device_info *dwmac1000_setup(void __iomem *ioaddr, int mcbins,
-					int perfect_uc_entries,
-					int *synopsys_id)
+int dwmac1000_setup(struct stmmac_priv *priv)
 {
-	struct mac_device_info *mac;
-	u32 hwid = readl(ioaddr + GMAC_VERSION);
+	struct mac_device_info *mac = priv->hw;
 
-	mac = kzalloc(sizeof(const struct mac_device_info), GFP_KERNEL);
-	if (!mac)
-		return NULL;
+	dev_info(priv->device, "\tDWMAC1000\n");
 
-	mac->pcsr = ioaddr;
-	mac->multicast_filter_bins = mcbins;
-	mac->unicast_filter_entries = perfect_uc_entries;
+	priv->dev->priv_flags |= IFF_UNICAST_FLT;
+	mac->pcsr = priv->ioaddr;
+	mac->multicast_filter_bins = priv->plat->multicast_filter_bins;
+	mac->unicast_filter_entries = priv->plat->unicast_filter_entries;
 	mac->mcast_bits_log2 = 0;
 
 	if (mac->multicast_filter_bins)
 		mac->mcast_bits_log2 = ilog2(mac->multicast_filter_bins);
 
-	mac->mac = &dwmac1000_ops;
-	mac->dma = &dwmac1000_dma_ops;
-
-	mac->link.port = GMAC_CONTROL_PS;
 	mac->link.duplex = GMAC_CONTROL_DM;
-	mac->link.speed = GMAC_CONTROL_FES;
+	mac->link.speed10 = GMAC_CONTROL_PS;
+	mac->link.speed100 = GMAC_CONTROL_PS | GMAC_CONTROL_FES;
+	mac->link.speed1000 = 0;
+	mac->link.speed_mask = GMAC_CONTROL_PS | GMAC_CONTROL_FES;
 	mac->mii.addr = GMAC_MII_ADDR;
 	mac->mii.data = GMAC_MII_DATA;
 	mac->mii.addr_shift = 11;
@@ -540,8 +539,5 @@ struct mac_device_info *dwmac1000_setup(void __iomem *ioaddr, int mcbins,
 	mac->mii.clk_csr_shift = 2;
 	mac->mii.clk_csr_mask = GENMASK(5, 2);
 
-	/* Get and dump the chip ID */
-	*synopsys_id = stmmac_get_synopsys_id(hwid);
-
-	return mac;
+	return 0;
 }

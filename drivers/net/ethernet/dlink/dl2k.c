@@ -1,13 +1,10 @@
+// SPDX-License-Identifier: GPL-2.0-or-later
 /*  D-Link DL2000-based Gigabit Ethernet Adapter Linux driver */
 /*
     Copyright (c) 2001, 2002 by D-Link Corporation
     Written by Edward Peng.<edward_peng@dlink.com.tw>
     Created 03-May-2001, base on Linux' sundance.c.
 
-    This program is free software; you can redistribute it and/or modify
-    it under the terms of the GNU General Public License as published by
-    the Free Software Foundation; either version 2 of the License, or
-    (at your option) any later version.
 */
 
 #define DRV_NAME	"DL2000/TC902x-based linux driver"
@@ -68,7 +65,7 @@ static const int max_intrloop = 50;
 static const int multicast_filter_limit = 0x40;
 
 static int rio_open (struct net_device *dev);
-static void rio_timer (unsigned long data);
+static void rio_timer (struct timer_list *t);
 static void rio_tx_timeout (struct net_device *dev);
 static netdev_tx_t start_xmit (struct sk_buff *skb, struct net_device *dev);
 static irqreturn_t rio_interrupt (int irq, void *dev_instance);
@@ -313,7 +310,7 @@ find_miiphy (struct net_device *dev)
 {
 	struct netdev_private *np = netdev_priv(dev);
 	int i, phy_found = 0;
-	np = netdev_priv(dev);
+
 	np->phy_addr = 1;
 
 	for (i = 31; i >= 0; i--) {
@@ -644,7 +641,7 @@ static int rio_open(struct net_device *dev)
 		return i;
 	}
 
-	setup_timer(&np->timer, rio_timer, (unsigned long)dev);
+	timer_setup(&np->timer, rio_timer, 0);
 	np->timer.expires = jiffies + 1 * HZ;
 	add_timer(&np->timer);
 
@@ -655,10 +652,10 @@ static int rio_open(struct net_device *dev)
 }
 
 static void
-rio_timer (unsigned long data)
+rio_timer (struct timer_list *t)
 {
-	struct net_device *dev = (struct net_device *)data;
-	struct netdev_private *np = netdev_priv(dev);
+	struct netdev_private *np = from_timer(np, t, timer);
+	struct net_device *dev = pci_get_drvdata(np->pdev);
 	unsigned int entry;
 	int next_tick = 1*HZ;
 	unsigned long flags;
@@ -843,9 +840,9 @@ rio_free_tx (struct net_device *dev, int irq)
 				  desc_to_dma(&np->tx_ring[entry]),
 				  skb->len, PCI_DMA_TODEVICE);
 		if (irq)
-			dev_kfree_skb_irq (skb);
+			dev_consume_skb_irq(skb);
 		else
-			dev_kfree_skb (skb);
+			dev_kfree_skb(skb);
 
 		np->tx_skbuff[entry] = NULL;
 		entry = (entry + 1) % TX_RING_SIZE;
@@ -878,10 +875,10 @@ tx_error (struct net_device *dev, int tx_status)
 	frame_id = (tx_status & 0xffff0000);
 	printk (KERN_ERR "%s: Transmit error, TxStatus %4.4x, FrameId %d.\n",
 		dev->name, tx_status, frame_id);
-	np->stats.tx_errors++;
+	dev->stats.tx_errors++;
 	/* Ttransmit Underrun */
 	if (tx_status & 0x10) {
-		np->stats.tx_fifo_errors++;
+		dev->stats.tx_fifo_errors++;
 		dw16(TxStartThresh, dr16(TxStartThresh) + 0x10);
 		/* Transmit Underrun need to set TxReset, DMARest, FIFOReset */
 		dw16(ASICCtrl + 2,
@@ -903,7 +900,7 @@ tx_error (struct net_device *dev, int tx_status)
 	}
 	/* Late Collision */
 	if (tx_status & 0x04) {
-		np->stats.tx_fifo_errors++;
+		dev->stats.tx_fifo_errors++;
 		/* TxReset and clear FIFO */
 		dw16(ASICCtrl + 2, TxReset | FIFOReset);
 		/* Wait reset done */
@@ -916,13 +913,8 @@ tx_error (struct net_device *dev, int tx_status)
 		/* Let TxStartThresh stay default value */
 	}
 	/* Maximum Collisions */
-#ifdef ETHER_STATS
 	if (tx_status & 0x08)
-		np->stats.collisions16++;
-#else
-	if (tx_status & 0x08)
-		np->stats.collisions++;
-#endif
+		dev->stats.collisions++;
 	/* Restart the Tx */
 	dw32(MACCtrl, dr16(MACCtrl) | TxEnable);
 }
@@ -952,15 +944,15 @@ receive_packet (struct net_device *dev)
 			break;
 		/* Update rx error statistics, drop packet. */
 		if (frame_status & RFS_Errors) {
-			np->stats.rx_errors++;
+			dev->stats.rx_errors++;
 			if (frame_status & (RxRuntFrame | RxLengthError))
-				np->stats.rx_length_errors++;
+				dev->stats.rx_length_errors++;
 			if (frame_status & RxFCSError)
-				np->stats.rx_crc_errors++;
+				dev->stats.rx_crc_errors++;
 			if (frame_status & RxAlignmentError && np->speed != 1000)
-				np->stats.rx_frame_errors++;
+				dev->stats.rx_frame_errors++;
 			if (frame_status & RxFIFOOverrun)
-	 			np->stats.rx_fifo_errors++;
+				dev->stats.rx_fifo_errors++;
 		} else {
 			struct sk_buff *skb;
 
@@ -1096,23 +1088,23 @@ get_stats (struct net_device *dev)
 	/* All statistics registers need to be acknowledged,
 	   else statistic overflow could cause problems */
 
-	np->stats.rx_packets += dr32(FramesRcvOk);
-	np->stats.tx_packets += dr32(FramesXmtOk);
-	np->stats.rx_bytes += dr32(OctetRcvOk);
-	np->stats.tx_bytes += dr32(OctetXmtOk);
+	dev->stats.rx_packets += dr32(FramesRcvOk);
+	dev->stats.tx_packets += dr32(FramesXmtOk);
+	dev->stats.rx_bytes += dr32(OctetRcvOk);
+	dev->stats.tx_bytes += dr32(OctetXmtOk);
 
-	np->stats.multicast = dr32(McstFramesRcvdOk);
-	np->stats.collisions += dr32(SingleColFrames)
+	dev->stats.multicast = dr32(McstFramesRcvdOk);
+	dev->stats.collisions += dr32(SingleColFrames)
 			     +  dr32(MultiColFrames);
 
 	/* detailed tx errors */
 	stat_reg = dr16(FramesAbortXSColls);
-	np->stats.tx_aborted_errors += stat_reg;
-	np->stats.tx_errors += stat_reg;
+	dev->stats.tx_aborted_errors += stat_reg;
+	dev->stats.tx_errors += stat_reg;
 
 	stat_reg = dr16(CarrierSenseErrors);
-	np->stats.tx_carrier_errors += stat_reg;
-	np->stats.tx_errors += stat_reg;
+	dev->stats.tx_carrier_errors += stat_reg;
+	dev->stats.tx_errors += stat_reg;
 
 	/* Clear all other statistic register. */
 	dr32(McstOctetXmtOk);
@@ -1142,7 +1134,7 @@ get_stats (struct net_device *dev)
 	dr16(TCPCheckSumErrors);
 	dr16(UDPCheckSumErrors);
 	dr16(IPCheckSumErrors);
-	return &np->stats;
+	return &dev->stats;
 }
 
 static int
@@ -1886,7 +1878,7 @@ Compile command:
 
 gcc -D__KERNEL__ -DMODULE -I/usr/src/linux/include -Wall -Wstrict-prototypes -O2 -c dl2k.c
 
-Read Documentation/networking/dl2k.txt for details.
+Read Documentation/networking/device_drivers/dlink/dl2k.txt for details.
 
 */
 

@@ -1,3 +1,4 @@
+/* SPDX-License-Identifier: GPL-2.0 */
 #ifndef __NV04_DISPLAY_H__
 #define __NV04_DISPLAY_H__
 #include <subdev/bios.h>
@@ -81,6 +82,7 @@ struct nv04_display {
 	uint32_t saved_vga_font[4][16384];
 	uint32_t dac_users[4];
 	struct nouveau_bo *image[2];
+	struct nvif_notify flip;
 };
 
 static inline struct nv04_display *
@@ -91,9 +93,6 @@ nv04_display(struct drm_device *dev)
 
 /* nv04_display.c */
 int nv04_display_create(struct drm_device *);
-void nv04_display_destroy(struct drm_device *);
-int nv04_display_init(struct drm_device *);
-void nv04_display_fini(struct drm_device *);
 
 /* nv04_crtc.c */
 int nv04_crtc_create(struct drm_device *, int index);
@@ -169,18 +168,11 @@ static inline void
 nouveau_bios_run_init_table(struct drm_device *dev, u16 table,
 			    struct dcb_output *outp, int crtc)
 {
-	struct nouveau_drm *drm = nouveau_drm(dev);
-	struct nvkm_bios *bios = nvxx_bios(&drm->client.device);
-	struct nvbios_init init = {
-		.subdev = &bios->subdev,
-		.bios = bios,
-		.offset = table,
-		.outp = outp,
-		.crtc = crtc,
-		.execute = 1,
-	};
-
-	nvbios_exec(&init);
+	nvbios_init(&nvxx_bios(&nouveau_drm(dev)->client.device)->subdev, table,
+		init.outp = outp;
+		init.head = crtc;
+	);
 }
 
+int nv04_flip_complete(struct nvif_notify *);
 #endif

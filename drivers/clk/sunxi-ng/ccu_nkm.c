@@ -1,14 +1,11 @@
+// SPDX-License-Identifier: GPL-2.0-or-later
 /*
  * Copyright (C) 2016 Maxime Ripard
  * Maxime Ripard <maxime.ripard@free-electrons.com>
- *
- * This program is free software; you can redistribute it and/or
- * modify it under the terms of the GNU General Public License as
- * published by the Free Software Foundation; either version 2 of
- * the License, or (at your option) any later version.
  */
 
 #include <linux/clk-provider.h>
+#include <linux/io.h>
 
 #include "ccu_gate.h"
 #include "ccu_nkm.h"
@@ -75,7 +72,7 @@ static unsigned long ccu_nkm_recalc_rate(struct clk_hw *hw,
 					unsigned long parent_rate)
 {
 	struct ccu_nkm *nkm = hw_to_ccu_nkm(hw);
-	unsigned long n, m, k;
+	unsigned long n, m, k, rate;
 	u32 reg;
 
 	reg = readl(nkm->common.base + nkm->common.reg);
@@ -98,27 +95,41 @@ static unsigned long ccu_nkm_recalc_rate(struct clk_hw *hw,
 	if (!m)
 		m++;
 
-	return parent_rate * n  * k / m;
+	rate = parent_rate * n  * k / m;
+
+	if (nkm->common.features & CCU_FEATURE_FIXED_POSTDIV)
+		rate /= nkm->fixed_post_div;
+
+	return rate;
 }
 
 static unsigned long ccu_nkm_round_rate(struct ccu_mux_internal *mux,
-					unsigned long parent_rate,
+					struct clk_hw *hw,
+					unsigned long *parent_rate,
 					unsigned long rate,
 					void *data)
 {
 	struct ccu_nkm *nkm = data;
 	struct _ccu_nkm _nkm;
 
-	_nkm.min_n = nkm->n.min;
+	_nkm.min_n = nkm->n.min ?: 1;
 	_nkm.max_n = nkm->n.max ?: 1 << nkm->n.width;
-	_nkm.min_k = nkm->k.min;
+	_nkm.min_k = nkm->k.min ?: 1;
 	_nkm.max_k = nkm->k.max ?: 1 << nkm->k.width;
 	_nkm.min_m = 1;
 	_nkm.max_m = nkm->m.max ?: 1 << nkm->m.width;
 
-	ccu_nkm_find_best(parent_rate, rate, &_nkm);
+	if (nkm->common.features & CCU_FEATURE_FIXED_POSTDIV)
+		rate *= nkm->fixed_post_div;
 
-	return parent_rate * _nkm.n * _nkm.k / _nkm.m;
+	ccu_nkm_find_best(*parent_rate, rate, &_nkm);
+
+	rate = *parent_rate * _nkm.n * _nkm.k / _nkm.m;
+
+	if (nkm->common.features & CCU_FEATURE_FIXED_POSTDIV)
+		rate /= nkm->fixed_post_div;
+
+	return rate;
 }
 
 static int ccu_nkm_determine_rate(struct clk_hw *hw,
@@ -138,9 +149,12 @@ static int ccu_nkm_set_rate(struct clk_hw *hw, unsigned long rate,
 	unsigned long flags;
 	u32 reg;
 
-	_nkm.min_n = nkm->n.min;
+	if (nkm->common.features & CCU_FEATURE_FIXED_POSTDIV)
+		rate *= nkm->fixed_post_div;
+
+	_nkm.min_n = nkm->n.min ?: 1;
 	_nkm.max_n = nkm->n.max ?: 1 << nkm->n.width;
-	_nkm.min_k = nkm->k.min;
+	_nkm.min_k = nkm->k.min ?: 1;
 	_nkm.max_k = nkm->k.max ?: 1 << nkm->k.width;
 	_nkm.min_m = 1;
 	_nkm.max_m = nkm->m.max ?: 1 << nkm->m.width;

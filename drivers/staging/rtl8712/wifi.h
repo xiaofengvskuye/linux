@@ -1,19 +1,7 @@
+/* SPDX-License-Identifier: GPL-2.0 */
 /******************************************************************************
  *
  * Copyright(c) 2007 - 2010 Realtek Corporation. All rights reserved.
- *
- * This program is free software; you can redistribute it and/or modify it
- * under the terms of version 2 of the GNU General Public License as
- * published by the Free Software Foundation.
- *
- * This program is distributed in the hope that it will be useful, but WITHOUT
- * ANY WARRANTY; without even the implied warranty of MERCHANTABILITY or
- * FITNESS FOR A PARTICULAR PURPOSE. See the GNU General Public License for
- * more details.
- *
- * You should have received a copy of the GNU General Public License along with
- * this program; if not, write to the Free Software Foundation, Inc.,
- * 51 Franklin Street, Fifth Floor, Boston, MA 02110, USA
  *
  * Modifications for inclusion into the Linux staging tree are
  * Copyright(c) 2010 Larry Finger. All rights reserved.
@@ -170,8 +158,10 @@ enum WIFI_REG_DOMAIN {
 	*(__le16 *)(pbuf) &= (~cpu_to_le16(_FROM_DS_)); \
 })
 
-#define get_tofr_ds(pframe)	((GetToDs(pframe) << 1) | GetFrDs(pframe))
-
+static inline unsigned char get_tofr_ds(unsigned char *pframe)
+{
+	return ((GetToDs(pframe) << 1) | GetFrDs(pframe));
+}
 
 #define SetMFrag(pbuf) ({ \
 	*(__le16 *)(pbuf) |= cpu_to_le16(_MORE_FRAG_); \
@@ -370,7 +360,7 @@ static inline unsigned char *get_hdr_bssid(unsigned char *pframe)
 
 
 /*-----------------------------------------------------------------------------
-			Below is for the security related definition
+ *		Below is for the security related definition
  *-----------------------------------------------------------------------------
  */
 #define _RESERVED_FRAME_TYPE_	0
@@ -415,7 +405,7 @@ static inline unsigned char *get_hdr_bssid(unsigned char *pframe)
 
 
 /* ---------------------------------------------------------------------------
-					Below is the fixed elements...
+ *			Below is the fixed elements...
  * ---------------------------------------------------------------------------
  */
 #define _AUTH_ALGM_NUM_			2
@@ -444,14 +434,14 @@ static inline unsigned char *get_hdr_bssid(unsigned char *pframe)
 #define cap_ShortPremble BIT(5)
 
 /*-----------------------------------------------------------------------------
-				Below is the definition for 802.11i / 802.1x
+ *			Below is the definition for 802.11i / 802.1x
  *------------------------------------------------------------------------------
  */
 #define _IEEE8021X_MGT_			1	/*WPA */
 #define _IEEE8021X_PSK_			2	/* WPA with pre-shared key */
 
 /*-----------------------------------------------------------------------------
-				Below is the definition for WMM
+ *			Below is the definition for WMM
  *------------------------------------------------------------------------------
  */
 #define _WMM_IE_Length_				7  /* for WMM STA */
@@ -459,7 +449,7 @@ static inline unsigned char *get_hdr_bssid(unsigned char *pframe)
 
 
 /*-----------------------------------------------------------------------------
-				Below is the definition for 802.11n
+ *			Below is the definition for 802.11n
  *------------------------------------------------------------------------------
  */
 
@@ -498,7 +488,7 @@ struct ieee80211_bar {
 #define IEEE80211_BAR_CTRL_CBMTID_COMPRESSED_BA  0x0004
 
 
- /**
+/*
  * struct ieee80211_ht_cap - HT capabilities
  *
  * This structure refers to "HT capabilities element" as
@@ -572,7 +562,6 @@ struct ieee80211_ht_addt_info {
  * According to IEEE802.11n spec size varies from 8K to 64K (in powers of 2)
  */
 #define IEEE80211_MIN_AMPDU_BUF 0x8
-#define IEEE80211_MAX_AMPDU_BUF 0x40
 
 
 /* Spatial Multiplexing Power Save Modes */

@@ -1,13 +1,10 @@
+// SPDX-License-Identifier: GPL-2.0
 /*
  * Helper functions used by the EFI stub on multiple
  * architectures. This should be #included by the EFI stub
  * implementation files.
  *
  * Copyright 2011 Intel Corporation; author Matt Fleming
- *
- * This file is part of the Linux kernel, and is made available
- * under the terms of the GNU General Public License version 2.
- *
  */
 
 #include <linux/efi.h>
@@ -31,6 +28,23 @@
 #define EFI_READ_CHUNK_SIZE	(1024 * 1024)
 
 static unsigned long __chunk_size = EFI_READ_CHUNK_SIZE;
+
+static int __section(.data) __nokaslr;
+static int __section(.data) __quiet;
+static int __section(.data) __novamap;
+
+int __pure nokaslr(void)
+{
+	return __nokaslr;
+}
+int __pure is_quiet(void)
+{
+	return __quiet;
+}
+int __pure novamap(void)
+{
+	return __novamap;
+}
 
 #define EFI_MMAP_NR_SLACK_SLOTS	8
 
@@ -193,7 +207,7 @@ again:
 		unsigned long m = (unsigned long)map;
 		u64 start, end;
 
-		desc = (efi_memory_desc_t *)(m + (i * desc_size));
+		desc = efi_early_memdesc_ptr(m, desc_size, i);
 		if (desc->type != EFI_CONVENTIONAL_MEMORY)
 			continue;
 
@@ -286,7 +300,7 @@ efi_status_t efi_low_alloc(efi_system_table_t *sys_table_arg,
 		unsigned long m = (unsigned long)map;
 		u64 start, end;
 
-		desc = (efi_memory_desc_t *)(m + (i * desc_size));
+		desc = efi_early_memdesc_ptr(m, desc_size, i);
 
 		if (desc->type != EFI_CONVENTIONAL_MEMORY)
 			continue;
@@ -401,6 +415,34 @@ static efi_status_t efi_file_close(void *handle)
 	return efi_call_proto(efi_file_handle, close, handle);
 }
 
+static efi_status_t efi_open_volume(efi_system_table_t *sys_table_arg,
+				    efi_loaded_image_t *image,
+				    efi_file_handle_t **__fh)
+{
+	efi_file_io_interface_t *io;
+	efi_file_handle_t *fh;
+	efi_guid_t fs_proto = EFI_FILE_SYSTEM_GUID;
+	efi_status_t status;
+	void *handle = (void *)(unsigned long)efi_table_attr(efi_loaded_image,
+							     device_handle,
+							     image);
+
+	status = efi_call_early(handle_protocol, handle,
+				&fs_proto, (void **)&io);
+	if (status != EFI_SUCCESS) {
+		efi_printk(sys_table_arg, "Failed to handle fs_proto\n");
+		return status;
+	}
+
+	status = efi_call_proto(efi_file_io_interface, open_volume, io, &fh);
+	if (status != EFI_SUCCESS)
+		efi_printk(sys_table_arg, "Failed to open volume\n");
+	else
+		*__fh = fh;
+
+	return status;
+}
+
 /*
  * Parse the ASCII string 'cmdline' for EFI options, denoted by the efi=
  * option, e.g. efi=nochunk.
@@ -409,17 +451,17 @@ static efi_status_t efi_file_close(void *handle)
  * environments, first in the early boot environment of the EFI boot
  * stub, and subsequently during the kernel boot.
  */
-efi_status_t efi_parse_options(char *cmdline)
+efi_status_t efi_parse_options(char const *cmdline)
 {
 	char *str;
 
-	/*
-	 * Currently, the only efi= option we look for is 'nochunk', which
-	 * is intended to work around known issues on certain x86 UEFI
-	 * versions. So ignore for now on other architectures.
-	 */
-	if (!IS_ENABLED(CONFIG_X86))
-		return EFI_SUCCESS;
+	str = strstr(cmdline, "nokaslr");
+	if (str == cmdline || (str && str > cmdline && *(str - 1) == ' '))
+		__nokaslr = 1;
+
+	str = strstr(cmdline, "quiet");
+	if (str == cmdline || (str && str > cmdline && *(str - 1) == ' '))
+		__quiet = 1;
 
 	/*
 	 * If no EFI parameters were specified on the cmdline we've got
@@ -436,14 +478,19 @@ efi_status_t efi_parse_options(char *cmdline)
 	 * Remember, because efi= is also used by the kernel we need to
 	 * skip over arguments we don't understand.
 	 */
-	while (*str) {
+	while (*str && *str != ' ') {
 		if (!strncmp(str, "nochunk", 7)) {
 			str += strlen("nochunk");
 			__chunk_size = -1UL;
 		}
 
+		if (!strncmp(str, "novamap", 7)) {
+			str += strlen("novamap");
+			__novamap = 1;
+		}
+
 		/* Group words together, delimited by "," */
-		while (*str && *str != ',')
+		while (*str && *str != ' ' && *str != ',')
 			str++;
 
 		if (*str == ',')
@@ -551,8 +598,7 @@ efi_status_t handle_cmdline_files(efi_system_table_t *sys_table_arg,
 
 		/* Only open the volume once. */
 		if (!i) {
-			status = efi_open_volume(sys_table_arg, image,
-						 (void **)&fh);
+			status = efi_open_volume(sys_table_arg, image, &fh);
 			if (status != EFI_SUCCESS)
 				goto free_files;
 		}

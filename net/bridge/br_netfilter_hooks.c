@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: GPL-2.0-or-later
 /*
  *	Handle firewalling
  *	Linux ethernet bridge
@@ -5,11 +6,6 @@
  *	Authors:
  *	Lennert Buytenhek		<buytenh@gnu.org>
  *	Bart De Schuymer		<bdschuym@pandora.be>
- *
- *	This program is free software; you can redistribute it and/or
- *	modify it under the terms of the GNU General Public License
- *	as published by the Free Software Foundation; either version
- *	2 of the License, or (at your option) any later version.
  *
  *	Lennert dedicates this file to Kerstin Wurdinger.
  */
@@ -26,6 +22,7 @@
 #include <linux/if_pppox.h>
 #include <linux/ppp_defs.h>
 #include <linux/netfilter_bridge.h>
+#include <uapi/linux/netfilter_bridge.h>
 #include <linux/netfilter_ipv4.h>
 #include <linux/netfilter_ipv6.h>
 #include <linux/netfilter_arp.h>
@@ -131,10 +128,7 @@ static DEFINE_PER_CPU(struct brnf_frag_data, brnf_frag_data_storage);
 
 static void nf_bridge_info_free(struct sk_buff *skb)
 {
-	if (skb->nf_bridge) {
-		nf_bridge_put(skb->nf_bridge);
-		skb->nf_bridge = NULL;
-	}
+	skb_ext_del(skb, SKB_EXT_BRIDGE_NF);
 }
 
 static inline struct net_device *bridge_parent(const struct net_device *dev)
@@ -147,19 +141,7 @@ static inline struct net_device *bridge_parent(const struct net_device *dev)
 
 static inline struct nf_bridge_info *nf_bridge_unshare(struct sk_buff *skb)
 {
-	struct nf_bridge_info *nf_bridge = skb->nf_bridge;
-
-	if (atomic_read(&nf_bridge->use) > 1) {
-		struct nf_bridge_info *tmp = nf_bridge_alloc(skb);
-
-		if (tmp) {
-			memcpy(tmp, nf_bridge, sizeof(struct nf_bridge_info));
-			atomic_set(&tmp->use, 1);
-		}
-		nf_bridge_put(nf_bridge);
-		nf_bridge = tmp;
-	}
-	return nf_bridge;
+	return skb_ext_add(skb, SKB_EXT_BRIDGE_NF);
 }
 
 unsigned int nf_bridge_encap_header_len(const struct sk_buff *skb)
@@ -214,7 +196,7 @@ static int br_validate_ipv4(struct net *net, struct sk_buff *skb)
 
 	iph = ip_hdr(skb);
 	if (unlikely(ip_fast_csum((u8 *)iph, iph->ihl)))
-		goto inhdr_error;
+		goto csum_error;
 
 	len = ntohs(iph->tot_len);
 	if (skb->len < len) {
@@ -236,6 +218,8 @@ static int br_validate_ipv4(struct net *net, struct sk_buff *skb)
 	 */
 	return 0;
 
+csum_error:
+	__IP_INC_STATS(net, IPSTATS_MIB_CSUMERRORS);
 inhdr_error:
 	__IP_INC_STATS(net, IPSTATS_MIB_INHDRERRORS);
 drop:
@@ -244,7 +228,9 @@ drop:
 
 void nf_bridge_update_protocol(struct sk_buff *skb)
 {
-	switch (skb->nf_bridge->orig_proto) {
+	const struct nf_bridge_info *nf_bridge = nf_bridge_info_get(skb);
+
+	switch (nf_bridge->orig_proto) {
 	case BRNF_PROTO_8021Q:
 		skb->protocol = htons(ETH_P_8021Q);
 		break;
@@ -275,7 +261,7 @@ int br_nf_pre_routing_finish_bridge(struct net *net, struct sock *sk, struct sk_
 		struct nf_bridge_info *nf_bridge = nf_bridge_info_get(skb);
 		int ret;
 
-		if (neigh->hh.hh_len) {
+		if ((neigh->nud_state & NUD_CONNECTED) && neigh->hh.hh_len) {
 			neigh_hh_bridge(&neigh->hh, skb);
 			skb->dev = nf_bridge->physindev;
 			ret = br_handle_frame_finish(net, sk, skb);
@@ -484,14 +470,15 @@ static unsigned int br_nf_pre_routing(void *priv,
 	br = p->br;
 
 	if (IS_IPV6(skb) || IS_VLAN_IPV6(skb) || IS_PPPOE_IPV6(skb)) {
-		if (!brnf_call_ip6tables && !br->nf_call_ip6tables)
+		if (!brnf_call_ip6tables &&
+		    !br_opt_get(br, BROPT_NF_CALL_IP6TABLES))
 			return NF_ACCEPT;
 
 		nf_bridge_pull_encap_header_rcsum(skb);
 		return br_nf_pre_routing_ipv6(priv, skb, state);
 	}
 
-	if (!brnf_call_iptables && !br->nf_call_iptables)
+	if (!brnf_call_iptables && !br_opt_get(br, BROPT_NF_CALL_IPTABLES))
 		return NF_ACCEPT;
 
 	if (!IS_IP(skb) && !IS_VLAN_IP(skb) && !IS_PPPOE_IP(skb))
@@ -502,7 +489,6 @@ static unsigned int br_nf_pre_routing(void *priv,
 	if (br_validate_ipv4(state->net, skb))
 		return NF_DROP;
 
-	nf_bridge_put(skb->nf_bridge);
 	if (!nf_bridge_alloc(skb))
 		return NF_DROP;
 	if (!setup_pre_routing(skb))
@@ -512,6 +498,7 @@ static unsigned int br_nf_pre_routing(void *priv,
 	nf_bridge->ipv4_daddr = ip_hdr(skb)->daddr;
 
 	skb->protocol = htons(ETH_P_IP);
+	skb->transport_header = skb->network_header + ip_hdr(skb)->ihl * 4;
 
 	NF_HOOK(NFPROTO_IPV4, NF_INET_PRE_ROUTING, state->net, state->sk, skb,
 		skb->dev, NULL,
@@ -520,21 +507,6 @@ static unsigned int br_nf_pre_routing(void *priv,
 	return NF_STOLEN;
 }
 
-
-/* PF_BRIDGE/LOCAL_IN ************************************************/
-/* The packet is locally destined, which requires a real
- * dst_entry, so detach the fake one.  On the way up, the
- * packet would pass through PRE_ROUTING again (which already
- * took place when the packet entered the bridge), but we
- * register an IPv4 PRE_ROUTING 'sabotage' hook that will
- * prevent this from happening. */
-static unsigned int br_nf_local_in(void *priv,
-				   struct sk_buff *skb,
-				   const struct nf_hook_state *state)
-{
-	br_drop_fake_rtable(skb);
-	return NF_ACCEPT;
-}
 
 /* PF_BRIDGE/FORWARD *************************************************/
 static int br_nf_forward_finish(struct net *net, struct sock *sk, struct sk_buff *skb)
@@ -580,7 +552,8 @@ static unsigned int br_nf_forward_ip(void *priv,
 	struct net_device *parent;
 	u_int8_t pf;
 
-	if (!skb->nf_bridge)
+	nf_bridge = nf_bridge_info_get(skb);
+	if (!nf_bridge)
 		return NF_ACCEPT;
 
 	/* Need exclusive nf_bridge_info since we might have multiple
@@ -648,7 +621,7 @@ static unsigned int br_nf_forward_arp(void *priv,
 		return NF_ACCEPT;
 	br = p->br;
 
-	if (!brnf_call_arptables && !br->nf_call_arptables)
+	if (!brnf_call_arptables && !br_opt_get(br, BROPT_NF_CALL_ARPTABLES))
 		return NF_ACCEPT;
 
 	if (!IS_ARP(skb)) {
@@ -682,10 +655,8 @@ static int br_nf_push_frag_xmit(struct net *net, struct sock *sk, struct sk_buff
 		return 0;
 	}
 
-	if (data->vlan_tci) {
-		skb->vlan_tci = data->vlan_tci;
-		skb->vlan_proto = data->vlan_proto;
-	}
+	if (data->vlan_proto)
+		__vlan_hwaccel_put_tag(skb, data->vlan_proto, data->vlan_tci);
 
 	skb_copy_to_linear_data_offset(skb, -data->size, data->mac, data->size);
 	__skb_push(skb, data->encap_size);
@@ -714,24 +685,28 @@ br_nf_ip_fragment(struct net *net, struct sock *sk, struct sk_buff *skb,
 
 static unsigned int nf_bridge_mtu_reduction(const struct sk_buff *skb)
 {
-	if (skb->nf_bridge->orig_proto == BRNF_PROTO_PPPOE)
+	const struct nf_bridge_info *nf_bridge = nf_bridge_info_get(skb);
+
+	if (nf_bridge->orig_proto == BRNF_PROTO_PPPOE)
 		return PPPOE_SES_HLEN;
 	return 0;
 }
 
 static int br_nf_dev_queue_xmit(struct net *net, struct sock *sk, struct sk_buff *skb)
 {
-	struct nf_bridge_info *nf_bridge;
-	unsigned int mtu_reserved;
+	struct nf_bridge_info *nf_bridge = nf_bridge_info_get(skb);
+	unsigned int mtu, mtu_reserved;
 
 	mtu_reserved = nf_bridge_mtu_reduction(skb);
+	mtu = skb->dev->mtu;
 
-	if (skb_is_gso(skb) || skb->len + mtu_reserved <= skb->dev->mtu) {
+	if (nf_bridge->frag_max_size && nf_bridge->frag_max_size < mtu)
+		mtu = nf_bridge->frag_max_size;
+
+	if (skb_is_gso(skb) || skb->len + mtu_reserved <= mtu) {
 		nf_bridge_info_free(skb);
 		return br_dev_queue_push_xmit(net, sk, skb);
 	}
-
-	nf_bridge = nf_bridge_info_get(skb);
 
 	/* This is wrong! We should preserve the original fragment
 	 * boundaries by preserving frag_list rather than refragmenting.
@@ -749,8 +724,13 @@ static int br_nf_dev_queue_xmit(struct net *net, struct sock *sk, struct sk_buff
 
 		data = this_cpu_ptr(&brnf_frag_data_storage);
 
-		data->vlan_tci = skb->vlan_tci;
-		data->vlan_proto = skb->vlan_proto;
+		if (skb_vlan_tag_present(skb)) {
+			data->vlan_tci = skb->vlan_tci;
+			data->vlan_proto = skb->vlan_proto;
+		} else {
+			data->vlan_proto = 0;
+		}
+
 		data->encap_size = nf_bridge_encap_header_len(skb);
 		data->size = ETH_HLEN + data->encap_size;
 
@@ -845,7 +825,11 @@ static unsigned int ip_sabotage_in(void *priv,
 				   struct sk_buff *skb,
 				   const struct nf_hook_state *state)
 {
-	if (skb->nf_bridge && !skb->nf_bridge->in_prerouting) {
+	struct nf_bridge_info *nf_bridge = nf_bridge_info_get(skb);
+
+	if (nf_bridge && !nf_bridge->in_prerouting &&
+	    !netif_is_l3_master(skb->dev) &&
+	    !netif_is_l3_slave(skb->dev)) {
 		state->okfn(state->net, state->sk, skb);
 		return NF_STOLEN;
 	}
@@ -882,7 +866,9 @@ static void br_nf_pre_routing_finish_bridge_slow(struct sk_buff *skb)
 
 static int br_nf_dev_xmit(struct sk_buff *skb)
 {
-	if (skb->nf_bridge && skb->nf_bridge->bridged_dnat) {
+	const struct nf_bridge_info *nf_bridge = nf_bridge_info_get(skb);
+
+	if (nf_bridge && nf_bridge->bridged_dnat) {
 		br_nf_pre_routing_finish_bridge_slow(skb);
 		return 1;
 	}
@@ -893,24 +879,13 @@ static const struct nf_br_ops br_ops = {
 	.br_dev_xmit_hook =	br_nf_dev_xmit,
 };
 
-void br_netfilter_enable(void)
-{
-}
-EXPORT_SYMBOL_GPL(br_netfilter_enable);
-
 /* For br_nf_post_routing, we need (prio = NF_BR_PRI_LAST), because
  * br_dev_queue_push_xmit is called afterwards */
-static struct nf_hook_ops br_nf_ops[] __read_mostly = {
+static const struct nf_hook_ops br_nf_ops[] = {
 	{
 		.hook = br_nf_pre_routing,
 		.pf = NFPROTO_BRIDGE,
 		.hooknum = NF_BR_PRE_ROUTING,
-		.priority = NF_BR_PRI_BRNF,
-	},
-	{
-		.hook = br_nf_local_in,
-		.pf = NFPROTO_BRIDGE,
-		.hooknum = NF_BR_LOCAL_IN,
 		.priority = NF_BR_PRI_BRNF,
 	},
 	{
@@ -1004,25 +979,25 @@ int br_nf_hook_thresh(unsigned int hook, struct net *net,
 		      int (*okfn)(struct net *, struct sock *,
 				  struct sk_buff *))
 {
-	struct nf_hook_entry *elem;
+	const struct nf_hook_entries *e;
 	struct nf_hook_state state;
+	struct nf_hook_ops **ops;
+	unsigned int i;
 	int ret;
 
-	for (elem = rcu_dereference(net->nf.hooks[NFPROTO_BRIDGE][hook]);
-	     elem && nf_hook_entry_priority(elem) <= NF_BR_PRI_BRNF;
-	     elem = rcu_dereference(elem->next))
-		;
-
-	if (!elem)
+	e = rcu_dereference(net->nf.hooks_bridge[hook]);
+	if (!e)
 		return okfn(net, sk, skb);
 
-	/* We may already have this, but read-locks nest anyway */
-	rcu_read_lock();
+	ops = nf_hook_entries_get_hook_ops(e);
+	for (i = 0; i < e->num_hook_entries &&
+	      ops[i]->priority <= NF_BR_PRI_BRNF; i++)
+		;
+
 	nf_hook_state_init(&state, hook, NFPROTO_BRIDGE, indev, outdev,
 			   sk, net, okfn);
 
-	ret = nf_hook_slow(skb, &state, elem);
-	rcu_read_unlock();
+	ret = nf_hook_slow(skb, &state, e, i);
 	if (ret == 1)
 		ret = okfn(net, sk, skb);
 

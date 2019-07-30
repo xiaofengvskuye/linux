@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: GPL-2.0-or-later
 /*
  *  libata-sff.c - helper library for PCI IDE BMDMA
  *
@@ -8,28 +9,11 @@
  *  Copyright 2003-2006 Red Hat, Inc.  All rights reserved.
  *  Copyright 2003-2006 Jeff Garzik
  *
- *
- *  This program is free software; you can redistribute it and/or modify
- *  it under the terms of the GNU General Public License as published by
- *  the Free Software Foundation; either version 2, or (at your option)
- *  any later version.
- *
- *  This program is distributed in the hope that it will be useful,
- *  but WITHOUT ANY WARRANTY; without even the implied warranty of
- *  MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
- *  GNU General Public License for more details.
- *
- *  You should have received a copy of the GNU General Public License
- *  along with this program; see the file COPYING.  If not, write to
- *  the Free Software Foundation, 675 Mass Ave, Cambridge, MA 02139, USA.
- *
- *
  *  libata documentation is available via 'make {ps|pdf}docs',
- *  as Documentation/DocBook/libata.*
+ *  as Documentation/driver-api/libata.rst
  *
  *  Hardware documentation available from http://www.t13.org/ and
  *  http://www.sata-io.org/
- *
  */
 
 #include <linux/kernel.h>
@@ -658,36 +642,6 @@ unsigned int ata_sff_data_xfer32(struct ata_queued_cmd *qc, unsigned char *buf,
 EXPORT_SYMBOL_GPL(ata_sff_data_xfer32);
 
 /**
- *	ata_sff_data_xfer_noirq - Transfer data by PIO
- *	@qc: queued command
- *	@buf: data buffer
- *	@buflen: buffer length
- *	@rw: read/write
- *
- *	Transfer data from/to the device data register by PIO. Do the
- *	transfer with interrupts disabled.
- *
- *	LOCKING:
- *	Inherited from caller.
- *
- *	RETURNS:
- *	Bytes consumed.
- */
-unsigned int ata_sff_data_xfer_noirq(struct ata_queued_cmd *qc, unsigned char *buf,
-				     unsigned int buflen, int rw)
-{
-	unsigned long flags;
-	unsigned int consumed;
-
-	local_irq_save(flags);
-	consumed = ata_sff_data_xfer32(qc, buf, buflen, rw);
-	local_irq_restore(flags);
-
-	return consumed;
-}
-EXPORT_SYMBOL_GPL(ata_sff_data_xfer_noirq);
-
-/**
  *	ata_pio_sector - Transfer a sector of data.
  *	@qc: Command on going
  *
@@ -716,24 +670,10 @@ static void ata_pio_sector(struct ata_queued_cmd *qc)
 
 	DPRINTK("data %s\n", qc->tf.flags & ATA_TFLAG_WRITE ? "write" : "read");
 
-	if (PageHighMem(page)) {
-		unsigned long flags;
-
-		/* FIXME: use a bounce buffer */
-		local_irq_save(flags);
-		buf = kmap_atomic(page);
-
-		/* do the actual data transfer */
-		ap->ops->sff_data_xfer(qc, buf + offset, qc->sect_size,
-				       do_write);
-
-		kunmap_atomic(buf);
-		local_irq_restore(flags);
-	} else {
-		buf = page_address(page);
-		ap->ops->sff_data_xfer(qc, buf + offset, qc->sect_size,
-				       do_write);
-	}
+	/* do the actual data transfer */
+	buf = kmap_atomic(page);
+	ap->ops->sff_data_xfer(qc, buf + offset, qc->sect_size, do_write);
+	kunmap_atomic(buf);
 
 	if (!do_write && !PageSlab(page))
 		flush_dcache_page(page);
@@ -861,24 +801,10 @@ next_sg:
 
 	DPRINTK("data %s\n", qc->tf.flags & ATA_TFLAG_WRITE ? "write" : "read");
 
-	if (PageHighMem(page)) {
-		unsigned long flags;
-
-		/* FIXME: use bounce buffer */
-		local_irq_save(flags);
-		buf = kmap_atomic(page);
-
-		/* do the actual data transfer */
-		consumed = ap->ops->sff_data_xfer(qc, buf + offset,
-								count, rw);
-
-		kunmap_atomic(buf);
-		local_irq_restore(flags);
-	} else {
-		buf = page_address(page);
-		consumed = ap->ops->sff_data_xfer(qc, buf + offset,
-								count, rw);
-	}
+	/* do the actual data transfer */
+	buf = kmap_atomic(page);
+	consumed = ap->ops->sff_data_xfer(qc, buf + offset, count, rw);
+	kunmap_atomic(buf);
 
 	bytes -= min(bytes, consumed);
 	qc->curbytes += count;
@@ -1482,7 +1408,6 @@ unsigned int ata_sff_qc_issue(struct ata_queued_cmd *qc)
 		break;
 
 	default:
-		WARN_ON_ONCE(1);
 		return AC_ERR_SYSTEM;
 	}
 

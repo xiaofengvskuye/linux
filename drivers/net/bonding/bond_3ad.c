@@ -1,23 +1,6 @@
+// SPDX-License-Identifier: GPL-2.0-or-later
 /*
  * Copyright(c) 1999 - 2004 Intel Corporation. All rights reserved.
- *
- * This program is free software; you can redistribute it and/or modify it
- * under the terms of the GNU General Public License as published by the Free
- * Software Foundation; either version 2 of the License, or (at your option)
- * any later version.
- *
- * This program is distributed in the hope that it will be useful, but WITHOUT
- * ANY WARRANTY; without even the implied warranty of MERCHANTABILITY or
- * FITNESS FOR A PARTICULAR PURPOSE.  See the GNU General Public License for
- * more details.
- *
- * You should have received a copy of the GNU General Public License along with
- * this program; if not, write to the Free Software Foundation, Inc., 59
- * Temple Place - Suite 330, Boston, MA  02111-1307, USA.
- *
- * The full GNU General Public License is included in this distribution in the
- * file called LICENSE.
- *
  */
 
 #include <linux/skbuff.h>
@@ -31,6 +14,7 @@
 #include <net/net_namespace.h>
 #include <net/bonding.h>
 #include <net/bond_3ad.h>
+#include <net/netlink.h>
 
 /* General definitions */
 #define AD_SHORT_TIMEOUT           1
@@ -90,9 +74,13 @@ enum ad_link_speed_type {
 	AD_LINK_SPEED_100MBPS,
 	AD_LINK_SPEED_1000MBPS,
 	AD_LINK_SPEED_2500MBPS,
+	AD_LINK_SPEED_5000MBPS,
 	AD_LINK_SPEED_10000MBPS,
+	AD_LINK_SPEED_14000MBPS,
 	AD_LINK_SPEED_20000MBPS,
+	AD_LINK_SPEED_25000MBPS,
 	AD_LINK_SPEED_40000MBPS,
+	AD_LINK_SPEED_50000MBPS,
 	AD_LINK_SPEED_56000MBPS,
 	AD_LINK_SPEED_100000MBPS,
 };
@@ -258,9 +246,13 @@ static inline int __check_agg_selection_timer(struct port *port)
  *     %AD_LINK_SPEED_100MBPS,
  *     %AD_LINK_SPEED_1000MBPS,
  *     %AD_LINK_SPEED_2500MBPS,
+ *     %AD_LINK_SPEED_5000MBPS,
  *     %AD_LINK_SPEED_10000MBPS
+ *     %AD_LINK_SPEED_14000MBPS,
  *     %AD_LINK_SPEED_20000MBPS
+ *     %AD_LINK_SPEED_25000MBPS
  *     %AD_LINK_SPEED_40000MBPS
+ *     %AD_LINK_SPEED_50000MBPS
  *     %AD_LINK_SPEED_56000MBPS
  *     %AD_LINK_SPEED_100000MBPS
  */
@@ -294,16 +286,32 @@ static u16 __get_link_speed(struct port *port)
 			speed = AD_LINK_SPEED_2500MBPS;
 			break;
 
+		case SPEED_5000:
+			speed = AD_LINK_SPEED_5000MBPS;
+			break;
+
 		case SPEED_10000:
 			speed = AD_LINK_SPEED_10000MBPS;
+			break;
+
+		case SPEED_14000:
+			speed = AD_LINK_SPEED_14000MBPS;
 			break;
 
 		case SPEED_20000:
 			speed = AD_LINK_SPEED_20000MBPS;
 			break;
 
+		case SPEED_25000:
+			speed = AD_LINK_SPEED_25000MBPS;
+			break;
+
 		case SPEED_40000:
 			speed = AD_LINK_SPEED_40000MBPS;
+			break;
+
+		case SPEED_50000:
+			speed = AD_LINK_SPEED_50000MBPS;
 			break;
 
 		case SPEED_56000:
@@ -316,6 +324,11 @@ static u16 __get_link_speed(struct port *port)
 
 		default:
 			/* unknown speed value from ethtool. shouldn't happen */
+			if (slave->speed != SPEED_UNKNOWN)
+				pr_warn_once("%s: unknown ethtool speed (%d) for port %d (set it to 0)\n",
+					     slave->bond->dev->name,
+					     slave->speed,
+					     port->actor_port_number);
 			speed = 0;
 			break;
 		}
@@ -701,14 +714,26 @@ static u32 __get_agg_bandwidth(struct aggregator *aggregator)
 		case AD_LINK_SPEED_2500MBPS:
 			bandwidth = nports * 2500;
 			break;
+		case AD_LINK_SPEED_5000MBPS:
+			bandwidth = nports * 5000;
+			break;
 		case AD_LINK_SPEED_10000MBPS:
 			bandwidth = nports * 10000;
+			break;
+		case AD_LINK_SPEED_14000MBPS:
+			bandwidth = nports * 14000;
 			break;
 		case AD_LINK_SPEED_20000MBPS:
 			bandwidth = nports * 20000;
 			break;
+		case AD_LINK_SPEED_25000MBPS:
+			bandwidth = nports * 25000;
+			break;
 		case AD_LINK_SPEED_40000MBPS:
 			bandwidth = nports * 40000;
+			break;
+		case AD_LINK_SPEED_50000MBPS:
+			bandwidth = nports * 50000;
 			break;
 		case AD_LINK_SPEED_56000MBPS:
 			bandwidth = nports * 56000;
@@ -810,13 +835,16 @@ static int ad_lacpdu_send(struct port *port)
 	if (!skb)
 		return -ENOMEM;
 
+	atomic64_inc(&SLAVE_AD_INFO(slave)->stats.lacpdu_tx);
+	atomic64_inc(&BOND_AD_INFO(slave->bond).stats.lacpdu_tx);
+
 	skb->dev = slave->dev;
 	skb_reset_mac_header(skb);
 	skb->network_header = skb->mac_header + ETH_HLEN;
 	skb->protocol = PKT_TYPE_LACPDU;
 	skb->priority = TC_PRIO_CONTROL;
 
-	lacpdu_header = (struct lacpdu_header *)skb_put(skb, length);
+	lacpdu_header = skb_put(skb, length);
 
 	ether_addr_copy(lacpdu_header->hdr.h_dest, lacpdu_mcast_addr);
 	/* Note: source address is set to be the member's PERMANENT address,
@@ -851,6 +879,17 @@ static int ad_marker_send(struct port *port, struct bond_marker *marker)
 	if (!skb)
 		return -ENOMEM;
 
+	switch (marker->tlv_type) {
+	case AD_MARKER_INFORMATION_SUBTYPE:
+		atomic64_inc(&SLAVE_AD_INFO(slave)->stats.marker_tx);
+		atomic64_inc(&BOND_AD_INFO(slave->bond).stats.marker_tx);
+		break;
+	case AD_MARKER_RESPONSE_SUBTYPE:
+		atomic64_inc(&SLAVE_AD_INFO(slave)->stats.marker_resp_tx);
+		atomic64_inc(&BOND_AD_INFO(slave->bond).stats.marker_resp_tx);
+		break;
+	}
+
 	skb_reserve(skb, 16);
 
 	skb->dev = slave->dev;
@@ -858,7 +897,7 @@ static int ad_marker_send(struct port *port, struct bond_marker *marker)
 	skb->network_header = skb->mac_header + ETH_HLEN;
 	skb->protocol = PKT_TYPE_LACPDU;
 
-	marker_header = (struct bond_marker_header *)skb_put(skb, length);
+	marker_header = skb_put(skb, length);
 
 	ether_addr_copy(marker_header->hdr.h_dest, lacpdu_mcast_addr);
 	/* Note: source address is set to be the member's PERMANENT address,
@@ -1045,6 +1084,10 @@ static void ad_rx_machine(struct lacpdu *lacpdu, struct port *port)
 	 */
 	last_state = port->sm_rx_state;
 
+	if (lacpdu) {
+		atomic64_inc(&SLAVE_AD_INFO(port->slave)->stats.lacpdu_rx);
+		atomic64_inc(&BOND_AD_INFO(port->slave->bond).stats.lacpdu_rx);
+	}
 	/* check if state machine should change state */
 
 	/* first, check if port was reinitialized */
@@ -1052,8 +1095,7 @@ static void ad_rx_machine(struct lacpdu *lacpdu, struct port *port)
 		port->sm_rx_state = AD_RX_INITIALIZE;
 		port->sm_vars |= AD_PORT_CHURNED;
 	/* check if port is not enabled */
-	} else if (!(port->sm_vars & AD_PORT_BEGIN)
-		 && !port->is_enabled && !(port->sm_vars & AD_PORT_MOVED))
+	} else if (!(port->sm_vars & AD_PORT_BEGIN) && !port->is_enabled)
 		port->sm_rx_state = AD_RX_PORT_DISABLED;
 	/* check if new lacpdu arrived */
 	else if (lacpdu && ((port->sm_rx_state == AD_RX_EXPIRED) ||
@@ -1081,11 +1123,8 @@ static void ad_rx_machine(struct lacpdu *lacpdu, struct port *port)
 			/* if no lacpdu arrived and no timer is on */
 			switch (port->sm_rx_state) {
 			case AD_RX_PORT_DISABLED:
-				if (port->sm_vars & AD_PORT_MOVED)
-					port->sm_rx_state = AD_RX_INITIALIZE;
-				else if (port->is_enabled
-					 && (port->sm_vars
-					     & AD_PORT_LACP_ENABLED))
+				if (port->is_enabled &&
+				    (port->sm_vars & AD_PORT_LACP_ENABLED))
 					port->sm_rx_state = AD_RX_EXPIRED;
 				else if (port->is_enabled
 					 && ((port->sm_vars
@@ -1115,7 +1154,6 @@ static void ad_rx_machine(struct lacpdu *lacpdu, struct port *port)
 			port->sm_vars &= ~AD_PORT_SELECTED;
 			__record_default(port);
 			port->actor_oper_port_state &= ~AD_STATE_EXPIRED;
-			port->sm_vars &= ~AD_PORT_MOVED;
 			port->sm_rx_state = AD_RX_PORT_DISABLED;
 
 			/* Fall Through */
@@ -1184,7 +1222,7 @@ static void ad_churn_machine(struct port *port)
 		port->sm_churn_partner_state = AD_CHURN_MONITOR;
 		port->sm_churn_actor_timer_counter =
 			__ad_timer_to_ticks(AD_ACTOR_CHURN_TIMER, 0);
-		 port->sm_churn_partner_timer_counter =
+		port->sm_churn_partner_timer_counter =
 			 __ad_timer_to_ticks(AD_PARTNER_CHURN_TIMER, 0);
 		return;
 	}
@@ -1886,6 +1924,9 @@ static void ad_marker_info_received(struct bond_marker *marker_info,
 {
 	struct bond_marker marker;
 
+	atomic64_inc(&SLAVE_AD_INFO(port->slave)->stats.marker_rx);
+	atomic64_inc(&BOND_AD_INFO(port->slave->bond).stats.marker_rx);
+
 	/* copy the received marker data to the response marker */
 	memcpy(&marker, marker_info, sizeof(struct bond_marker));
 	/* change the marker subtype to marker response */
@@ -1910,6 +1951,9 @@ static void ad_marker_info_received(struct bond_marker *marker_info,
 static void ad_marker_response_received(struct bond_marker *marker,
 					struct port *port)
 {
+	atomic64_inc(&SLAVE_AD_INFO(port->slave)->stats.marker_resp_rx);
+	atomic64_inc(&BOND_AD_INFO(port->slave->bond).stats.marker_resp_rx);
+
 	/* DO NOTHING, SINCE WE DECIDED NOT TO IMPLEMENT THIS FEATURE FOR NOW */
 }
 
@@ -2050,6 +2094,9 @@ void bond_3ad_unbind_slave(struct slave *slave)
 		   aggregator->aggregator_identifier);
 
 	/* Tell the partner that this port is not suitable for aggregation */
+	port->actor_oper_port_state &= ~AD_STATE_SYNCHRONIZATION;
+	port->actor_oper_port_state &= ~AD_STATE_COLLECTING;
+	port->actor_oper_port_state &= ~AD_STATE_DISTRIBUTING;
 	port->actor_oper_port_state &= ~AD_STATE_AGGREGATION;
 	__update_lacpdu_from_port(port);
 	ad_lacpdu_send(port);
@@ -2089,7 +2136,7 @@ void bond_3ad_unbind_slave(struct slave *slave)
 				if ((new_aggregator->lag_ports == port) &&
 				    new_aggregator->is_active) {
 					netdev_info(bond->dev, "Removing an active aggregator\n");
-					 select_new_active_agg = 1;
+					select_new_active_agg = 1;
 				}
 
 				new_aggregator->is_individual = aggregator->is_individual;
@@ -2309,66 +2356,68 @@ re_arm:
  * bond_3ad_rx_indication - handle a received frame
  * @lacpdu: received lacpdu
  * @slave: slave struct to work on
- * @length: length of the data received
  *
  * It is assumed that frames that were sent on this NIC don't returned as new
  * received frames (loopback). Since only the payload is given to this
  * function, it check for loopback.
  */
-static int bond_3ad_rx_indication(struct lacpdu *lacpdu, struct slave *slave,
-				  u16 length)
+static int bond_3ad_rx_indication(struct lacpdu *lacpdu, struct slave *slave)
 {
-	struct port *port;
+	struct bonding *bond = slave->bond;
 	int ret = RX_HANDLER_ANOTHER;
+	struct bond_marker *marker;
+	struct port *port;
+	atomic64_t *stat;
 
-	if (length >= sizeof(struct lacpdu)) {
-
-		port = &(SLAVE_AD_INFO(slave)->port);
-
-		if (!port->slave) {
-			net_warn_ratelimited("%s: Warning: port of slave %s is uninitialized\n",
-					     slave->dev->name, slave->bond->dev->name);
-			return ret;
-		}
-
-		switch (lacpdu->subtype) {
-		case AD_TYPE_LACPDU:
-			ret = RX_HANDLER_CONSUMED;
-			netdev_dbg(slave->bond->dev,
-				   "Received LACPDU on port %d slave %s\n",
-				   port->actor_port_number,
-				   slave->dev->name);
-			/* Protect against concurrent state machines */
-			spin_lock(&slave->bond->mode_lock);
-			ad_rx_machine(lacpdu, port);
-			spin_unlock(&slave->bond->mode_lock);
-			break;
-
-		case AD_TYPE_MARKER:
-			ret = RX_HANDLER_CONSUMED;
-			/* No need to convert fields to Little Endian since we
-			 * don't use the marker's fields.
-			 */
-
-			switch (((struct bond_marker *)lacpdu)->tlv_type) {
-			case AD_MARKER_INFORMATION_SUBTYPE:
-				netdev_dbg(slave->bond->dev, "Received Marker Information on port %d\n",
-					   port->actor_port_number);
-				ad_marker_info_received((struct bond_marker *)lacpdu, port);
-				break;
-
-			case AD_MARKER_RESPONSE_SUBTYPE:
-				netdev_dbg(slave->bond->dev, "Received Marker Response on port %d\n",
-					   port->actor_port_number);
-				ad_marker_response_received((struct bond_marker *)lacpdu, port);
-				break;
-
-			default:
-				netdev_dbg(slave->bond->dev, "Received an unknown Marker subtype on slot %d\n",
-					   port->actor_port_number);
-			}
-		}
+	port = &(SLAVE_AD_INFO(slave)->port);
+	if (!port->slave) {
+		net_warn_ratelimited("%s: Warning: port of slave %s is uninitialized\n",
+				     slave->dev->name, slave->bond->dev->name);
+		return ret;
 	}
+
+	switch (lacpdu->subtype) {
+	case AD_TYPE_LACPDU:
+		ret = RX_HANDLER_CONSUMED;
+		netdev_dbg(slave->bond->dev,
+			   "Received LACPDU on port %d slave %s\n",
+			   port->actor_port_number, slave->dev->name);
+		/* Protect against concurrent state machines */
+		spin_lock(&slave->bond->mode_lock);
+		ad_rx_machine(lacpdu, port);
+		spin_unlock(&slave->bond->mode_lock);
+		break;
+	case AD_TYPE_MARKER:
+		ret = RX_HANDLER_CONSUMED;
+		/* No need to convert fields to Little Endian since we
+		 * don't use the marker's fields.
+		 */
+		marker = (struct bond_marker *)lacpdu;
+		switch (marker->tlv_type) {
+		case AD_MARKER_INFORMATION_SUBTYPE:
+			netdev_dbg(slave->bond->dev, "Received Marker Information on port %d\n",
+				   port->actor_port_number);
+			ad_marker_info_received(marker, port);
+			break;
+		case AD_MARKER_RESPONSE_SUBTYPE:
+			netdev_dbg(slave->bond->dev, "Received Marker Response on port %d\n",
+				   port->actor_port_number);
+			ad_marker_response_received(marker, port);
+			break;
+		default:
+			netdev_dbg(slave->bond->dev, "Received an unknown Marker subtype on slot %d\n",
+				   port->actor_port_number);
+			stat = &SLAVE_AD_INFO(slave)->stats.marker_unknown_rx;
+			atomic64_inc(stat);
+			stat = &BOND_AD_INFO(bond).stats.marker_unknown_rx;
+			atomic64_inc(stat);
+		}
+		break;
+	default:
+		atomic64_inc(&SLAVE_AD_INFO(slave)->stats.lacpdu_unknown_rx);
+		atomic64_inc(&BOND_AD_INFO(bond).stats.lacpdu_unknown_rx);
+	}
+
 	return ret;
 }
 
@@ -2442,9 +2491,9 @@ void bond_3ad_adapter_speed_duplex_changed(struct slave *slave)
 
 	spin_lock_bh(&slave->bond->mode_lock);
 	ad_update_actor_keys(port, false);
+	spin_unlock_bh(&slave->bond->mode_lock);
 	netdev_dbg(slave->bond->dev, "Port %d slave %s changed speed/duplex\n",
 		   port->actor_port_number, slave->dev->name);
-	spin_unlock_bh(&slave->bond->mode_lock);
 }
 
 /**
@@ -2488,11 +2537,11 @@ void bond_3ad_handle_link_change(struct slave *slave, char link)
 	agg = __get_first_agg(port);
 	ad_agg_selection_logic(agg, &dummy);
 
+	spin_unlock_bh(&slave->bond->mode_lock);
+
 	netdev_dbg(slave->bond->dev, "Port %d changed link status to %s\n",
 		   port->actor_port_number,
 		   link == BOND_LINK_UP ? "UP" : "DOWN");
-
-	spin_unlock_bh(&slave->bond->mode_lock);
 
 	/* RTNL is held and mode_lock is released so it's safe
 	 * to update slave_array here.
@@ -2573,7 +2622,7 @@ int __bond_3ad_get_active_agg_info(struct bonding *bond,
 		return -1;
 
 	ad_info->aggregator_id = aggregator->aggregator_identifier;
-	ad_info->ports = aggregator->num_of_ports;
+	ad_info->ports = __agg_active_ports(aggregator);
 	ad_info->actor_key = aggregator->actor_oper_aggregator_key;
 	ad_info->partner_key = aggregator->partner_oper_aggregator_key;
 	ether_addr_copy(ad_info->partner_system,
@@ -2604,10 +2653,13 @@ int bond_3ad_lacpdu_recv(const struct sk_buff *skb, struct bonding *bond,
 		return RX_HANDLER_ANOTHER;
 
 	lacpdu = skb_header_pointer(skb, 0, sizeof(_lacpdu), &_lacpdu);
-	if (!lacpdu)
+	if (!lacpdu) {
+		atomic64_inc(&SLAVE_AD_INFO(slave)->stats.lacpdu_illegal_rx);
+		atomic64_inc(&BOND_AD_INFO(bond).stats.lacpdu_illegal_rx);
 		return RX_HANDLER_ANOTHER;
+	}
 
-	return bond_3ad_rx_indication(lacpdu, slave, skb->len);
+	return bond_3ad_rx_indication(lacpdu, slave);
 }
 
 /**
@@ -2638,4 +2690,62 @@ void bond_3ad_update_lacp_rate(struct bonding *bond)
 			port->actor_oper_port_state &= ~AD_STATE_LACP_TIMEOUT;
 	}
 	spin_unlock_bh(&bond->mode_lock);
+}
+
+size_t bond_3ad_stats_size(void)
+{
+	return nla_total_size_64bit(sizeof(u64)) + /* BOND_3AD_STAT_LACPDU_RX */
+	       nla_total_size_64bit(sizeof(u64)) + /* BOND_3AD_STAT_LACPDU_TX */
+	       nla_total_size_64bit(sizeof(u64)) + /* BOND_3AD_STAT_LACPDU_UNKNOWN_RX */
+	       nla_total_size_64bit(sizeof(u64)) + /* BOND_3AD_STAT_LACPDU_ILLEGAL_RX */
+	       nla_total_size_64bit(sizeof(u64)) + /* BOND_3AD_STAT_MARKER_RX */
+	       nla_total_size_64bit(sizeof(u64)) + /* BOND_3AD_STAT_MARKER_TX */
+	       nla_total_size_64bit(sizeof(u64)) + /* BOND_3AD_STAT_MARKER_RESP_RX */
+	       nla_total_size_64bit(sizeof(u64)) + /* BOND_3AD_STAT_MARKER_RESP_TX */
+	       nla_total_size_64bit(sizeof(u64)); /* BOND_3AD_STAT_MARKER_UNKNOWN_RX */
+}
+
+int bond_3ad_stats_fill(struct sk_buff *skb, struct bond_3ad_stats *stats)
+{
+	u64 val;
+
+	val = atomic64_read(&stats->lacpdu_rx);
+	if (nla_put_u64_64bit(skb, BOND_3AD_STAT_LACPDU_RX, val,
+			      BOND_3AD_STAT_PAD))
+		return -EMSGSIZE;
+	val = atomic64_read(&stats->lacpdu_tx);
+	if (nla_put_u64_64bit(skb, BOND_3AD_STAT_LACPDU_TX, val,
+			      BOND_3AD_STAT_PAD))
+		return -EMSGSIZE;
+	val = atomic64_read(&stats->lacpdu_unknown_rx);
+	if (nla_put_u64_64bit(skb, BOND_3AD_STAT_LACPDU_UNKNOWN_RX, val,
+			      BOND_3AD_STAT_PAD))
+		return -EMSGSIZE;
+	val = atomic64_read(&stats->lacpdu_illegal_rx);
+	if (nla_put_u64_64bit(skb, BOND_3AD_STAT_LACPDU_ILLEGAL_RX, val,
+			      BOND_3AD_STAT_PAD))
+		return -EMSGSIZE;
+
+	val = atomic64_read(&stats->marker_rx);
+	if (nla_put_u64_64bit(skb, BOND_3AD_STAT_MARKER_RX, val,
+			      BOND_3AD_STAT_PAD))
+		return -EMSGSIZE;
+	val = atomic64_read(&stats->marker_tx);
+	if (nla_put_u64_64bit(skb, BOND_3AD_STAT_MARKER_TX, val,
+			      BOND_3AD_STAT_PAD))
+		return -EMSGSIZE;
+	val = atomic64_read(&stats->marker_resp_rx);
+	if (nla_put_u64_64bit(skb, BOND_3AD_STAT_MARKER_RESP_RX, val,
+			      BOND_3AD_STAT_PAD))
+		return -EMSGSIZE;
+	val = atomic64_read(&stats->marker_resp_tx);
+	if (nla_put_u64_64bit(skb, BOND_3AD_STAT_MARKER_RESP_TX, val,
+			      BOND_3AD_STAT_PAD))
+		return -EMSGSIZE;
+	val = atomic64_read(&stats->marker_unknown_rx);
+	if (nla_put_u64_64bit(skb, BOND_3AD_STAT_MARKER_UNKNOWN_RX, val,
+			      BOND_3AD_STAT_PAD))
+		return -EMSGSIZE;
+
+	return 0;
 }

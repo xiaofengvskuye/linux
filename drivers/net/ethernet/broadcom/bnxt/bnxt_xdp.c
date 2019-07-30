@@ -19,11 +19,10 @@
 #include "bnxt.h"
 #include "bnxt_xdp.h"
 
-static void bnxt_xmit_xdp(struct bnxt *bp, struct bnxt_tx_ring_info *txr,
-			  dma_addr_t mapping, u32 len, u16 rx_prod)
+void bnxt_xmit_xdp(struct bnxt *bp, struct bnxt_tx_ring_info *txr,
+		   dma_addr_t mapping, u32 len, u16 rx_prod)
 {
 	struct bnxt_sw_tx_bd *tx_buf;
-	struct tx_bd_ext *txbd1;
 	struct tx_bd *txbd;
 	u32 flags;
 	u16 prod;
@@ -33,21 +32,11 @@ static void bnxt_xmit_xdp(struct bnxt *bp, struct bnxt_tx_ring_info *txr,
 	tx_buf->rx_prod = rx_prod;
 
 	txbd = &txr->tx_desc_ring[TX_RING(prod)][TX_IDX(prod)];
-	flags = (len << TX_BD_LEN_SHIFT) | TX_BD_TYPE_LONG_TX_BD |
-		(2 << TX_BD_FLAGS_BD_CNT_SHIFT) | TX_BD_FLAGS_COAL_NOW |
+	flags = (len << TX_BD_LEN_SHIFT) | (1 << TX_BD_FLAGS_BD_CNT_SHIFT) |
 		TX_BD_FLAGS_PACKET_END | bnxt_lhint_arr[len >> 9];
 	txbd->tx_bd_len_flags_type = cpu_to_le32(flags);
 	txbd->tx_bd_opaque = prod;
 	txbd->tx_bd_haddr = cpu_to_le64(mapping);
-
-	prod = NEXT_TX(prod);
-	txbd1 = (struct tx_bd_ext *)
-		&txr->tx_desc_ring[TX_RING(prod)][TX_IDX(prod)];
-
-	txbd1->tx_bd_hsize_lflags = cpu_to_le32(0);
-	txbd1->tx_bd_mss = cpu_to_le32(0);
-	txbd1->tx_bd_cfa_action = cpu_to_le32(0);
-	txbd1->tx_bd_cfa_meta = cpu_to_le32(0);
 
 	prod = NEXT_TX(prod);
 	txr->tx_prod = prod;
@@ -66,7 +55,6 @@ void bnxt_tx_int_xdp(struct bnxt *bp, struct bnxt_napi *bnapi, int nr_pkts)
 	for (i = 0; i < nr_pkts; i++) {
 		last_tx_cons = tx_cons;
 		tx_cons = NEXT_TX(tx_cons);
-		tx_cons = NEXT_TX(tx_cons);
 	}
 	txr->tx_cons = tx_cons;
 	if (bnxt_tx_avail(bp, txr) == bp->tx_ring_size) {
@@ -75,7 +63,7 @@ void bnxt_tx_int_xdp(struct bnxt *bp, struct bnxt_napi *bnapi, int nr_pkts)
 		tx_buf = &txr->tx_buf_ring[last_tx_cons];
 		rx_prod = tx_buf->rx_prod;
 	}
-	writel(DB_KEY_RX | rx_prod, rxr->rx_doorbell);
+	bnxt_db_write(bp, &rxr->rx_db, rx_prod);
 }
 
 /* returns the following:
@@ -106,7 +94,9 @@ bool bnxt_rx_xdp(struct bnxt *bp, struct bnxt_rx_ring_info *rxr, u16 cons,
 
 	xdp.data_hard_start = *data_ptr - offset;
 	xdp.data = *data_ptr;
+	xdp_set_data_meta_invalid(&xdp);
 	xdp.data_end = *data_ptr + *len;
+	xdp.rxq = &rxr->xdp_rxq;
 	orig_data = xdp.data;
 	mapping = rx_buf->mapping - bp->rx_dma_offset;
 
@@ -123,17 +113,17 @@ bool bnxt_rx_xdp(struct bnxt *bp, struct bnxt_rx_ring_info *rxr, u16 cons,
 	if (tx_avail != bp->tx_ring_size)
 		*event &= ~BNXT_RX_EVENT;
 
+	*len = xdp.data_end - xdp.data;
 	if (orig_data != xdp.data) {
 		offset = xdp.data - xdp.data_hard_start;
 		*data_ptr = xdp.data_hard_start + offset;
-		*len = xdp.data_end - xdp.data;
 	}
 	switch (act) {
 	case XDP_PASS:
 		return false;
 
 	case XDP_TX:
-		if (tx_avail < 2) {
+		if (tx_avail < 1) {
 			trace_xdp_exception(bp->dev, xdp_prog, act);
 			bnxt_reuse_rx_data(rxr, cons, page);
 			return true;
@@ -181,8 +171,8 @@ static int bnxt_xdp_set(struct bnxt *bp, struct bpf_prog *prog)
 	tc = netdev_get_num_tc(dev);
 	if (!tc)
 		tc = 1;
-	rc = bnxt_reserve_rings(bp, bp->tx_nr_rings_per_tc, bp->rx_nr_rings,
-				tc, tx_xdp);
+	rc = bnxt_check_rings(bp, bp->tx_nr_rings_per_tc, bp->rx_nr_rings,
+			      true, tc, tx_xdp);
 	if (rc) {
 		netdev_warn(dev, "Unable to reserve enough TX rings to support XDP.\n");
 		return rc;
@@ -209,7 +199,6 @@ static int bnxt_xdp_set(struct bnxt *bp, struct bpf_prog *prog)
 	bp->tx_nr_rings_xdp = tx_xdp;
 	bp->tx_nr_rings = bp->tx_nr_rings_per_tc * tc + tx_xdp;
 	bp->cp_nr_rings = max_t(int, bp->tx_nr_rings, bp->rx_nr_rings);
-	bp->num_stat_ctxs = bp->cp_nr_rings;
 	bnxt_set_tpa_flags(bp);
 	bnxt_set_ring_params(bp);
 
@@ -219,7 +208,7 @@ static int bnxt_xdp_set(struct bnxt *bp, struct bpf_prog *prog)
 	return 0;
 }
 
-int bnxt_xdp(struct net_device *dev, struct netdev_xdp *xdp)
+int bnxt_xdp(struct net_device *dev, struct netdev_bpf *xdp)
 {
 	struct bnxt *bp = netdev_priv(dev);
 	int rc;
@@ -229,7 +218,7 @@ int bnxt_xdp(struct net_device *dev, struct netdev_xdp *xdp)
 		rc = bnxt_xdp_set(bp, xdp->prog);
 		break;
 	case XDP_QUERY_PROG:
-		xdp->prog_attached = !!bp->xdp_prog;
+		xdp->prog_id = bp->xdp_prog ? bp->xdp_prog->aux->id : 0;
 		rc = 0;
 		break;
 	default:

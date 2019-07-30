@@ -1,20 +1,10 @@
-/**
- * Copyright (C) 2005 - 2016 Broadcom
- * All rights reserved.
- *
- * This program is free software; you can redistribute it and/or
- * modify it under the terms of the GNU General Public License version 2
- * as published by the Free Software Foundation.  The full GNU General
- * Public License is included in this distribution in the file called COPYING.
- *
- * Written by: Jayamohan Kallickal (jayamohan.kallickal@broadcom.com)
+/* SPDX-License-Identifier: GPL-2.0-only */
+/*
+ * Copyright 2017 Broadcom. All Rights Reserved.
+ * The term "Broadcom" refers to Broadcom Limited and/or its subsidiaries.
  *
  * Contact Information:
  * linux-drivers@broadcom.com
- *
- * Emulex
- * 3333 Susan Street
- * Costa Mesa, CA 92626
  */
 
 #ifndef _BEISCSI_MGMT_
@@ -41,34 +31,10 @@ int mgmt_open_connection(struct beiscsi_hba *phba,
 			 struct beiscsi_endpoint *beiscsi_ep,
 			 struct be_dma_mem *nonemb_cmd);
 
-unsigned int mgmt_upload_connection(struct beiscsi_hba *phba,
-				     unsigned short cid,
-				     unsigned int upload_flag);
 unsigned int mgmt_vendor_specific_fw_cmd(struct be_ctrl_info *ctrl,
 					 struct beiscsi_hba *phba,
 					 struct bsg_job *job,
 					 struct be_dma_mem *nonemb_cmd);
-
-#define BEISCSI_NO_RST_ISSUE	0
-struct iscsi_invalidate_connection_params_in {
-	struct be_cmd_req_hdr hdr;
-	unsigned int session_handle;
-	unsigned short cid;
-	unsigned short unused;
-	unsigned short cleanup_type;
-	unsigned short save_cfg;
-} __packed;
-
-struct iscsi_invalidate_connection_params_out {
-	unsigned int session_handle;
-	unsigned short cid;
-	unsigned short unused;
-} __packed;
-
-union iscsi_invalidate_connection_params {
-	struct iscsi_invalidate_connection_params_in request;
-	struct iscsi_invalidate_connection_params_out response;
-} __packed;
 
 #define BE_INVLDT_CMD_TBL_SZ	128
 struct invldt_cmd_tbl {
@@ -186,7 +152,6 @@ struct be_bsg_vendor_cmd {
 
 struct beiscsi_endpoint {
 	struct beiscsi_hba *phba;
-	struct beiscsi_sess *sess;
 	struct beiscsi_conn *conn;
 	struct iscsi_endpoint *openiscsi_ep;
 	unsigned short ip_type;
@@ -198,14 +163,11 @@ struct beiscsi_endpoint {
 	u16 cid_vld;
 };
 
-unsigned int mgmt_invalidate_connection(struct beiscsi_hba *phba,
-					 struct beiscsi_endpoint *beiscsi_ep,
-					 unsigned short cid,
-					 unsigned short issue_reset,
-					 unsigned short savecfg_flag);
 int beiscsi_mgmt_invalidate_icds(struct beiscsi_hba *phba,
 				 struct invldt_cmd_tbl *inv_tbl,
 				 unsigned int nents);
+
+int beiscsi_get_initiator_name(struct beiscsi_hba *phba, char *name, bool cfg);
 
 int beiscsi_if_en_dhcp(struct beiscsi_hba *phba, u32 ip_type);
 
@@ -264,6 +226,12 @@ void beiscsi_offload_cxn_v0(struct beiscsi_offload_params *params,
 void beiscsi_offload_cxn_v2(struct beiscsi_offload_params *params,
 			     struct wrb_handle *pwrb_handle,
 			     struct hwi_wrb_context *pwrb_context);
+
+unsigned int beiscsi_invalidate_cxn(struct beiscsi_hba *phba,
+				    struct beiscsi_endpoint *beiscsi_ep);
+
+unsigned int beiscsi_upload_cxn(struct beiscsi_hba *phba,
+				struct beiscsi_endpoint *beiscsi_ep);
 
 int be_cmd_modify_eq_delay(struct beiscsi_hba *phba,
 			 struct be_set_eqd *, int num);

@@ -1,17 +1,8 @@
+// SPDX-License-Identifier: GPL-2.0+
 /*
  * Renesas R-Car GyroADC driver
  *
  * Copyright 2016 Marek Vasut <marek.vasut@gmail.com>
- *
- * This program is free software; you can redistribute it and/or modify
- * it under the terms of the GNU General Public License as published by
- * the Free Software Foundation; either version 2 of the License, or
- * (at your option) any later version.
- *
- * This program is distributed in the hope that it will be useful,
- * but WITHOUT ANY WARRANTY; without even the implied warranty of
- * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE. See the
- * GNU General Public License for more details.
  */
 
 #include <linux/module.h>
@@ -73,7 +64,7 @@ enum rcar_gyroadc_model {
 struct rcar_gyroadc {
 	struct device			*dev;
 	void __iomem			*regs;
-	struct clk			*iclk;
+	struct clk			*clk;
 	struct regulator		*vref[8];
 	unsigned int			num_channels;
 	enum rcar_gyroadc_model		model;
@@ -83,7 +74,7 @@ struct rcar_gyroadc {
 
 static void rcar_gyroadc_hw_init(struct rcar_gyroadc *priv)
 {
-	const unsigned long clk_mhz = clk_get_rate(priv->iclk) / 1000000;
+	const unsigned long clk_mhz = clk_get_rate(priv->clk) / 1000000;
 	const unsigned long clk_mul =
 		(priv->mode == RCAR_GYROADC_MODE_SELECT_1_MB88101A) ? 10 : 5;
 	unsigned long clk_len = clk_mhz * clk_mul;
@@ -277,7 +268,6 @@ static int rcar_gyroadc_reg_access(struct iio_dev *indio_dev,
 }
 
 static const struct iio_info rcar_gyroadc_iio_info = {
-	.driver_module		= THIS_MODULE,
 	.read_raw		= rcar_gyroadc_read_raw,
 	.debugfs_reg_access	= rcar_gyroadc_reg_access,
 };
@@ -344,12 +334,12 @@ static int rcar_gyroadc_parse_subdevs(struct iio_dev *indio_dev)
 	for_each_child_of_node(np, child) {
 		of_id = of_match_node(rcar_gyroadc_child_match, child);
 		if (!of_id) {
-			dev_err(dev, "Ignoring unsupported ADC \"%s\".",
-				child->name);
+			dev_err(dev, "Ignoring unsupported ADC \"%pOFn\".",
+				child);
 			continue;
 		}
 
-		childmode = (unsigned int)of_id->data;
+		childmode = (uintptr_t)of_id->data;
 		switch (childmode) {
 		case RCAR_GYROADC_MODE_SELECT_1_MB88101A:
 			sample_width = 12;
@@ -382,16 +372,16 @@ static int rcar_gyroadc_parse_subdevs(struct iio_dev *indio_dev)
 			ret = of_property_read_u32(child, "reg", &reg);
 			if (ret) {
 				dev_err(dev,
-					"Failed to get child reg property of ADC \"%s\".\n",
-					child->name);
+					"Failed to get child reg property of ADC \"%pOFn\".\n",
+					child);
 				return ret;
 			}
 
 			/* Channel number is too high. */
 			if (reg >= num_channels) {
 				dev_err(dev,
-					"Only %i channels supported with %s, but reg = <%i>.\n",
-					num_channels, child->name, reg);
+					"Only %i channels supported with %pOFn, but reg = <%i>.\n",
+					num_channels, child, reg);
 				return ret;
 			}
 		}
@@ -488,8 +478,6 @@ err:
 
 static int rcar_gyroadc_probe(struct platform_device *pdev)
 {
-	const struct of_device_id *of_id =
-		of_match_device(rcar_gyroadc_match, &pdev->dev);
 	struct device *dev = &pdev->dev;
 	struct rcar_gyroadc *priv;
 	struct iio_dev *indio_dev;
@@ -510,9 +498,9 @@ static int rcar_gyroadc_probe(struct platform_device *pdev)
 	if (IS_ERR(priv->regs))
 		return PTR_ERR(priv->regs);
 
-	priv->iclk = devm_clk_get(dev, "if");
-	if (IS_ERR(priv->iclk)) {
-		ret = PTR_ERR(priv->iclk);
+	priv->clk = devm_clk_get(dev, "fck");
+	if (IS_ERR(priv->clk)) {
+		ret = PTR_ERR(priv->clk);
 		if (ret != -EPROBE_DEFER)
 			dev_err(dev, "Failed to get IF clock (ret=%i)\n", ret);
 		return ret;
@@ -526,7 +514,8 @@ static int rcar_gyroadc_probe(struct platform_device *pdev)
 	if (ret)
 		return ret;
 
-	priv->model = (enum rcar_gyroadc_model)of_id->data;
+	priv->model = (enum rcar_gyroadc_model)
+		of_device_get_match_data(&pdev->dev);
 
 	platform_set_drvdata(pdev, indio_dev);
 
@@ -536,7 +525,7 @@ static int rcar_gyroadc_probe(struct platform_device *pdev)
 	indio_dev->info = &rcar_gyroadc_iio_info;
 	indio_dev->modes = INDIO_DIRECT_MODE;
 
-	ret = clk_prepare_enable(priv->iclk);
+	ret = clk_prepare_enable(priv->clk);
 	if (ret) {
 		dev_err(dev, "Could not prepare or enable the IF clock.\n");
 		goto err_clk_if_enable;
@@ -565,7 +554,7 @@ err_iio_device_register:
 	pm_runtime_put_sync(dev);
 	pm_runtime_disable(dev);
 	pm_runtime_set_suspended(dev);
-	clk_disable_unprepare(priv->iclk);
+	clk_disable_unprepare(priv->clk);
 err_clk_if_enable:
 	rcar_gyroadc_deinit_supplies(indio_dev);
 
@@ -584,7 +573,7 @@ static int rcar_gyroadc_remove(struct platform_device *pdev)
 	pm_runtime_put_sync(dev);
 	pm_runtime_disable(dev);
 	pm_runtime_set_suspended(dev);
-	clk_disable_unprepare(priv->iclk);
+	clk_disable_unprepare(priv->clk);
 	rcar_gyroadc_deinit_supplies(indio_dev);
 
 	return 0;

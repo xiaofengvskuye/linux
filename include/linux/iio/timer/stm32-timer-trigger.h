@@ -1,15 +1,15 @@
+/* SPDX-License-Identifier: GPL-2.0-only */
 /*
  * Copyright (C) STMicroelectronics 2016
  *
  * Author: Benjamin Gaignard <benjamin.gaignard@st.com>
- *
- * License terms:  GNU General Public License (GPL), version 2
  */
 
 #ifndef _STM32_TIMER_TRIGGER_H_
 #define _STM32_TIMER_TRIGGER_H_
 
 #define TIM1_TRGO	"tim1_trgo"
+#define TIM1_TRGO2	"tim1_trgo2"
 #define TIM1_CH1	"tim1_ch1"
 #define TIM1_CH2	"tim1_ch2"
 #define TIM1_CH3	"tim1_ch3"
@@ -44,6 +44,7 @@
 #define TIM7_TRGO	"tim7_trgo"
 
 #define TIM8_TRGO	"tim8_trgo"
+#define TIM8_TRGO2	"tim8_trgo2"
 #define TIM8_CH1	"tim8_ch1"
 #define TIM8_CH2	"tim8_ch2"
 #define TIM8_CH3	"tim8_ch3"
@@ -53,10 +54,33 @@
 #define TIM9_CH1	"tim9_ch1"
 #define TIM9_CH2	"tim9_ch2"
 
+#define TIM10_OC1	"tim10_oc1"
+
+#define TIM11_OC1	"tim11_oc1"
+
 #define TIM12_TRGO	"tim12_trgo"
 #define TIM12_CH1	"tim12_ch1"
 #define TIM12_CH2	"tim12_ch2"
 
-bool is_stm32_timer_trigger(struct iio_trigger *trig);
+#define TIM13_OC1	"tim13_oc1"
 
+#define TIM14_OC1	"tim14_oc1"
+
+#define TIM15_TRGO	"tim15_trgo"
+
+#define TIM16_OC1	"tim16_oc1"
+
+#define TIM17_OC1	"tim17_oc1"
+
+#if IS_REACHABLE(CONFIG_IIO_STM32_TIMER_TRIGGER)
+bool is_stm32_timer_trigger(struct iio_trigger *trig);
+#else
+static inline bool is_stm32_timer_trigger(struct iio_trigger *trig)
+{
+#if IS_ENABLED(CONFIG_IIO_STM32_TIMER_TRIGGER)
+	pr_warn_once("stm32-timer-trigger not linked in\n");
+#endif
+	return false;
+}
+#endif
 #endif

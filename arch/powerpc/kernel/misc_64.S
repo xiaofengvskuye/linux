@@ -1,3 +1,4 @@
+/* SPDX-License-Identifier: GPL-2.0-or-later */
 /*
  * This file contains miscellaneous low-level functions.
  *    Copyright (C) 1995-1996 Gary Thomas (gdt@linuxppc.org)
@@ -6,12 +7,6 @@
  * and Paul Mackerras.
  * Adapted for iSeries by Mike Corrigan (mikejc@us.ibm.com)
  * PPC64 updates by Dave Engebretsen (engebret@us.ibm.com)
- *
- * This program is free software; you can redistribute it and/or
- * modify it under the terms of the GNU General Public License
- * as published by the Free Software Foundation; either version
- * 2 of the License, or (at your option) any later version.
- *
  */
 
 #include <linux/sys.h>
@@ -28,6 +23,7 @@
 #include <asm/ptrace.h>
 #include <asm/mmu.h>
 #include <asm/export.h>
+#include <asm/feature-fixups.h>
 
 	.text
 
@@ -67,7 +63,7 @@ PPC64_CACHES:
  *   flush all bytes from start through stop-1 inclusive
  */
 
-_GLOBAL(flush_icache_range)
+_GLOBAL_TOC(flush_icache_range)
 BEGIN_FTR_SECTION
 	PURGE_PREFETCHED_INS
 	blr
@@ -120,7 +116,7 @@ EXPORT_SYMBOL(flush_icache_range)
  *
  *    flush all bytes from start to stop-1 inclusive
  */
-_GLOBAL(flush_dcache_range)
+_GLOBAL_TOC(flush_dcache_range)
 
 /*
  * Flush the data cache to memory 
@@ -143,44 +139,6 @@ _GLOBAL(flush_dcache_range)
 	sync
 	blr
 EXPORT_SYMBOL(flush_dcache_range)
-
-/*
- * Like above, but works on non-mapped physical addresses.
- * Use only for non-LPAR setups ! It also assumes real mode
- * is cacheable. Used for flushing out the DART before using
- * it as uncacheable memory 
- *
- * flush_dcache_phys_range(unsigned long start, unsigned long stop)
- *
- *    flush all bytes from start to stop-1 inclusive
- */
-_GLOBAL(flush_dcache_phys_range)
- 	ld	r10,PPC64_CACHES@toc(r2)
-	lwz	r7,DCACHEL1BLOCKSIZE(r10)	/* Get dcache block size */
-	addi	r5,r7,-1
-	andc	r6,r3,r5		/* round low to line bdy */
-	subf	r8,r6,r4		/* compute length */
-	add	r8,r8,r5		/* ensure we get enough */
-	lwz	r9,DCACHEL1LOGBLOCKSIZE(r10)	/* Get log-2 of dcache block size */
-	srw.	r8,r8,r9		/* compute line count */
-	beqlr				/* nothing to do? */
-	mfmsr	r5			/* Disable MMU Data Relocation */
-	ori	r0,r5,MSR_DR
-	xori	r0,r0,MSR_DR
-	sync
-	mtmsr	r0
-	sync
-	isync
-	mtctr	r8
-0:	dcbst	0,r6
-	add	r6,r6,r7
-	bdnz	0b
-	sync
-	isync
-	mtmsr	r5			/* Re-enable MMU Data Relocation */
-	sync
-	isync
-	blr
 
 _GLOBAL(flush_inval_dcache_range)
  	ld	r10,PPC64_CACHES@toc(r2)
@@ -613,6 +571,20 @@ _GLOBAL(kexec_sequence)
 
 	li	r0,0
 	std	r0,16(r1)
+
+BEGIN_FTR_SECTION
+	/*
+	 * This is the best time to turn AMR/IAMR off.
+	 * key 0 is used in radix for supervisor<->user
+	 * protection, but on hash key 0 is reserved
+	 * ideally we want to enter with a clean state.
+	 * NOTE, we rely on r0 being 0 from above.
+	 */
+	mtspr	SPRN_IAMR,r0
+BEGIN_FTR_SECTION_NESTED(42)
+	mtspr	SPRN_AMOR,r0
+END_FTR_SECTION_NESTED_IFSET(CPU_FTR_HVMODE, 42)
+END_FTR_SECTION_IFSET(CPU_FTR_ARCH_300)
 
 	/* save regs for local vars on new stack.
 	 * yes, we won't go back, but ...

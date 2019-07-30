@@ -1,16 +1,12 @@
+// SPDX-License-Identifier: GPL-2.0-only
 /*
  * Copyright (c) 2007-2016, Synaptics Incorporated
  * Copyright (C) 2016 Zodiac Inflight Innovations
- *
- * This program is free software; you can redistribute it and/or modify it
- * under the terms of the GNU General Public License version 2 as published by
- * the Free Software Foundation.
  */
 
 #include <linux/kernel.h>
 #include <linux/rmi.h>
 #include <linux/firmware.h>
-#include <asm/unaligned.h>
 #include <asm/unaligned.h>
 #include <linux/bitops.h>
 
@@ -101,22 +97,34 @@ static int rmi_f34_command(struct f34_data *f34, u8 command,
 	return 0;
 }
 
-static int rmi_f34_attention(struct rmi_function *fn, unsigned long *irq_bits)
+static irqreturn_t rmi_f34_attention(int irq, void *ctx)
 {
+	struct rmi_function *fn = ctx;
 	struct f34_data *f34 = dev_get_drvdata(&fn->dev);
 	int ret;
+	u8 status;
 
-	if (f34->bl_version != 5)
-		return 0;
+	if (f34->bl_version == 5) {
+		ret = rmi_read(f34->fn->rmi_dev, f34->v5.ctrl_address,
+			       &status);
+		rmi_dbg(RMI_DEBUG_FN, &fn->dev, "%s: status: %#02x, ret: %d\n",
+			__func__, status, ret);
 
-	ret = rmi_read(f34->fn->rmi_dev, f34->v5.ctrl_address, &f34->v5.status);
-	rmi_dbg(RMI_DEBUG_FN, &fn->dev, "%s: status: %#02x, ret: %d\n",
-		__func__, f34->v5.status, ret);
+		if (!ret && !(status & 0x7f))
+			complete(&f34->v5.cmd_done);
+	} else {
+		ret = rmi_read_block(f34->fn->rmi_dev,
+				     f34->fn->fd.data_base_addr +
+						f34->v7.off.flash_status,
+				     &status, sizeof(status));
+		rmi_dbg(RMI_DEBUG_FN, &fn->dev, "%s: status: %#02x, ret: %d\n",
+			__func__, status, ret);
 
-	if (!ret && !(f34->v5.status & 0x7f))
-		complete(&f34->v5.cmd_done);
+		if (!ret && !(status & 0x1f))
+			complete(&f34->v7.cmd_done);
+	}
 
-	return 0;
+	return IRQ_HANDLED;
 }
 
 static int rmi_f34_write_blocks(struct f34_data *f34, const void *data,
@@ -505,7 +513,7 @@ static struct attribute *rmi_firmware_attrs[] = {
 	NULL
 };
 
-static struct attribute_group rmi_firmware_attr_group = {
+static const struct attribute_group rmi_firmware_attr_group = {
 	.attrs = rmi_firmware_attrs,
 };
 

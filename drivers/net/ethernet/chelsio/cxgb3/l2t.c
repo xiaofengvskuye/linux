@@ -96,7 +96,7 @@ static int setup_l2e_send_pending(struct t3cdev *dev, struct sk_buff *skb,
 			return -ENOMEM;
 	}
 
-	req = (struct cpl_l2t_write_req *)__skb_put(skb, sizeof(*req));
+	req = __skb_put(skb, sizeof(*req));
 	req->wr.wr_hi = htonl(V_WR_OP(FW_WROPCODE_FORWARD));
 	OPCODE_TID(req) = htonl(MK_OPCODE_TID(CPL_L2T_WRITE_REQ, e->idx));
 	req->params = htonl(V_L2T_W_IDX(e->idx) | V_L2T_W_IFF(e->smt_idx) |
@@ -136,6 +136,7 @@ again:
 		if (e->state == L2T_STATE_STALE)
 			e->state = L2T_STATE_VALID;
 		spin_unlock_bh(&e->lock);
+		/* fall through */
 	case L2T_STATE_VALID:	/* fast-path, send the packet on */
 		return cxgb3_ofld_send(dev, skb);
 	case L2T_STATE_RESOLVING:
@@ -442,9 +443,9 @@ found:
 struct l2t_data *t3_init_l2t(unsigned int l2t_capacity)
 {
 	struct l2t_data *d;
-	int i, size = sizeof(*d) + l2t_capacity * sizeof(struct l2t_entry);
+	int i;
 
-	d = cxgb_alloc_mem(size);
+	d = kvzalloc(struct_size(d, l2tab, l2t_capacity), GFP_KERNEL);
 	if (!d)
 		return NULL;
 
@@ -462,9 +463,3 @@ struct l2t_data *t3_init_l2t(unsigned int l2t_capacity)
 	}
 	return d;
 }
-
-void t3_free_l2t(struct l2t_data *d)
-{
-	cxgb_free_mem(d);
-}
-

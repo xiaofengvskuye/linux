@@ -1,12 +1,8 @@
-/*
- * Freescale i.MX6UL touchscreen controller driver
- *
- * Copyright (C) 2015 Freescale Semiconductor, Inc.
- *
- * This program is free software; you can redistribute it and/or modify
- * it under the terms of the GNU General Public License version 2 as
- * published by the Free Software Foundation.
- */
+// SPDX-License-Identifier: GPL-2.0
+//
+// Freescale i.MX6UL touchscreen controller driver
+//
+// Copyright (C) 2015 Freescale Semiconductor, Inc.
 
 #include <linux/errno.h>
 #include <linux/kernel.h>
@@ -337,11 +333,20 @@ static int imx6ul_tsc_open(struct input_dev *input_dev)
 		dev_err(tsc->dev,
 			"Could not prepare or enable the tsc clock: %d\n",
 			err);
-		clk_disable_unprepare(tsc->adc_clk);
-		return err;
+		goto disable_adc_clk;
 	}
 
-	return imx6ul_tsc_init(tsc);
+	err = imx6ul_tsc_init(tsc);
+	if (err)
+		goto disable_tsc_clk;
+
+	return 0;
+
+disable_tsc_clk:
+	clk_disable_unprepare(tsc->tsc_clk);
+disable_adc_clk:
+	clk_disable_unprepare(tsc->adc_clk);
+	return err;
 }
 
 static void imx6ul_tsc_close(struct input_dev *input_dev)

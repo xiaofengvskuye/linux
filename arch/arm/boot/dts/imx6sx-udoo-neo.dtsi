@@ -121,11 +121,6 @@
 	};
 };
 
-&cpu0 {
-	arm-supply = <&sw1a_reg>;
-	soc-supply = <&sw1c_reg>;
-};
-
 &fec1 {
 	pinctrl-names = "default";
 	pinctrl-0 = <&pinctrl_enet1>;
@@ -140,7 +135,7 @@
 	clock-frequency = <100000>;
 	status = "okay";
 
-	pmic: pmic@08 {
+	pmic: pmic@8 {
 		compatible = "fsl,pfuze3000";
 		reg = <0x08>;
 

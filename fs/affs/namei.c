@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: GPL-2.0
 /*
  *  linux/fs/affs/namei.c
  *
@@ -200,14 +201,16 @@ affs_lookup(struct inode *dir, struct dentry *dentry, unsigned int flags)
 	struct super_block *sb = dir->i_sb;
 	struct buffer_head *bh;
 	struct inode *inode = NULL;
+	struct dentry *res;
 
 	pr_debug("%s(\"%pd\")\n", __func__, dentry);
 
 	affs_lock_dir(dir);
 	bh = affs_find_entry(dir, dentry);
-	affs_unlock_dir(dir);
-	if (IS_ERR(bh))
+	if (IS_ERR(bh)) {
+		affs_unlock_dir(dir);
 		return ERR_CAST(bh);
+	}
 	if (bh) {
 		u32 ino = bh->b_blocknr;
 
@@ -221,11 +224,12 @@ affs_lookup(struct inode *dir, struct dentry *dentry, unsigned int flags)
 		}
 		affs_brelse(bh);
 		inode = affs_iget(sb, ino);
-		if (IS_ERR(inode))
-			return ERR_CAST(inode);
 	}
-	d_add(dentry, inode);
-	return NULL;
+	res = d_splice_alias(inode, dentry);
+	if (!IS_ERR_OR_NULL(res))
+		res->d_fsdata = dentry->d_fsdata;
+	affs_unlock_dir(dir);
+	return res;
 }
 
 int
@@ -365,6 +369,7 @@ affs_symlink(struct inode *dir, struct dentry *dentry, const char *symname)
 				symname++;
 	}
 	*p = 0;
+	inode->i_size = i + 1;
 	mark_buffer_dirty_inode(bh, inode);
 	affs_brelse(bh);
 	mark_inode_dirty(inode);
@@ -393,20 +398,13 @@ affs_link(struct dentry *old_dentry, struct inode *dir, struct dentry *dentry)
 	return affs_add_entry(dir, inode, dentry, ST_LINKFILE);
 }
 
-int
+static int
 affs_rename(struct inode *old_dir, struct dentry *old_dentry,
-	    struct inode *new_dir, struct dentry *new_dentry,
-	    unsigned int flags)
+	    struct inode *new_dir, struct dentry *new_dentry)
 {
 	struct super_block *sb = old_dir->i_sb;
 	struct buffer_head *bh = NULL;
 	int retval;
-
-	if (flags & ~RENAME_NOREPLACE)
-		return -EINVAL;
-
-	pr_debug("%s(old=%lu,\"%pd\" to new=%lu,\"%pd\")\n", __func__,
-		 old_dir->i_ino, old_dentry, new_dir->i_ino, new_dentry);
 
 	retval = affs_check_name(new_dentry->d_name.name,
 				 new_dentry->d_name.len,
@@ -447,6 +445,76 @@ done:
 	return retval;
 }
 
+static int
+affs_xrename(struct inode *old_dir, struct dentry *old_dentry,
+	     struct inode *new_dir, struct dentry *new_dentry)
+{
+
+	struct super_block *sb = old_dir->i_sb;
+	struct buffer_head *bh_old = NULL;
+	struct buffer_head *bh_new = NULL;
+	int retval;
+
+	bh_old = affs_bread(sb, d_inode(old_dentry)->i_ino);
+	if (!bh_old)
+		return -EIO;
+
+	bh_new = affs_bread(sb, d_inode(new_dentry)->i_ino);
+	if (!bh_new)
+		return -EIO;
+
+	/* Remove old header from its parent directory. */
+	affs_lock_dir(old_dir);
+	retval = affs_remove_hash(old_dir, bh_old);
+	affs_unlock_dir(old_dir);
+	if (retval)
+		goto done;
+
+	/* Remove new header from its parent directory. */
+	affs_lock_dir(new_dir);
+	retval = affs_remove_hash(new_dir, bh_new);
+	affs_unlock_dir(new_dir);
+	if (retval)
+		goto done;
+
+	/* Insert old into the new directory with the new name. */
+	affs_copy_name(AFFS_TAIL(sb, bh_old)->name, new_dentry);
+	affs_fix_checksum(sb, bh_old);
+	affs_lock_dir(new_dir);
+	retval = affs_insert_hash(new_dir, bh_old);
+	affs_unlock_dir(new_dir);
+
+	/* Insert new into the old directory with the old name. */
+	affs_copy_name(AFFS_TAIL(sb, bh_new)->name, old_dentry);
+	affs_fix_checksum(sb, bh_new);
+	affs_lock_dir(old_dir);
+	retval = affs_insert_hash(old_dir, bh_new);
+	affs_unlock_dir(old_dir);
+done:
+	mark_buffer_dirty_inode(bh_old, new_dir);
+	mark_buffer_dirty_inode(bh_new, old_dir);
+	affs_brelse(bh_old);
+	affs_brelse(bh_new);
+	return retval;
+}
+
+int affs_rename2(struct inode *old_dir, struct dentry *old_dentry,
+			struct inode *new_dir, struct dentry *new_dentry,
+			unsigned int flags)
+{
+
+	if (flags & ~(RENAME_NOREPLACE | RENAME_EXCHANGE))
+		return -EINVAL;
+
+	pr_debug("%s(old=%lu,\"%pd\" to new=%lu,\"%pd\")\n", __func__,
+		 old_dir->i_ino, old_dentry, new_dir->i_ino, new_dentry);
+
+	if (flags & RENAME_EXCHANGE)
+		return affs_xrename(old_dir, old_dentry, new_dir, new_dentry);
+
+	return affs_rename(old_dir, old_dentry, new_dir, new_dentry);
+}
+
 static struct dentry *affs_get_parent(struct dentry *child)
 {
 	struct inode *parent;
@@ -476,11 +544,6 @@ static struct inode *affs_nfs_get_inode(struct super_block *sb, u64 ino,
 	inode = affs_iget(sb, ino);
 	if (IS_ERR(inode))
 		return ERR_CAST(inode);
-
-	if (generation && inode->i_generation != generation) {
-		iput(inode);
-		return ERR_PTR(-ESTALE);
-	}
 
 	return inode;
 }

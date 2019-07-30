@@ -1,5 +1,5 @@
-/* linux/drivers/char/watchdog/s3c2410_wdt.c
- *
+// SPDX-License-Identifier: GPL-2.0-or-later
+/*
  * Copyright (c) 2004 Simtec Electronics
  *	Ben Dooks <ben@simtec.co.uk>
  *
@@ -7,21 +7,7 @@
  *
  * Based on, softdog.c by Alan Cox,
  *     (c) Copyright 1996 Alan Cox <alan@lxorguk.ukuu.org.uk>
- *
- * This program is free software; you can redistribute it and/or modify
- * it under the terms of the GNU General Public License as published by
- * the Free Software Foundation; either version 2 of the License, or
- * (at your option) any later version.
- *
- * This program is distributed in the hope that it will be useful,
- * but WITHOUT ANY WARRANTY; without even the implied warranty of
- * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
- * GNU General Public License for more details.
- *
- * You should have received a copy of the GNU General Public License
- * along with this program; if not, write to the Free Software
- * Foundation, Inc., 59 Temple Place, Suite 330, Boston, MA  02111-1307  USA
-*/
+ */
 
 #include <linux/module.h>
 #include <linux/moduleparam.h>
@@ -37,6 +23,7 @@
 #include <linux/slab.h>
 #include <linux/err.h>
 #include <linux/of.h>
+#include <linux/of_device.h>
 #include <linux/mfd/syscon.h>
 #include <linux/regmap.h>
 #include <linux/delay.h>
@@ -94,8 +81,7 @@ MODULE_PARM_DESC(tmr_atboot,
 			__MODULE_STRING(S3C2410_WATCHDOG_ATBOOT));
 MODULE_PARM_DESC(nowayout, "Watchdog cannot be stopped once started (default="
 			__MODULE_STRING(WATCHDOG_NOWAYOUT) ")");
-MODULE_PARM_DESC(soft_noboot, "Watchdog action, set to 1 to ignore reboots, "
-			"0 to reboot (default 0)");
+MODULE_PARM_DESC(soft_noboot, "Watchdog action, set to 1 to ignore reboots, 0 to reboot (default 0)");
 
 /**
  * struct s3c2410_wdt_variant - Per-variant config data
@@ -131,7 +117,7 @@ struct s3c2410_wdt {
 	unsigned long		wtdat_save;
 	struct watchdog_device	wdt_device;
 	struct notifier_block	freq_transition;
-	struct s3c2410_wdt_variant *drv_data;
+	const struct s3c2410_wdt_variant *drv_data;
 	struct regmap *pmureg;
 };
 
@@ -310,7 +296,8 @@ static inline int s3c2410wdt_is_running(struct s3c2410_wdt *wdt)
 	return readl(wdt->reg_base + S3C2410_WTCON) & S3C2410_WTCON_ENABLE;
 }
 
-static int s3c2410wdt_set_heartbeat(struct watchdog_device *wdd, unsigned timeout)
+static int s3c2410wdt_set_heartbeat(struct watchdog_device *wdd,
+				    unsigned int timeout)
 {
 	struct s3c2410_wdt *wdt = watchdog_get_drvdata(wdd);
 	unsigned long freq = clk_get_rate(wdt->clock);
@@ -401,7 +388,7 @@ static const struct watchdog_ops s3c2410wdt_ops = {
 	.restart = s3c2410wdt_restart,
 };
 
-static struct watchdog_device s3c2410_wdd = {
+static const struct watchdog_device s3c2410_wdd = {
 	.info = &s3c2410_wdt_ident,
 	.ops = &s3c2410wdt_ops,
 	.timeout = S3C2410_WATCHDOG_DEFAULT_TIME,
@@ -507,36 +494,35 @@ static inline unsigned int s3c2410wdt_get_bootstatus(struct s3c2410_wdt *wdt)
 	return 0;
 }
 
-static inline struct s3c2410_wdt_variant *
+static inline const struct s3c2410_wdt_variant *
 s3c2410_get_wdt_drv_data(struct platform_device *pdev)
 {
-	if (pdev->dev.of_node) {
-		const struct of_device_id *match;
-		match = of_match_node(s3c2410_wdt_match, pdev->dev.of_node);
-		return (struct s3c2410_wdt_variant *)match->data;
-	} else {
-		return (struct s3c2410_wdt_variant *)
-			platform_get_device_id(pdev)->driver_data;
+	const struct s3c2410_wdt_variant *variant;
+
+	variant = of_device_get_match_data(&pdev->dev);
+	if (!variant) {
+		/* Device matched by platform_device_id */
+		variant = (struct s3c2410_wdt_variant *)
+			   platform_get_device_id(pdev)->driver_data;
 	}
+
+	return variant;
 }
 
 static int s3c2410wdt_probe(struct platform_device *pdev)
 {
-	struct device *dev;
+	struct device *dev = &pdev->dev;
 	struct s3c2410_wdt *wdt;
-	struct resource *wdt_mem;
 	struct resource *wdt_irq;
 	unsigned int wtcon;
 	int started = 0;
 	int ret;
 
-	dev = &pdev->dev;
-
 	wdt = devm_kzalloc(dev, sizeof(*wdt), GFP_KERNEL);
 	if (!wdt)
 		return -ENOMEM;
 
-	wdt->dev = &pdev->dev;
+	wdt->dev = dev;
 	spin_lock_init(&wdt->lock);
 	wdt->wdt_device = s3c2410_wdd;
 
@@ -558,8 +544,7 @@ static int s3c2410wdt_probe(struct platform_device *pdev)
 	}
 
 	/* get the memory region for the watchdog timer */
-	wdt_mem = platform_get_resource(pdev, IORESOURCE_MEM, 0);
-	wdt->reg_base = devm_ioremap_resource(dev, wdt_mem);
+	wdt->reg_base = devm_platform_ioremap_resource(pdev, 0);
 	if (IS_ERR(wdt->reg_base)) {
 		ret = PTR_ERR(wdt->reg_base);
 		goto err;
@@ -592,7 +577,7 @@ static int s3c2410wdt_probe(struct platform_device *pdev)
 	/* see if we can actually set the requested timer margin, and if
 	 * not, try the default value */
 
-	watchdog_init_timeout(&wdt->wdt_device, tmr_margin, &pdev->dev);
+	watchdog_init_timeout(&wdt->wdt_device, tmr_margin, dev);
 	ret = s3c2410wdt_set_heartbeat(&wdt->wdt_device,
 					wdt->wdt_device.timeout);
 	if (ret) {
@@ -601,11 +586,10 @@ static int s3c2410wdt_probe(struct platform_device *pdev)
 
 		if (started == 0)
 			dev_info(dev,
-			   "tmr_margin value out of range, default %d used\n",
-			       S3C2410_WATCHDOG_DEFAULT_TIME);
+				 "tmr_margin value out of range, default %d used\n",
+				 S3C2410_WATCHDOG_DEFAULT_TIME);
 		else
-			dev_info(dev, "default timer value is out of range, "
-							"cannot start\n");
+			dev_info(dev, "default timer value is out of range, cannot start\n");
 	}
 
 	ret = devm_request_irq(dev, wdt_irq->start, s3c2410wdt_irq, 0,
@@ -619,7 +603,7 @@ static int s3c2410wdt_probe(struct platform_device *pdev)
 	watchdog_set_restart_priority(&wdt->wdt_device, 128);
 
 	wdt->wdt_device.bootstatus = s3c2410wdt_get_bootstatus(wdt);
-	wdt->wdt_device.parent = &pdev->dev;
+	wdt->wdt_device.parent = dev;
 
 	ret = watchdog_register_device(&wdt->wdt_device);
 	if (ret) {
@@ -754,7 +738,6 @@ static struct platform_driver s3c2410wdt_driver = {
 
 module_platform_driver(s3c2410wdt_driver);
 
-MODULE_AUTHOR("Ben Dooks <ben@simtec.co.uk>, "
-	      "Dimitry Andric <dimitry.andric@tomtom.com>");
+MODULE_AUTHOR("Ben Dooks <ben@simtec.co.uk>, Dimitry Andric <dimitry.andric@tomtom.com>");
 MODULE_DESCRIPTION("S3C2410 Watchdog Device Driver");
 MODULE_LICENSE("GPL");
