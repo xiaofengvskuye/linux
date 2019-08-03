@@ -413,6 +413,11 @@
 				function = "i2c1";
 			};
 
+			pwm0_pins: pwm0 {
+				pins = "PB4";
+				function = "pwm0";
+			};
+
 			uart0_pb_pins: uart0-pb-pins {
 				pins = "PB8", "PB9";
 				function = "uart0";
