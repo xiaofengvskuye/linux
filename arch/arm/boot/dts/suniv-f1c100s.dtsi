@@ -225,6 +225,14 @@
 				pins = "PF0", "PF1", "PF2", "PF3", "PF4", "PF5";
 				function = "mmc0";
 			};
+			pwm0_pins: pwm0 {
+				pins = "PE12";
+				function = "pwm0";
+			};
+			pwm1_pins: pwm1 {
+				pins = "PE6";
+				function = "pwm1";
+			};
 		};
 
 		timer@1c20c00 {
@@ -234,9 +242,17 @@
 			clocks = <&osc24M>;
 		};
 
+		pwm: pwm@1c21000 {
+			compatible = "allwinner,sun7i-a20-pwm";
+			reg = <0x01c21000 0xC>;
+			clocks = <&osc24M>;
+			#pwm-cells = <3>;
+			status = "disabled";
+		};
+
 		wdt: watchdog@1c20ca0 {
 			compatible = "allwinner,suniv-f1c100s-wdt",
-				     "allwinner,sun4i-a10-wdt";
+				     "allwinner,sun6i-a31-wdt";
 			reg = <0x01c20ca0 0x20>;
 		};
 
