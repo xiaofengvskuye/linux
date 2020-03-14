@@ -1455,6 +1455,7 @@ static const struct sun4i_tcon_quirks suniv_f1c100s_quirks = {
 	 * The F1C100s SoC has a second channel in TCON, but the clock input of
 	 * it is not documented.
 	 */
+	.has_channel_0		= true,
 	/* .has_channel_1	= true, */
 };
 
