@@ -216,6 +216,11 @@
 				function = "lcd";
 			};
 
+			rtp_pins: rtp-pins {
+				pins = "PA0", "PA1", "PA2", "PA3";
+				function = "rtp";
+			};
+
 			uart0_pe_pins: uart0-pe-pins {
 				pins = "PE0", "PE1";
 				function = "uart0";
@@ -254,6 +259,15 @@
 			compatible = "allwinner,suniv-f1c100s-wdt",
 				     "allwinner,sun6i-a31-wdt";
 			reg = <0x01c20ca0 0x20>;
+		};
+
+		rtp: rtp@1c24800 {
+			compatible = "allwinner,sun6i-a31-ts";
+			reg = <0x01c24800 0x100>;
+			interrupts = <20>;
+			allwinner,ts-attached;
+			#thermal-sensor-cells = <0>;
+			status = "disabled";
 		};
 
 		uart0: serial@1c25000 {
