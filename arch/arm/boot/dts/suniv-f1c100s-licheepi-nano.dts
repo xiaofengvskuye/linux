@@ -13,12 +13,12 @@
 	compatible = "licheepi,licheepi-nano", "allwinner,suniv-f1c100s";
 
 	aliases {
-		serial0 = &uart0;
+		serial1 = &uart1;
 		spi0 = &spi0;
 	};
 
 	chosen {
-		stdout-path = "serial0:115200n8";
+		stdout-path = "serial1:115200n8";
 	};
 
 	reg_vcc3v3: vcc3v3 {
@@ -59,7 +59,11 @@
 	pinctrl-0 = <&uart0_pe_pins>;
 	status = "okay";
 };
-
+&uart1 {
+	pinctrl-names = "default";
+	pinctrl-0 = <&uart1_pins_a>;
+	status = "okay";
+};
 &usb_otg {
 	dr_mode = "otg";
 	status = "okay";
