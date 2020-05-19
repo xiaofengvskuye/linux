@@ -64,6 +64,11 @@
 	pinctrl-0 = <&uart1_pins_a>;
 	status = "okay";
 };
+&uart2 {
+	pinctrl-names = "default";
+	pinctrl-0 = <&uart2_pe_pins>;
+	status = "okay";
+};
 &usb_otg {
 	dr_mode = "otg";
 	status = "okay";
