@@ -1456,6 +1456,7 @@ static const struct sun4i_tcon_quirks suniv_f1c100s_quirks = {
 	 * it is not documented.
 	 */
 	.has_channel_0		= true,
+	.dclk_min_div		= 4,
 	/* .has_channel_1	= true, */
 };
 
