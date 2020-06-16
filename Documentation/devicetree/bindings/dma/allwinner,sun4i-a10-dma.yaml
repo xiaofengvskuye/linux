@@ -23,6 +23,7 @@ properties:
 
   compatible:
     const: allwinner,sun4i-a10-dma
+    const: allwinner,suniv-f1c100s-dma
 
   reg:
     maxItems: 1
