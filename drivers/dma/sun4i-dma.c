@@ -304,7 +304,7 @@ static struct sun4i_dma_pchan *find_and_use_pchan(struct sun4i_dma_dev *priv,
 	 */
 	if (vchan->is_dedicated) {
 		i = priv->cfg->ndma_nr_max_channels;
-		max = priv->cfg->dma_nr_max_channels;S;
+		max = priv->cfg->dma_nr_max_channels;
 	} else {
 		i = 0;
 		max = priv->cfg->ndma_nr_max_channels;
@@ -766,26 +766,33 @@ sun4i_dma_prep_dma_cyclic(struct dma_chan *chan, dma_addr_t buf, size_t len,
 	contract->is_cyclic = 1;
 
 	if (vchan->is_dedicated) {
-		io_mode = SUN4I_DDMA_ADDR_MODE_IO;
-		linear_mode = SUN4I_DDMA_ADDR_MODE_LINEAR;
-		ram_type = SUN4I_DDMA_DRQ_TYPE_SDRAM;
+				/*
+		 * As we are using this just for audio data, we need to use
+		 * normal DMA. There is nothing stopping us from supporting
+		 * dedicated DMA here as well, so if a client comes up and
+		 * requires it, it will be simple to implement it.
+		 */
+		dev_err(chan2dev(chan),
+			"Cyclic transfers are only supported on Normal DMA\n");
+		return NULL;
+
 	} else {
 		io_mode = SUN4I_NDMA_ADDR_MODE_IO;
 		linear_mode = SUN4I_NDMA_ADDR_MODE_LINEAR;
-		ram_type = SUN4I_NDMA_DRQ_TYPE_SDRAM;
+		ram_type = priv->cfg->ndma_drq_sdram;
 	}
 
 	if (dir == DMA_MEM_TO_DEV) {
 		src = buf;
 		dest = sconfig->dst_addr;
-		endpoints = SUN4I_DMA_CFG_SRC_DRQ_TYPE(priv->cfg->ndma_drq_sdram) |
+		endpoints = SUN4I_DMA_CFG_DST_DRQ_TYPE(vchan->endpoint) |
 			    SUN4I_DMA_CFG_DST_ADDR_MODE(io_mode) |
 			    SUN4I_DMA_CFG_SRC_DRQ_TYPE(ram_type) |
 			    SUN4I_DMA_CFG_SRC_ADDR_MODE(linear_mode);
 	} else {
 		src = sconfig->src_addr;
 		dest = buf;
-		endpoints = SUN4I_DMA_CFG_DST_DRQ_TYPE(priv->cfg->ndma_drq_sdram) |
+		endpoints = SUN4I_DMA_CFG_DST_DRQ_TYPE(ram_type) |
 			    SUN4I_DMA_CFG_DST_ADDR_MODE(linear_mode) |
 			    SUN4I_DMA_CFG_SRC_DRQ_TYPE(vchan->endpoint) |
 			    SUN4I_DMA_CFG_SRC_ADDR_MODE(io_mode);
@@ -974,12 +981,13 @@ static int sun4i_dma_terminate_all(struct dma_chan *chan)
 	}
 
 	spin_lock_irqsave(&vchan->vc.lock, flags);
+	vchan_dma_desc_free_list(&vchan->vc, &head);
 	/* Clear these so the vchan is usable again */
 	vchan->processing = NULL;
 	vchan->pchan = NULL;
 	spin_unlock_irqrestore(&vchan->vc.lock, flags);
 
-	vchan_dma_desc_free_list(&vchan->vc, &head);
+
 
 	return 0;
 }
