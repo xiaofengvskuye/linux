@@ -12,7 +12,8 @@
 #include <dt-bindings/interrupt-controller/irq.h>
 / {
 	panel: panel {
-		compatible = "qiaodian,qd43003c0-40", "simple-panel";
+		//compatible = "innolux,at070tn92", "simple-panel";
+		compatible = "tpk,f10a-0102", "simple-panel";
 		#address-cells = <1>;
 		#size-cells = <0>;
 		power-supply = <&reg_vcc3v3>;
@@ -34,22 +35,74 @@
 		regulator-min-microvolt = <3300000>;
 		regulator-max-microvolt = <3300000>;
 	};
-
 	backlight {
 		compatible = "pwm-backlight";
 		pwms = <&pwm 1 500000 0>;
 		brightness-levels = <0 4 8 16 32 64 128 255>;
 		default-brightness-level = <6>;
 	};
+	matrix_keypad: matrix-keypad {
+		status = "disable";
+		compatible = "gpio-matrix-keypad";
+		keypad,num-rows = <4>;
+		keypad,num-columns = <4>;
+
+		/* 根据实际硬件配置引脚 */
+		col-gpios = <&pio 2 3 1
+			&pio 2 2 1
+			&pio 2 1 1
+			&pio 2 0 1
+		>;
+		row-gpios = <&pio 4 2 1
+			&pio 4 3 1
+			&pio 4 4 1
+			&pio 4 5 1
+		>;
+
+		/* sample keymap 键值 */
+		/* row << 24 | column << 16 | key-code */
+		linux,keymap = <
+			0x0000004f /* row 0, col 0, KEY_KP1 */
+			0x0001004b /* row 0, col 1, KEY_KP4 */
+			0x00020047 /* row 0, col 2, KEY_KP7*/
+			0x0003003c /* row 0, col 3,  */
+			0x01000050 /* row 1, col 0, KEY_KP2 */
+			0x0101004c /* row 1, col 1, KEY_KP5*/
+			0x01020048 /* row 1, col 2, KEY_KP8*/
+			0x01030052 /* row 1, col 3, KEY_KP0*/
+			0x02000051 /* row 2, col 0, KEY_KP3 */
+			0x0201004d /* row 2, col 1, KEY_KP6 */
+			0x02020049 /* row 2, col 2, KEY_KP9*/
+			0x0203003b /* row 2, col 3, # */
+			0x0300001f /* row 3, col 0, S */
+			0x0301003e /* row 3, col 1,  */
+			0x0302001e /* row 3, col 2, A */
+			0x03030013 /* row 3, col 3, R */
+		>;
+
+		// gpio-activelow;
+		/*wakeup-source;*/
+		debounce-delay-ms = <30>;
+		col-scan-delay-us = <100>;
+		linux,no-autorepeat;
+	};
 	chosen {
-		simplefb_lcd: framebuffer-lcd0 {
+		#address-cells = <0x1>;
+		#size-cells = <0x1>;
+		ranges;
+		simplefb_lcd: framebuffer-lcd@0 {
 			compatible = "allwinner,simple-framebuffer",
 				     "simple-framebuffer";
 			allwinner,pipeline = "de_be0-lcd0";
+			reg = <0 (1024*600*2)>;
+            width = <1024>;
+            height = <600>;
+            stride = <(1024*2)>;
+            format = "r5g6b5";
 			clocks = <&ccu CLK_BUS_LCD>, <&ccu CLK_BUS_DE_BE>,
 				 <&ccu CLK_TCON>, <&ccu CLK_DE_BE>,
 				 <&ccu CLK_DRAM_DE_BE>;
-			status = "okay";
+			status = "disabled";
 		};
 	};
 };
@@ -84,58 +137,57 @@
 	status = "okay";
 };
 
-&spi0 {
-	pinctrl-names = "default";
-	pinctrl-0 = <&spi0_pins_a>;
-	status = "okay";
+// &spi0 {
+// 	pinctrl-names = "default";
+// 	pinctrl-0 = <&spi0_pins_a>;
+// 	status = "okay";
 
-	flash@0 {
-		#address-cells = <1>;
-		#size-cells = <1>;
-		compatible = "winbond,w25q128", "jedec,spi-nor";
-		reg = <0>;
-		spi-max-frequency = <50000000>;
-		partitions {
-			compatible = "fixed-partitions";
-			#address-cells = <1>;
-			#size-cells = <1>;
+// 	flash@0 {
+// 		#address-cells = <1>;
+// 		#size-cells = <1>;
+// 		compatible = "winbond,w25q128", "jedec,spi-nor";
+// 		reg = <0>;
+// 		spi-max-frequency = <50000000>;
+// 		partitions {
+// 			compatible = "fixed-partitions";
+// 			#address-cells = <1>;
+// 			#size-cells = <1>;
 
-			partition@0 {
-				label = "u-boot";
-				reg = <0x000000 0x50000>;
-				read-only;
-			};
+// 			partition@0 {
+// 				label = "u-boot";
+// 				reg = <0x000000 0x50000>;
+// 				read-only;
+// 			};
 
-			partition@50000 {
-				label = "dtb";
-				reg = <0x50000 0x10000>;
-				read-only;
-			};
+// 			partition@50000 {
+// 				label = "dtb";
+// 				reg = <0x50000 0x10000>;
+// 				read-only;
+// 			};
 
-			partition@60000 {
-				label = "kernel";
-				reg = <0x60000 0x320000>;
-				read-only;
-			};
+// 			partition@60000 {
+// 				label = "kernel";
+// 				reg = <0x60000 0x320000>;
+// 				read-only;
+// 			};
 
-			partition@380000 {
-				label = "rootfs";
-				reg = <0x380000 0xc00000>;
-			};
+// 			partition@380000 {
+// 				label = "rootfs";
+// 				reg = <0x380000 0xc00000>;
+// 			};
 
-			partition@f80000 {
-				label = "overlay";
-				reg = <0xf80000 0x80000>;
-			};
-		};
-	};
-};
+// 			partition@f80000 {
+// 				label = "overlay";
+// 				reg = <0xf80000 0x80000>;
+// 			};
+// 		};
+// 	};
+// };
 
 &tcon0 {
 	pinctrl-names = "default";
 	pinctrl-0 = <&lcd_rgb565_pins>;
 	status = "okay";
-	swap-red-blue;
 };
 
 &tcon0_out {
@@ -155,19 +207,20 @@
 	pinctrl-0 = <&uart1_pins_a>;
 	status = "okay";
 };
-&uart2 {
-	pinctrl-names = "default";
-	pinctrl-0 = <&uart2_pe_pins>;
-	status = "okay";
-};
+// &uart2 {
+// 	pinctrl-names = "default";
+// 	pinctrl-0 = <&uart2_pe_pins>;
+// 	status = "okay";
+// };
 
 &usb_otg {
-	dr_mode = "peripheral";
+	//dr_mode = "peripheral";
+	dr_mode = "otg";
 	status = "okay";
 };
 
 &usbphy {
-	usb0_id_det-gpio = <&pio 4 2 GPIO_ACTIVE_HIGH>; /* PE2 */
+	usb0_id_det-gpio = <&pio 4 10 GPIO_ACTIVE_HIGH>; /* PE10 */
 	status = "okay";
 };
 
@@ -183,4 +236,6 @@
 		"MIC", "Mic";
 	status = "okay";
 };
-
+&matrix_keypad{
+	status = "okay";
+};
