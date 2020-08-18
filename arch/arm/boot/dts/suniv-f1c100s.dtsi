@@ -7,6 +7,7 @@
 #include <dt-bindings/clock/suniv-ccu-f1c100s.h>
 #include <dt-bindings/reset/suniv-ccu-f1c100s.h>
 #include <dt-bindings/dma/sun4i-a10.h>
+#include <dt-bindings/thermal/thermal.h>
 / {
 	#address-cells = <1>;
 	#size-cells = <1>;
@@ -29,9 +30,42 @@
 	};
 
 	cpus {
-		cpu {
+		cpu0: cpu@0 {
 			compatible = "arm,arm926ej-s";
 			device_type = "cpu";
+			#cooling-cells = <2>;
+		};
+	};
+
+	thermal-zones {
+		cpu-thermal {
+			/* milliseconds */
+			polling-delay-passive = <250>;
+			polling-delay = <1000>;
+			thermal-sensors = <&rtp>;
+
+			cooling-maps {
+				map0 {
+					trip = <&cpu_alert0>;
+					cooling-device = <&cpu0 THERMAL_NO_LIMIT THERMAL_NO_LIMIT>;
+				};
+			};
+
+			trips {
+				cpu_alert0: cpu-alert0 {
+					/* milliCelsius */
+					temperature = <850000>;
+					hysteresis = <2000>;
+					type = "passive";
+				};
+
+				cpu_crit: cpu-crit {
+					/* milliCelsius */
+					temperature = <100000>;
+					hysteresis = <2000>;
+					type = "critical";
+				};
+			};
 		};
 	};
 
@@ -260,6 +294,12 @@
 				       "PD20", "PD21";
 				function = "lcd";
 			};
+
+			rtp_pins: rtp-pins {
+				pins = "PA0", "PA1", "PA2", "PA3";
+				function = "rtp";
+			};
+
 			uart0_pe_pins: uart0-pe-pins {
 				pins = "PE0", "PE1";
 				function = "uart0";
@@ -309,11 +349,14 @@
 		};
 
 		rtp: rtp@1c24800 {
-			compatible = "allwinner,sun6i-a31-ts";
+			compatible = "allwinner,sun4i-a10-ts";
 			reg = <0x01c24800 0x100>;
 			interrupts = <20>;
 			allwinner,ts-attached;
 			#thermal-sensor-cells = <0>;
+			/* sensitive/noisy touch panel */
+			allwinner,tp-sensitive-adjust = <0>;
+			allwinner,filter-type = <3>;
 			status = "disabled";
 		};
 
