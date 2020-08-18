@@ -115,11 +115,11 @@
     pinctrl-names = "default";
     status = "okay";
 
-	ns2009: ns2009@48 {
-		compatible = "nsiway,ns2009";
-		gpios = <&pio 0 0 GPIO_ACTIVE_HIGH>;
-		reg = <0x48>;
-	};
+	// ns2009: ns2009@48 {
+	// 	compatible = "nsiway,ns2009";
+	// 	gpios = <&pio 0 0 GPIO_ACTIVE_HIGH>;
+	// 	reg = <0x48>;
+	// };
 
     // rtc@51 {
     //     compatible = "nxp,pcf8563";
@@ -202,16 +202,22 @@
 	pinctrl-0 = <&uart0_pe_pins>;
 	status = "okay";
 };
-&uart1 {
-	pinctrl-names = "default";
-	pinctrl-0 = <&uart1_pins_a>;
-	status = "okay";
-};
-// &uart2 {
+// &uart1 {
 // 	pinctrl-names = "default";
-// 	pinctrl-0 = <&uart2_pe_pins>;
+// 	pinctrl-0 = <&uart1_pins_a>;
 // 	status = "okay";
 // };
+&uart2 {
+	pinctrl-names = "default";
+	pinctrl-0 = <&uart2_pe_pins>;
+	status = "okay";
+};
+
+&rtp {
+	pinctrl-names = "default";
+	pinctrl-0 = <&rtp_pins>;
+	status = "okay";
+};
 
 &usb_otg {
 	//dr_mode = "peripheral";
