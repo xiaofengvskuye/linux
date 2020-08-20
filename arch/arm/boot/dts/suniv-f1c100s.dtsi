@@ -286,6 +286,7 @@
 				       "PD20", "PD21";
 				function = "lcd";
 			};
+
 			lcd_rgb565_pins: lcd-rgb565-pins {
 				pins = "PD1", "PD2", "PD3", "PD4",
 				       "PD5", "PD6", "PD7", "PD8", "PD9",
@@ -349,7 +350,7 @@
 		};
 
 		rtp: rtp@1c24800 {
-			compatible = "allwinner,sun4i-a10-ts";
+			compatible = "allwinner,suniv-f1c100s-ts";
 			reg = <0x01c24800 0x100>;
 			interrupts = <20>;
 			allwinner,ts-attached;
