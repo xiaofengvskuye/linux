@@ -67,6 +67,7 @@
 #define TP_ADC_SELECT(x)	((x) << 3)
 #define ADC_CHAN_SELECT(x)	((x) << 0)  /* 3 bits */
 
+#define SUNIV_TP_EN(x)    	((x) << 5)
 /* on sun6i, bits 3~6 are left shifted by 1 to 4~7 */
 #define SUN6I_TP_MODE_EN(x)	((x) << 5)
 
@@ -264,7 +265,11 @@ static int sun4i_ts_probe(struct platform_device *pdev)
 		 */
 		ts->temp_offset = 257000;
 		ts->temp_step = 133;
-	} else {
+	}
+	else if(of_device_is_compatible(np, "allwinner,suniv-f1c100s-ts")){
+		ts->temp_offset = 263277;
+		ts->temp_step = 128;
+	}else {
 		/*
 		 * The user manuals do not contain the formula for calculating
 		 * the temperature. The formula used here is from the AXP209,
@@ -343,6 +348,11 @@ static int sun4i_ts_probe(struct platform_device *pdev)
 	reg = STYLUS_UP_DEBOUN(5) | STYLUS_UP_DEBOUN_EN(1);
 	if (of_device_is_compatible(np, "allwinner,sun6i-a31-ts"))
 		reg |= SUN6I_TP_MODE_EN(1);
+	else if(of_device_is_compatible(np, "allwinner,suniv-f1c100s-ts")){
+		reg |= SUNIV_TP_EN(1);
+        reg |= TP_MODE_EN(0);
+        // reg |= ADC_CHAN_SELECT(2);
+	}
 	else
 		reg |= TP_MODE_EN(1);
 	writel(reg, ts->base + TP_CTRL1);
@@ -391,6 +401,7 @@ static int sun4i_ts_remove(struct platform_device *pdev)
 
 static const struct of_device_id sun4i_ts_of_match[] = {
 	{ .compatible = "allwinner,sun4i-a10-ts", },
+	{ .compatible = "allwinner,suniv-f1c100s-ts", },
 	{ .compatible = "allwinner,sun5i-a13-ts", },
 	{ .compatible = "allwinner,sun6i-a31-ts", },
 	{ /* sentinel */ }
