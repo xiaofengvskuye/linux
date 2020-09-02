@@ -47,7 +47,7 @@
 		keypad,num-rows = <4>;
 		keypad,num-columns = <4>;
 
-		/* ¸ù¾İÊµ¼ÊÓ²¼şÅäÖÃÒı½Å */
+		/* æ ¹æ®å®é™…ç¡¬ä»¶é…ç½®å¼•è„š */
 		col-gpios = <&pio 2 3 1
 			&pio 2 2 1
 			&pio 2 1 1
@@ -59,7 +59,7 @@
 			&pio 4 5 1
 		>;
 
-		/* sample keymap ¼üÖµ */
+		/* sample keymap é”®å€¼ */
 		/* row << 24 | column << 16 | key-code */
 		linux,keymap = <
 			0x0000004f /* row 0, col 0, KEY_KP1 */
@@ -121,10 +121,18 @@
 	// 	reg = <0x48>;
 	// };
 
-    // rtc@51 {
-    //     compatible = "nxp,pcf8563";
-    //     reg = <0x51>;
+    // rtc: rtc@51 {
+	// 	compatible = "nxp,pcf8563";
+	// 	reg = <0x51>;
+	// 	#clock-cells = <0>;
     // };
+	rtc: hym8563@51 {
+		compatible = "haoyu,hym8563";
+		reg = <0x51>;
+		#clock-cells = <0>;
+		clock-frequency = <32768>;
+		clock-output-names = "xin32k";
+	};
 };
 &mmc0 {
 	vmmc-supply = <&reg_vcc3v3>;
