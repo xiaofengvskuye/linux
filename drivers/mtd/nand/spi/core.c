@@ -578,11 +578,18 @@ static bool spinand_isbad(struct nand_device *nand, const struct nand_pos *pos)
 		.oobbuf.in = marker,
 		.mode = MTD_OPS_RAW,
 	};
+	struct mtd_oob_region region;
+	int i;
 
 	spinand_select_target(spinand, pos->target);
 	spinand_read_page(spinand, &req, false);
-	if (marker[0] != 0xff || marker[1] != 0xff)
-		return true;
+
+	spinand->eccinfo.ooblayout->free(&spinand->base.mtd, 0, &region);
+
+	for(i = 0 ; i < req.ooblen && i < region.offset; i++){
+		if (spinand->oobbuf[i] != 0xff)
+			return true;
+	}
 
 	return false;
 }
@@ -614,6 +621,7 @@ static int spinand_markbad(struct nand_device *nand, const struct nand_pos *pos)
 		.mode = MTD_OPS_RAW,
 	};
 	int ret;
+	struct mtd_oob_region region;
 
 	ret = spinand_select_target(spinand, pos->target);
 	if (ret)
@@ -622,6 +630,9 @@ static int spinand_markbad(struct nand_device *nand, const struct nand_pos *pos)
 	ret = spinand_write_enable_op(spinand);
 	if (ret)
 		return ret;
+
+	spinand->eccinfo.ooblayout->free(&spinand->base.mtd, 0, &region);
+	req.ooblen = region.offset < req.ooblen ? region.offset : req.ooblen;
 
 	return spinand_write_page(spinand, &req);
 }
