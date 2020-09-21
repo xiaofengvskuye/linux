@@ -110,8 +110,17 @@
 &de {
 	status = "okay";
 };
+
+&fe0 {
+	status = "okay";
+};
+
+&be0 {
+	status = "okay";
+};
+
 &i2c0 {
-	pinctrl-0 = <&i2c0_pins>;
+	pinctrl-0 = <&i2c0_pd_pins>;
     pinctrl-names = "default";
     status = "okay";
 
