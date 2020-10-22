@@ -3056,8 +3056,6 @@ static int __io_openat_prep(struct io_kiocb *req, const struct io_uring_sqe *sqe
 	const char __user *fname;
 	int ret;
 
-	if (unlikely(req->ctx->flags & (IORING_SETUP_IOPOLL|IORING_SETUP_SQPOLL)))
-		return -EINVAL;
 	if (unlikely(sqe->ioprio || sqe->buf_index))
 		return -EINVAL;
 	if (unlikely(req->flags & REQ_F_FIXED_FILE))
@@ -3084,6 +3082,8 @@ static int io_openat_prep(struct io_kiocb *req, const struct io_uring_sqe *sqe)
 {
 	u64 flags, mode;
 
+	if (unlikely(req->ctx->flags & (IORING_SETUP_IOPOLL|IORING_SETUP_SQPOLL)))
+		return -EINVAL;
 	if (req->flags & REQ_F_NEED_CLEANUP)
 		return 0;
 	mode = READ_ONCE(sqe->len);
@@ -3098,6 +3098,8 @@ static int io_openat2_prep(struct io_kiocb *req, const struct io_uring_sqe *sqe)
 	size_t len;
 	int ret;
 
+	if (unlikely(req->ctx->flags & (IORING_SETUP_IOPOLL|IORING_SETUP_SQPOLL)))
+		return -EINVAL;
 	if (req->flags & REQ_F_NEED_CLEANUP)
 		return 0;
 	how = u64_to_user_ptr(READ_ONCE(sqe->addr2));
@@ -3316,7 +3318,7 @@ static int io_epoll_ctl_prep(struct io_kiocb *req,
 #if defined(CONFIG_EPOLL)
 	if (sqe->ioprio || sqe->buf_index)
 		return -EINVAL;
-	if (unlikely(req->ctx->flags & IORING_SETUP_IOPOLL))
+	if (unlikely(req->ctx->flags & (IORING_SETUP_IOPOLL | IORING_SETUP_SQPOLL)))
 		return -EINVAL;
 
 	req->epoll.epfd = READ_ONCE(sqe->fd);
@@ -3433,7 +3435,7 @@ static int io_fadvise(struct io_kiocb *req, bool force_nonblock)
 
 static int io_statx_prep(struct io_kiocb *req, const struct io_uring_sqe *sqe)
 {
-	if (unlikely(req->ctx->flags & IORING_SETUP_IOPOLL))
+	if (unlikely(req->ctx->flags & (IORING_SETUP_IOPOLL | IORING_SETUP_SQPOLL)))
 		return -EINVAL;
 	if (sqe->ioprio || sqe->buf_index)
 		return -EINVAL;
@@ -4308,6 +4310,8 @@ static int io_poll_double_wake(struct wait_queue_entry *wait, unsigned mode,
 	if (mask && !(mask & poll->events))
 		return 0;
 
+	list_del_init(&wait->entry);
+
 	if (poll && poll->head) {
 		bool done;
 
@@ -5038,6 +5042,8 @@ static int io_async_cancel(struct io_kiocb *req)
 static int io_files_update_prep(struct io_kiocb *req,
 				const struct io_uring_sqe *sqe)
 {
+	if (unlikely(req->ctx->flags & IORING_SETUP_SQPOLL))
+		return -EINVAL;
 	if (unlikely(req->flags & (REQ_F_FIXED_FILE | REQ_F_BUFFER_SELECT)))
 		return -EINVAL;
 	if (sqe->ioprio || sqe->rw_flags)
@@ -5252,6 +5258,8 @@ static void io_cleanup_req(struct io_kiocb *req)
 		break;
 	case IORING_OP_OPENAT:
 	case IORING_OP_OPENAT2:
+		if (req->open.filename)
+			putname(req->open.filename);
 		break;
 	case IORING_OP_SPLICE:
 	case IORING_OP_TEE:
@@ -7990,11 +7998,19 @@ static int io_uring_show_cred(int id, void *p, void *data)
 
 static void __io_uring_show_fdinfo(struct io_ring_ctx *ctx, struct seq_file *m)
 {
+	bool has_lock;
 	int i;
 
-	mutex_lock(&ctx->uring_lock);
+	/*
+	 * Avoid ABBA deadlock between the seq lock and the io_uring mutex,
+	 * since fdinfo case grabs it in the opposite direction of normal use
+	 * cases. If we fail to get the lock, we just don't iterate any
+	 * structures that could be going away outside the io_uring mutex.
+	 */
+	has_lock = mutex_trylock(&ctx->uring_lock);
+
 	seq_printf(m, "UserFiles:\t%u\n", ctx->nr_user_files);
-	for (i = 0; i < ctx->nr_user_files; i++) {
+	for (i = 0; has_lock && i < ctx->nr_user_files; i++) {
 		struct fixed_file_table *table;
 		struct file *f;
 
@@ -8006,13 +8022,13 @@ static void __io_uring_show_fdinfo(struct io_ring_ctx *ctx, struct seq_file *m)
 			seq_printf(m, "%5u: <none>\n", i);
 	}
 	seq_printf(m, "UserBufs:\t%u\n", ctx->nr_user_bufs);
-	for (i = 0; i < ctx->nr_user_bufs; i++) {
+	for (i = 0; has_lock && i < ctx->nr_user_bufs; i++) {
 		struct io_mapped_ubuf *buf = &ctx->user_bufs[i];
 
 		seq_printf(m, "%5u: 0x%llx/%u\n", i, buf->ubuf,
 						(unsigned int) buf->len);
 	}
-	if (!idr_is_empty(&ctx->personality_idr)) {
+	if (has_lock && !idr_is_empty(&ctx->personality_idr)) {
 		seq_printf(m, "Personalities:\n");
 		idr_for_each(&ctx->personality_idr, io_uring_show_cred, m);
 	}
@@ -8027,7 +8043,8 @@ static void __io_uring_show_fdinfo(struct io_ring_ctx *ctx, struct seq_file *m)
 					req->task->task_works != NULL);
 	}
 	spin_unlock_irq(&ctx->completion_lock);
-	mutex_unlock(&ctx->uring_lock);
+	if (has_lock)
+		mutex_unlock(&ctx->uring_lock);
 }
 
 static void io_uring_show_fdinfo(struct seq_file *m, struct file *f)
