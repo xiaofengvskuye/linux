@@ -60,6 +60,11 @@
 			compatible = "allwinner,simple-framebuffer",
 				     "simple-framebuffer";
 			allwinner,pipeline = "mixer0-lcd0";
+			reg = <0 (1024*600*2)>;
+			width = <1024>;
+			height = <600>;
+			stride = <(1024*2)>;
+			format = "r5g6b5";
 			clocks = <&display_clocks CLK_MIXER0>,
 				 <&ccu CLK_TCON0>;
 			status = "disabled";
@@ -74,6 +79,7 @@
 			compatible = "arm,cortex-a7";
 			device_type = "cpu";
 			reg = <0>;
+			clock-frequency = <1008000000>;
 			clocks = <&ccu CLK_CPU>;
 		};
 	};
@@ -376,6 +382,14 @@
 			interrupt-controller;
 			#interrupt-cells = <3>;
 
+			emac_rgmii_pins: emac-rgmii-pins {
+				pins = "PD0", "PD1", "PD2", "PD3", "PD4",
+				       "PD5", "PD7", "PD8", "PD9", "PD10",
+				       "PD12", "PD13", "PD15", "PD16", "PD17";
+				function = "emac";
+				drive-strength = <40>;
+			};
+
 			/omit-if-no-ref/
 			csi0_mclk_pin: csi0-mclk-pin {
 				pins = "PE20";
@@ -613,6 +627,12 @@
 						clocks = <&ccu CLK_BUS_EPHY>;
 						resets = <&ccu RST_BUS_EPHY>;
 					};
+				};
+
+				external_mdio: mdio@2 {
+					reg = <2>;
+					#address-cells = <1>;
+					#size-cells = <0>;
 				};
 			};
 		};
