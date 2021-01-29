@@ -373,3 +373,6 @@ TIMER_OF_DECLARE(sun5i_a13, "allwinner,sun5i-a13-hstimer",
 			   sun5i_timer_init);
 TIMER_OF_DECLARE(sun7i_a20, "allwinner,sun7i-a20-hstimer",
 			   sun5i_timer_init);
+TIMER_OF_DECLARE(sun8i_v3s, "allwinner,sun8i-v3s-hstimer",
+			   sun5i_timer_init);
+
