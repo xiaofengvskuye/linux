@@ -20,7 +20,6 @@
  #include <linux/kernel.h>
 #include <linux/module.h>
 #include <linux/input.h>
-#include <linux/input-polldev.h>
 #include <linux/input/touchscreen.h>
 #include <linux/i2c.h>
 
@@ -114,14 +113,14 @@
 	return 0;
 }
 
- static void ns2009_ts_poll(struct input_polled_dev *dev)
+ static void ns2009_ts_poll(struct input_dev *dev)
 {
-	struct ns2009_data *data = dev->private;
 	int ret;
+	struct ns2009_data *data = input_get_drvdata(dev);;
 
  	ret = ns2009_ts_report(data);
 	if (ret)
-		dev_err(&dev->input->dev, "Poll touch data failed: %d\n", ret);
+		dev_err(&data->input->dev, "Poll touch data failed: %d\n", ret);
 }
 
  static void ns2009_ts_config_input_dev(struct ns2009_data *data)
@@ -138,40 +137,12 @@
 	input_set_capability(input, EV_KEY, BTN_TOUCH);
 }
 
- static int ns2009_ts_request_polled_input_dev(struct ns2009_data *data)
-{
-	struct device *dev = &data->client->dev;
-	struct input_polled_dev *polled_dev;
-	int error;
-
- 	polled_dev = devm_input_allocate_polled_device(dev);
-	if (!polled_dev) {
-		dev_err(dev,
-			"Failed to allocate polled input device\n");
-		return -ENOMEM;
-	}
-	data->input = polled_dev->input;
-
- 	ns2009_ts_config_input_dev(data);
-	polled_dev->private = data;
-	polled_dev->poll = ns2009_ts_poll;
-	polled_dev->poll_interval = POLL_INTERVAL;
-
- 	error = input_register_polled_device(polled_dev);
-	if (error) {
-		dev_err(dev, "Failed to register polled input device: %d\n",
-			error);
-		return error;
-	}
-
- 	return 0;
-}
-
  static int ns2009_ts_probe(struct i2c_client *client,
 			   const struct i2c_device_id *id)
 {
 	struct ns2009_data *data;
 	struct device *dev = &client->dev;
+	struct input_dev *idev;
 	int error;
 
  	if (!i2c_check_functionality(client->adapter,
@@ -189,10 +160,25 @@
  	i2c_set_clientdata(client, data);
 	data->client = client;
 
- 	error = ns2009_ts_request_polled_input_dev(data);
+ 	idev = devm_input_allocate_device(dev);
+	if (!idev)
+		return -ENOMEM;
+
+	input_set_drvdata(idev, data);
+	data->input = idev;
+
+	ns2009_ts_config_input_dev(data);
+
+	error = input_setup_polling(idev, ns2009_ts_poll);
 	if (error)
 		return error;
+	input_set_poll_interval(idev, POLL_INTERVAL);
+	input_set_min_poll_interval(idev, 0);
+	input_set_max_poll_interval(idev, 200);
 
+	error = input_register_device(idev);
+	if (error)
+		return error;
  	return 0;
 };
 
