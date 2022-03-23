@@ -16,7 +16,7 @@
 	};
 
 	chosen {
-		stdout-path = "serial2:1500000n8";
+		stdout-path = "serial2:115200n8";
 	};
 
 	gmac_clkin: external-gmac-clock {
@@ -357,12 +357,12 @@
 };
 
 &usb20_otg {
-	dr_mode = "host";
+	dr_mode = "otg";
 	status = "okay";
 };
 
 &usbdrd3 {
-	dr_mode = "host";
+	dr_mode = "otg";
 	status = "okay";
 };
 
