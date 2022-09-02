@@ -358,6 +358,7 @@
 
 &usb20_otg {
 	dr_mode = "otg";
+	extcon = <&u2phy>;
 	status = "okay";
 };
 
